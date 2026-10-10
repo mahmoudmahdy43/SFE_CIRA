@@ -33,15 +33,15 @@ export interface ParsedList {
   missing: string[]
 }
 
-type Sheet = XLSX.WorkSheet | Record<string, unknown>[][]
+export type Sheet = XLSX.WorkSheet | Record<string, unknown>[][]
 
-function cellAt(ws: Sheet, r: number, c: number): XLSX.CellObject | undefined {
+export function cellAt(ws: Sheet, r: number, c: number): XLSX.CellObject | undefined {
   // Dense worksheets are arrays of rows; sparse ones are keyed by A1 address.
   if (Array.isArray(ws)) return (ws as unknown as XLSX.CellObject[][])[r]?.[c]
   return (ws as XLSX.WorkSheet)[XLSX.utils.encode_cell({ r, c })]
 }
 
-function plain(cell: XLSX.CellObject | undefined): Cell {
+export function plain(cell: XLSX.CellObject | undefined): Cell {
   if (!cell || cell.v === undefined || cell.v === null) return null
   if (typeof cell.v === 'number') return cell.v
   if (typeof cell.v === 'boolean') return cell.v ? '1' : '0'

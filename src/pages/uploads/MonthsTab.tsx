@@ -9,6 +9,9 @@ import {
   CHANGE_LABEL, CHANGE_TYPES, fetchChangeCounts, fetchChangeDetails, fetchListMonths,
   type ChangeRow, type ChangeType, type ListMonth,
 } from '../../lib/api/lists'
+import { fetchVisitMonths, type VisitMonth } from '../../lib/api/visits'
+import { rpc } from '../../lib/api/core'
+import { addDaysIso, addMonthsIso } from '../../lib/norm'
 import { cn } from '../../lib/utils'
 
 const TONE: Record<ChangeType, 'success' | 'danger' | 'info' | 'warning'> = {
@@ -60,7 +63,70 @@ export default function MonthsTab({ selected, onSelect }: { selected: string | n
         </div>
       )}
       {selected && <ListChanges month={selected} />}
+      <VisitsBlock />
     </div>
+  )
+}
+
+/** Visits loaded per month (v_visits_months), with an informational note when a month is only partly covered. */
+function VisitsBlock() {
+  const [months, setMonths] = useState<VisitMonth[] | null>(null)
+  const [working, setWorking] = useState<Record<string, number>>({})
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setError(null)
+    try {
+      const vm = await fetchVisitMonths()
+      setMonths(vm)
+      // Working AM days per month from the database (single source of truth for the calendar rules).
+      const entries = await Promise.all(
+        vm.map(async (m) => {
+          const days = await rpc<{ day: string }[]>('working_days', { p_shift: 'AM', p_from: m.month, p_to: addDaysIso(addMonthsIso(m.month, 1), -1) })
+          return [m.month, days.length] as const
+        }),
+      )
+      setWorking(Object.fromEntries(entries))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load visits months')
+    }
+  }, [])
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  return (
+    <section aria-labelledby="visits-months">
+      <h2 id="visits-months" className="mb-3 text-base font-semibold">Visits</h2>
+      {error ? (
+        <Card><ErrorState message={error} onRetry={() => void load()} /></Card>
+      ) : !months ? (
+        <div className="grid gap-3 sm:grid-cols-3" aria-busy="true">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-32" />)}</div>
+      ) : months.length === 0 ? (
+        <Card><EmptyState icon={CalendarSearch} title="No visits loaded" description="Upload a Visits file to see months here." /></Card>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[...months].reverse().map((m) => {
+            const wd = working[m.month]
+            const partial = wd !== undefined && m.days < wd
+            return (
+              <Card key={m.month} className="p-4">
+                <div className="tnum text-base font-semibold">{m.month.slice(0, 7)}</div>
+                <dl className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+                  <div className="flex justify-between"><dt>Rows</dt><dd className="tnum text-foreground">{m.rows.toLocaleString()}</dd></div>
+                  <div className="flex justify-between"><dt>Unique visits</dt><dd className="tnum text-foreground">{m.unique_visits.toLocaleString()}</dd></div>
+                  <div className="flex justify-between"><dt>Reps</dt><dd className="tnum text-foreground">{m.reps.toLocaleString()}</dd></div>
+                  <div className="flex justify-between"><dt>Days covered</dt><dd className="tnum text-foreground">{m.days}{wd !== undefined ? ` of ${wd}` : ''}</dd></div>
+                  <div className="flex justify-between"><dt>First – last day</dt><dd className="tnum text-foreground">{m.first_day.slice(5)} – {m.last_day.slice(5)}</dd></div>
+                  <div className="flex justify-between"><dt>Unmatched</dt><dd className={cn('tnum text-foreground', m.unmatched > 0 && 'text-warning')}>{m.unmatched.toLocaleString()}</dd></div>
+                </dl>
+                {partial && <Badge tone="info" className="mt-3">Partial month — {m.days} of {wd} working days</Badge>}
+              </Card>
+            )
+          })}
+        </div>
+      )}
+    </section>
   )
 }
 

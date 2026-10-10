@@ -105,8 +105,8 @@ export default function AliasesTab({ org }: { org: OrgView }) {
   )
 }
 
-function AddAlias({ org, onClose, onDone }: { org: OrgView; onClose: () => void; onDone: () => void }) {
-  const [text, setText] = useState('')
+export function AddAlias({ org, onClose, onDone, initialText = '' }: { org: OrgView; onClose: () => void; onDone: () => void; initialText?: string }) {
+  const [text, setText] = useState(initialText)
   const [line, setLine] = useState<string | null>(null)
   const [terr, setTerr] = useState<string | null>(null)
   const options = org.territories

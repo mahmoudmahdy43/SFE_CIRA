@@ -3,11 +3,28 @@ import { addMonthsIso, monthStart, todayIso } from '../norm'
 
 const PAGE = 1000
 
+/** The few filter methods our callers use (a structural subset of the Postgrest builder, kept shallow for the compiler). */
+export interface FilterQuery {
+  eq: (column: string, value: unknown) => FilterQuery
+  gte: (column: string, value: unknown) => FilterQuery
+  lte: (column: string, value: unknown) => FilterQuery
+  is: (column: string, value: null | boolean) => FilterQuery
+  order: (column: string) => FilterQuery
+  range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null; count?: number | null }>
+}
+
 /** Read a whole table, paging past PostgREST's 1000-row cap. `orderBy` must give a stable order. */
-export async function fetchAll<T>(table: string, columns: string, orderBy: string[]): Promise<T[]> {
+export async function fetchAll<T>(
+  table: string,
+  columns: string,
+  orderBy: string[],
+  /** Optional filters (eq/gte/…); applied before ordering. */
+  filter?: (q: FilterQuery) => FilterQuery,
+): Promise<T[]> {
   const out: T[] = []
   for (let from = 0; ; from += PAGE) {
-    let q = supabase.from(table).select(columns)
+    const base = supabase.from(table).select(columns) as unknown as FilterQuery
+    let q = filter ? filter(base) : base
     for (const o of orderBy) q = q.order(o)
     const { data, error } = await q.range(from, from + PAGE - 1)
     if (error) throw new Error(error.message)

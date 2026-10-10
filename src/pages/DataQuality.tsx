@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Download, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader, EmptyState, ErrorState } from '../components/app/states'
+import { useMonth } from '../context/MonthContext'
+import { MissingDaysSection, NoTerritorySection, NonWorkSection, PairingSection, UnmatchedSection } from './dq/VisitsSections'
 import { Combobox } from '../components/ui/combobox'
 import { Button } from '../components/ui/button'
 import { Badge, Card, Skeleton } from '../components/ui/misc'
@@ -16,13 +18,32 @@ import { cn } from '../lib/utils'
 const PAGE = 25
 
 export default function DataQuality() {
+  const { month, setMonth } = useMonth()
+  const [params] = useSearchParams()
+  const qMonth = params.get('month')
+  const section = params.get('section')
+
+  // Deep links from the upload result: ?month=YYYY-MM-01&section=unmatched
+  useEffect(() => {
+    if (qMonth && /^d{4}-d{2}-01$/.test(qMonth) && qMonth !== month) setMonth(qMonth)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qMonth])
+  useEffect(() => {
+    if (!section) return
+    const t = setTimeout(() => document.getElementById(`dq-${section}`)?.scrollIntoView({ behavior: 'smooth' }), 400)
+    return () => clearTimeout(t)
+  }, [section])
+
   return (
     <div>
       <PageHeader title="Data Quality" description="Checks on loaded data. These are warnings for review — they never block an upload." />
+      <p className="-mt-3 mb-6 text-sm text-muted-foreground">Visit checks below are for <b className="tnum text-foreground">{month.slice(0, 7)}</b> — change the month with the picker in the top bar.</p>
+      <UnmatchedSection month={month} />
+      <NonWorkSection month={month} />
+      <PairingSection month={month} />
+      <NoTerritorySection month={month} />
+      <MissingDaysSection month={month} />
       <ActiveFromSection />
-      <Card className="mt-8">
-        <EmptyState icon={ShieldCheck} title="More checks coming" description="Unmatched visits, unmapped sales and missing days will appear here in later phases." className="py-10" />
-      </Card>
     </div>
   )
 }
@@ -84,7 +105,7 @@ function ActiveFromSection() {
 
   const pages = Math.max(1, Math.ceil(total / PAGE))
   return (
-    <section aria-labelledby="dq-af">
+    <section id="dq-activefrom" aria-labelledby="dq-af" className="scroll-mt-20">
       <h2 id="dq-af" className="text-base font-semibold">Target List — Active From</h2>
       <p className="mb-4 mt-1 text-sm text-muted-foreground">Active From is for review only — the month is determined by the snapshot.</p>
 

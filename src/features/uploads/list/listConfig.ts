@@ -1,6 +1,8 @@
 import { FileSpreadsheet } from 'lucide-react'
 import { normName } from '../../../lib/norm'
-import { rpc } from '../../../lib/api/core'
+import { fetchAll, rpc } from '../../../lib/api/core'
+import { fetchListMonths } from '../../../lib/api/lists'
+import ListResultPanel from './ListResultPanel'
 import { LoadFailure, type LoadOutcome, type LoadParams, type Preview, type ReferenceData, type RejectedRow, type UploadTypeConfig } from '../types'
 import { LIST_COLUMNS, chunkRows, excelRowOf, type ListRow } from './listParse'
 import type { ParsedList } from './listSheet'
@@ -49,6 +51,19 @@ function buildPreview(p: ParsedList, ref: ReferenceData): Preview {
       columns: ['Month', 'Line', 'Emp. Code', 'Account ID', 'Doctor Id', 'Doctor Name', 'Account Name', 'Class', 'Freq.'],
       rows: p.rows.slice(0, 20).map((r) => [r.month, r.line, r.emp_code, r.account_id, r.doctor_id, r.doctor_name, r.account_name, r.class, r.freq]),
     },
+  }
+}
+
+async function loadReference(): Promise<ReferenceData> {
+  const [reps, lines, months] = await Promise.all([
+    fetchAll<{ id: number; code: string }>('reps', 'id,code', ['id']),
+    fetchAll<{ id: number; name: string }>('lines', 'id,name', ['id']),
+    fetchListMonths(),
+  ])
+  return {
+    repCodes: new Set(reps.map((r) => r.code)),
+    lineNames: new Set(lines.map((l) => normName(l.name) ?? '')),
+    existingMonths: new Map(months.map((m) => [m.month, m.rows])),
   }
 }
 
@@ -121,6 +136,8 @@ export const listConfig: UploadTypeConfig<ListRow, ParsedList> = {
   templateFile: 'target_list_template.xlsx',
   requiredHeaders: LIST_COLUMNS.filter((c) => c.required).map((c) => c.label),
   createWorker: () => new Worker(new URL('./parse.worker.ts', import.meta.url), { type: 'module' }),
+  loadReference,
   buildPreview,
   load,
+  ResultPanel: ListResultPanel,
 }

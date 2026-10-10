@@ -5,15 +5,12 @@ import { toast } from 'sonner'
 import { Button } from '../../components/ui/button'
 import { Badge, Card, Progress } from '../../components/ui/misc'
 import { FormDialog } from '../../components/app/FormDialog'
-import { fetchAll, rpc } from '../../lib/api/core'
-import { Link } from 'react-router-dom'
-import { CHANGE_LABEL, CHANGE_TYPES, DQ_ISSUES, DQ_LABEL, fetchChangeCounts, fetchDqCounts, fetchListMonths, type ChangeType, type DqIssue } from '../../lib/api/lists'
+import { rpc } from '../../lib/api/core'
 import { downloadCsv } from '../../lib/csv'
-import { normName } from '../../lib/norm'
 import { cn } from '../../lib/utils'
 import { openParseSession, type ParseSession } from './workerClient'
 import {
-  LoadFailure, type LoadOutcome, type ParsedBase, type Preview, type ReferenceData, type UploadTypeConfig,
+  LoadFailure, type LoadOutcome, type ParsedBase, type Preview, type UploadTypeConfig,
 } from './types'
 
 type Stage = 'file' | 'sheet' | 'parsing' | 'preview' | 'decide' | 'loading' | 'result'
@@ -45,6 +42,7 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
   onExit: () => void
   onViewChanges: (month: string) => void
 }) {
+  const Panel = config.ResultPanel
   const [stage, setStage] = useState<Stage>('file')
   const [error, setError] = useState<string | null>(null)
   const [fileName, setFileName] = useState('')
@@ -55,7 +53,7 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
   const [preview, setPreview] = useState<Preview | null>(null)
   const [existing, setExisting] = useState<Map<string, number>>(new Map())
   const [choices, setChoices] = useState<Record<string, Choice>>({})
-  const [loadProg, setLoadProg] = useState<{ done: number; total: number; month: string } | null>(null)
+  const [loadProg, setLoadProg] = useState<{ done: number; total: number; month: string; phase?: string } | null>(null)
   const [outcome, setOutcome] = useState<LoadOutcome | null>(null)
   const [failure, setFailure] = useState<{ message: string; where: string; batch: number | null } | null>(null)
   const [undoBatch, setUndoBatch] = useState<number | null>(null)
@@ -91,16 +89,7 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
         setStage('file')
         return
       }
-      const [reps, lines, months] = await Promise.all([
-        fetchAll<{ id: number; code: string }>('reps', 'id,code', ['id']),
-        fetchAll<{ id: number; name: string }>('lines', 'id,name', ['id']),
-        fetchListMonths(),
-      ])
-      const ref: ReferenceData = {
-        repCodes: new Set(reps.map((r) => r.code)),
-        lineNames: new Set(lines.map((l) => normName(l.name) ?? '')),
-        existingMonths: new Map(months.map((m) => [m.month, m.rows])),
-      }
+      const ref = await config.loadReference(result)
       setParsed(result)
       setExisting(ref.existingMonths)
       setPreview(config.buildPreview(result, ref))
@@ -229,6 +218,11 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
       {/* 2 — preview */}
       {stage === 'preview' && preview && parsed && (
         <>
+          {preview.alerts && preview.alerts.length > 0 && (
+            <div role="alert" className="space-y-1 rounded-card border border-warning/50 bg-warning-soft px-4 py-3 text-sm text-warning">
+              {preview.alerts.map((a) => <p key={a} className="flex items-start gap-2 font-medium"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />{a}</p>)}
+            </div>
+          )}
           <Card className="p-5">
             <h2 className="mb-3 text-sm font-semibold">Preview — {fileName}</h2>
             <dl className="grid gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
@@ -258,6 +252,8 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
             </table>
           </Card>
 
+          {preview.extra}
+
           {preview.monthSamples && preview.monthSamples.length > 0 && (
             <Card className="p-5">
               <h3 className="mb-1 text-sm font-semibold">How the Month column was read</h3>
@@ -278,7 +274,7 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
               <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold"><AlertTriangle className="h-4 w-4 text-warning" aria-hidden /> Warnings</h3>
               <ul className="list-disc space-y-1 pl-5 text-sm">{preview.warnings.map((w) => <li key={w}>{w}</li>)}</ul>
               {preview.unknownReps.length > 0 && (
-                <p className="mt-3 text-sm"><b>Unknown rep codes:</b> {preview.unknownReps.slice(0, 30).map((u) => `${u.code} (${u.count.toLocaleString()})`).join(', ')}{preview.unknownReps.length > 30 ? ` … +${preview.unknownReps.length - 30} more` : ''}</p>
+                <p className="mt-3 text-sm"><b>{preview.unknownLabel ?? 'Unknown rep codes'}:</b> {preview.unknownReps.slice(0, 30).map((u) => `${u.code} (${u.count.toLocaleString()})`).join(', ')}{preview.unknownReps.length > 30 ? ` … +${preview.unknownReps.length - 30} more` : ''}</p>
               )}
               {preview.unknownLines.length > 0 && (
                 <p className="mt-2 text-sm"><b>Unknown lines:</b> {preview.unknownLines.map((u) => `${u.name} (${u.count.toLocaleString()})`).join(', ')}</p>
@@ -348,9 +344,9 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
             </div>
           ) : (
             <>
-              <div className="flex items-center gap-2 text-sm font-medium"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading{loadProg?.month ? ` ${monthLabel(loadProg.month)}` : ''}…</div>
+              <div className="flex items-center gap-2 text-sm font-medium"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> {loadProg?.phase ?? 'Loading'}{loadProg?.month ? ` ${monthLabel(loadProg.month)}` : ''}…</div>
               <div className="mt-3"><Progress label="Upload progress" value={loadProg && loadProg.total > 0 ? loadProg.done / loadProg.total : 0} /></div>
-              <p className="tnum mt-2 text-xs text-muted-foreground">{loadProg?.done.toLocaleString()} / {loadProg?.total.toLocaleString()} rows. Please keep this tab open. Finishing rebuilds org and KPIs for each month.</p>
+              <p className="tnum mt-2 text-xs text-muted-foreground">{loadProg?.done.toLocaleString()} / {loadProg?.total.toLocaleString()}. Please keep this tab open. Finishing rebuilds org and KPIs for each month.</p>
             </>
           )}
         </Card>
@@ -358,7 +354,7 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
 
       {/* 5 — result */}
       {stage === 'result' && outcome && (
-        <ResultStep outcome={outcome} onViewChanges={onViewChanges} onUndo={() => setUndoBatch(outcome.batch)} onAgain={reset} />
+        <ResultStep outcome={outcome} panel={<Panel outcome={outcome} onViewChanges={onViewChanges} />} onUndo={() => setUndoBatch(outcome.batch)} onAgain={reset} />
       )}
 
       {undoBatch !== null && (
@@ -403,7 +399,7 @@ function DecideStep({
                   <div role="radiogroup" aria-label={`Action for ${monthLabel(m.month)}`} className="flex gap-1 rounded-control bg-muted p-1">
                     {(['replace', 'skip'] as const).map((c) => (
                       <Button key={c} size="sm" role="radio" aria-checked={choices[m.month] === c} variant={choices[m.month] === c ? (c === 'replace' ? 'danger' : 'outline') : 'ghost'} onClick={() => setChoices({ ...choices, [m.month]: c })}>
-                        {c === 'replace' ? 'Replace' : 'Skip'}
+                        {c === 'replace' ? (m.range ? `Replace ${m.range}` : 'Replace') : 'Skip'}
                       </Button>
                     ))}
                   </div>
@@ -430,25 +426,7 @@ function DecideStep({
   )
 }
 
-function ResultStep({ outcome, onViewChanges, onUndo, onAgain }: { outcome: LoadOutcome; onViewChanges: (m: string) => void; onUndo: () => void; onAgain: () => void }) {
-  const [counts, setCounts] = useState<Record<string, Record<ChangeType, number> | 'error'>>({})
-  useEffect(() => {
-    let cancelled = false
-    for (const m of outcome.months) {
-      fetchChangeCounts(m)
-        .then((c) => !cancelled && setCounts((p) => ({ ...p, [m]: c })))
-        .catch(() => !cancelled && setCounts((p) => ({ ...p, [m]: 'error' })))
-    }
-    return () => { cancelled = true }
-  }, [outcome.months])
-
-  const [dq, setDq] = useState<Record<DqIssue, number> | null | 'error'>(null)
-  useEffect(() => {
-    let cancelled = false
-    fetchDqCounts(outcome.months).then((c) => !cancelled && setDq(c)).catch(() => !cancelled && setDq('error'))
-    return () => { cancelled = true }
-  }, [outcome.months])
-
+function ResultStep({ outcome, panel, onUndo, onAgain }: { outcome: LoadOutcome; panel: React.ReactNode; onUndo: () => void; onAgain: () => void }) {
   return (
     <>
       <Card className="p-5">
@@ -481,32 +459,7 @@ function ResultStep({ outcome, onViewChanges, onUndo, onAgain }: { outcome: Load
         </Card>
       )}
 
-      <Card className="p-5">
-        <h3 className="mb-3 text-sm font-semibold">List changes vs previous month</h3>
-        <ul className="divide-y">
-          {outcome.months.map((m) => {
-            const c = counts[m]
-            return (
-              <li key={m} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
-                <span className="tnum text-sm font-medium">{monthLabel(m)}</span>
-                <span className="flex flex-wrap items-center gap-2 text-sm">
-                  {!c ? <span className="text-muted-foreground">Loading…</span> : c === 'error' ? <span className="text-danger">Could not load changes</span> : CHANGE_TYPES.map((t) => <Badge key={t} tone={t === 'removed' ? 'danger' : t === 'added' ? 'success' : 'info'}>{CHANGE_LABEL[t]} <span className="tnum">{c[t].toLocaleString()}</span></Badge>)}
-                  <Button size="sm" variant="ghost" onClick={() => onViewChanges(m)}>View details</Button>
-                </span>
-              </li>
-            )
-          })}
-        </ul>
-      </Card>
-
-      <Card className="p-5">
-        <h3 className="mb-1 text-sm font-semibold">Active From checks (warnings)</h3>
-        <p className="mb-3 text-sm text-muted-foreground">Active From is for review only — the month is determined by the snapshot. These checks never block an upload.</p>
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          {!dq ? <span className="text-muted-foreground">Checking…</span> : dq === 'error' ? <span className="text-danger">Could not load the checks</span> : DQ_ISSUES.map((i) => <Badge key={i} tone={dq[i] > 0 ? 'warning' : 'success'}>{DQ_LABEL[i]} <span className="tnum">{dq[i].toLocaleString()}</span></Badge>)}
-          <Link to={`/data-quality?month=${outcome.months[0]}`} className="ml-2 text-sm font-medium text-accent-foreground underline underline-offset-2">Open Data Quality</Link>
-        </div>
-      </Card>
+      {panel}
 
       <div className="flex gap-2">
         <Button variant="primary" onClick={onAgain}>Upload another</Button>
