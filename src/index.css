@@ -1,7 +1,77 @@
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-slate-50 text-slate-800 antialiased;
+@layer base {
+  :root {
+    --background: 220 20% 97.5%;
+    --foreground: 224 25% 11%;
+    --card: 0 0% 100%;
+    --popover: 0 0% 100%;
+    --muted: 220 16% 94%;
+    --muted-foreground: 220 9% 40%;
+    --border: 220 14% 90%;
+    --ring: 238 80% 58%;
+    --accent: 238 100% 96%;
+    --accent-foreground: 238 70% 42%;
+    --primary: 238 75% 56%;
+    --primary-foreground: 0 0% 100%;
+    --success: 152 69% 25%; --success-soft: 150 60% 93%;
+    --warning: 32 90% 28%;  --warning-soft: 45 100% 92%;
+    --danger: 0 72% 40%;    --danger-soft: 0 86% 95%;
+    --info: 212 85% 38%;    --info-soft: 212 100% 94%;
+    /* categorical chart palette (colour-blind safe, Okabe-Ito based) */
+    --chart-1: #4f5bd5; --chart-2: #e69f00; --chart-3: #009e73;
+    --chart-4: #d55e00; --chart-5: #56b4e9; --chart-6: #cc79a7;
+    --seq-1: #eef0ff; --seq-2: #c3c8f7; --seq-3: #8f98ec; --seq-4: #5b64d6; --seq-5: #3a3fa8;
+    --div-neg: #d55e00; --div-mid: #f1f1f1; --div-pos: #1b7f9e;
+    --st-worked: #3aa57a; --st-leave: #e0a526; --st-ow: #5b8def; --st-activity: #a66bd6; --st-missing: #e5564e;
+    color-scheme: light;
+  }
+  [data-theme='dark'] {
+    --background: 224 24% 8%;
+    --foreground: 220 15% 93%;
+    --card: 224 22% 11.5%;
+    --popover: 224 22% 14.5%;
+    --muted: 224 18% 16%;
+    --muted-foreground: 220 10% 66%;
+    --border: 224 16% 20%;
+    --ring: 238 90% 70%;
+    --accent: 238 40% 20%;
+    --accent-foreground: 238 100% 84%;
+    --primary: 238 85% 66%;
+    --primary-foreground: 224 30% 8%;
+    --success: 152 55% 62%; --success-soft: 152 40% 15%;
+    --warning: 40 90% 65%;  --warning-soft: 38 50% 16%;
+    --danger: 0 90% 72%;    --danger-soft: 0 45% 17%;
+    --info: 212 95% 72%;    --info-soft: 212 50% 17%;
+    --chart-1: #8c96ff; --chart-2: #f2b84b; --chart-3: #3ecf9e;
+    --chart-4: #f08a4b; --chart-5: #6cc4f5; --chart-6: #e29bc2;
+    --seq-1: #232846; --seq-2: #33397a; --seq-3: #4a52b3; --seq-4: #7480e6; --seq-5: #a9b1ff;
+    --div-neg: #f08a4b; --div-mid: #2a2f3d; --div-pos: #4cb8d6;
+    --st-worked: #3ecf9e; --st-leave: #f2b84b; --st-ow: #7aa5ff; --st-activity: #c395ee; --st-missing: #f0716a;
+    color-scheme: dark;
+  }
+  * { @apply border-border; }
+  html { font-feature-settings: 'cv11', 'ss01'; }
+  body {
+    @apply bg-background font-sans text-sm text-foreground antialiased;
+  }
+  :focus-visible { @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background; }
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+}
+
+@layer utilities {
+  .tnum { font-feature-settings: 'tnum'; font-variant-numeric: tabular-nums; }
+}
+
+.skeleton { @apply relative overflow-hidden rounded-control bg-muted; }
+.skeleton::after {
+  content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, hsl(var(--foreground) / .06), transparent);
+  animation: shimmer 1.4s infinite;
 }

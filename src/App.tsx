@@ -1,48 +1,79 @@
+import { lazy, Suspense } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { Clock, LogOut, ShieldAlert } from 'lucide-react'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { MonthProvider } from './context/MonthContext'
 import { missingEnv } from './lib/supabase'
+import { ALL_NAV } from './lib/nav'
 import Layout from './components/Layout'
-import { CenterScreen, Spinner } from './components/Screen'
+import { Button } from './components/ui/button'
+import { Skeleton } from './components/ui/misc'
+import { EmptyState } from './components/app/states'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Placeholder from './pages/Placeholder'
+import Settings from './pages/Settings'
+
+const Design = lazy(() => import('./pages/Design'))
+
+function FullScreenCard({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center p-4">
+      <div className="w-full max-w-md rounded-card border bg-card shadow-sm">{children}</div>
+    </main>
+  )
+}
+
+function PageSkeleton() {
+  return (
+    <div className="space-y-4" aria-busy="true" aria-label="Loading">
+      <Skeleton className="h-7 w-48" />
+      <Skeleton className="h-4 w-72" />
+      <Skeleton className="h-40 w-full" />
+    </div>
+  )
+}
 
 function LogoutButton() {
   const { signOut } = useAuth()
   return (
-    <button
-      onClick={signOut}
-      className="mt-4 rounded-lg bg-accent-600 px-4 py-2 text-white hover:bg-accent-700"
-    >
-      Log out
-    </button>
+    <Button onClick={() => void signOut()}>
+      <LogOut className="h-4 w-4" aria-hidden /> Log out
+    </Button>
   )
 }
 
 function Guarded() {
   const { session, role, roleError, loading } = useAuth()
-  if (loading) return <Spinner />
+  if (loading)
+    return (
+      <div className="p-8">
+        <PageSkeleton />
+      </div>
+    )
   if (!session) return <Navigate to="/login" replace />
   if (!role) {
     return (
-      <CenterScreen>
-        <h1 className="text-xl font-bold text-slate-900">No role assigned</h1>
-        <p className="mt-2 text-slate-600">Your account has no role yet — contact the admin.</p>
-        {roleError && <p className="mt-2 text-sm text-red-600">{roleError}</p>}
-        <LogoutButton />
-      </CenterScreen>
+      <FullScreenCard>
+        <EmptyState
+          icon={ShieldAlert}
+          title="No role assigned"
+          description={`Your account has no role yet — contact the admin.${roleError ? ` (${roleError})` : ''}`}
+          action={<LogoutButton />}
+        />
+      </FullScreenCard>
     )
   }
   if (role !== 'admin') {
     return (
-      <CenterScreen>
-        <h1 className="text-xl font-bold text-slate-900">Portal coming soon</h1>
-        <p className="mt-2 text-slate-600">
-          The {role === 'dm' ? 'District Manager' : 'Rep'} portal is not available yet.
-        </p>
-        <LogoutButton />
-      </CenterScreen>
+      <FullScreenCard>
+        <EmptyState
+          icon={Clock}
+          title="Portal coming soon"
+          description={`The ${role === 'dm' ? 'District Manager' : 'Rep'} portal is not available yet.`}
+          action={<LogoutButton />}
+        />
+      </FullScreenCard>
     )
   }
   return (
@@ -52,27 +83,16 @@ function Guarded() {
   )
 }
 
-const PAGES = [
-  { path: '360', title: '360° View', description: 'Full profile of a rep, manager or box.' },
-  { path: 'uploads', title: 'Uploads', description: 'Load Excel exports and review upload history.' },
-  { path: 'personnel', title: 'Personnel', description: 'Hire, resign and transfer reps; assign managers.' },
-  { path: 'org', title: 'Org & Territories', description: 'Boxes, territories and aliases.' },
-  { path: 'targets', title: 'Targets', description: 'Call-rate targets per box per shift.' },
-  { path: 'calendar', title: 'Calendar', description: 'Holidays and working days per month.' },
-  { path: 'data-quality', title: 'Data Quality', description: 'Unmatched visits, unmapped sales and missing days.' },
-  { path: 'settings', title: 'Settings', description: 'Application settings.' },
-]
-
 export default function App() {
   if (missingEnv.length > 0) {
     return (
-      <CenterScreen>
-        <h1 className="text-xl font-bold text-red-700">Missing configuration</h1>
-        <p className="mt-2 text-slate-600">
-          The app was built without: <code>{missingEnv.join(', ')}</code>. Add them as GitHub
-          repository Variables (or in <code>.env.local</code>) and rebuild.
-        </p>
-      </CenterScreen>
+      <FullScreenCard>
+        <EmptyState
+          icon={ShieldAlert}
+          title="Missing configuration"
+          description={`The app was built without: ${missingEnv.join(', ')}. Add them as GitHub repository Variables (or in .env.local) and rebuild.`}
+        />
+      </FullScreenCard>
     )
   }
   return (
@@ -82,13 +102,18 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route element={<Guarded />}>
             <Route index element={<Dashboard />} />
-            {PAGES.map((p) => (
-              <Route
-                key={p.path}
-                path={p.path}
-                element={<Placeholder title={p.title} description={p.description} />}
-              />
+            {ALL_NAV.filter((n) => n.to !== '/' && n.to !== '/settings').map((n) => (
+              <Route key={n.to} path={n.to.slice(1)} element={<Placeholder item={n} />} />
             ))}
+            <Route path="settings" element={<Settings />} />
+            <Route
+              path="design"
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <Design />
+                </Suspense>
+              }
+            />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { CheckCircle2, XCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { Card } from '../components/Card'
+import { Badge, Card, Skeleton } from '../components/ui/misc'
+import { PageHeader, ErrorState } from '../components/app/states'
+import { StatGrid, KpiCard } from '../components/app/KpiCard'
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string }
 
@@ -34,57 +37,70 @@ async function load(): Promise<Status> {
   }
 }
 
-function Row({ label, result }: { label: string; result: Result<string | number> }) {
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between border-b border-slate-100 py-3 last:border-0">
-      <span className="text-slate-600">{label}</span>
-      {result.ok ? (
-        <span className="font-medium text-slate-900">{result.value}</span>
-      ) : (
-        <span className="text-sm text-red-600">Failed: {result.error}</span>
-      )}
+    <div className="flex items-center justify-between gap-4 border-b py-3 last:border-0">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="text-sm font-medium">{children}</span>
     </div>
   )
+}
+
+function CountValue({ r }: { r: Result<number> }) {
+  return r.ok ? <span className="tnum">{r.value.toLocaleString()}</span> : <span className="text-danger">Failed: {r.error}</span>
 }
 
 export default function Dashboard() {
   const { session, role } = useAuth()
   const [status, setStatus] = useState<Status | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    load().then((s) => {
-      if (!cancelled) setStatus(s)
-    })
-    return () => {
-      cancelled = true
-    }
+  const refresh = useCallback(() => {
+    setStatus(null)
+    setFailure(null)
+    load()
+      .then(setStatus)
+      .catch((e: unknown) => setFailure(e instanceof Error ? e.message : 'Unexpected error'))
   }, [])
 
+  useEffect(() => {
+    refresh()
+  }, [refresh])
+
   return (
-    <div className="mx-auto max-w-3xl">
-      <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-      <p className="mb-6 mt-1 text-slate-500">Company overview — KPIs arrive in a later phase.</p>
-      <Card title="System status">
-        {!status ? (
-          <div className="text-slate-400">Checking…</div>
+    <div>
+      <PageHeader title="Dashboard" description="Company overview — KPIs arrive in a later phase." />
+
+      <StatGrid>
+        <KpiCard label="Reps" loading={!status && !failure} value={status?.reps.ok ? status.reps.value.toLocaleString() : undefined} empty={!!status && !status.reps.ok} />
+        <KpiCard label="Boxes" loading={!status && !failure} value={status?.boxes.ok ? status.boxes.value.toLocaleString() : undefined} empty={!!status && !status.boxes.ok} />
+        <KpiCard label="Territories" loading={!status && !failure} value={status?.territories.ok ? status.territories.value.toLocaleString() : undefined} empty={!!status && !status.territories.ok} />
+      </StatGrid>
+
+      <Card className="mt-6 max-w-2xl p-5">
+        <h2 className="mb-1 text-sm font-semibold">System status</h2>
+        {failure ? (
+          <ErrorState message={failure} onRetry={refresh} />
+        ) : !status ? (
+          <div className="space-y-4 py-3" aria-busy="true">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-4/5" />
+            <Skeleton className="h-4 w-3/5" />
+          </div>
         ) : (
           <div>
-            <div className="flex items-center justify-between border-b border-slate-100 py-3">
-              <span className="text-slate-600">Supabase connection</span>
+            <Row label="Supabase connection">
               {status.ping.ok ? (
-                <span className="rounded-full bg-green-100 px-3 py-0.5 text-sm font-medium text-green-700">
-                  OK
-                </span>
+                <Badge tone="success"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> OK</Badge>
               ) : (
-                <span className="text-sm text-red-600">Failed: {status.ping.error}</span>
+                <Badge tone="danger"><XCircle className="h-3.5 w-3.5" aria-hidden /> Failed: {status.ping.error}</Badge>
               )}
-            </div>
-            <Row label="Logged in as" result={{ ok: true, value: session?.user.email ?? '—' }} />
-            <Row label="Role" result={{ ok: true, value: role ?? '—' }} />
-            <Row label="Reps" result={status.reps} />
-            <Row label="Boxes" result={status.boxes} />
-            <Row label="Territories" result={status.territories} />
+            </Row>
+            <Row label="Logged in as">{session?.user.email ?? '—'}</Row>
+            <Row label="Role"><Badge tone="accent" className="capitalize">{role ?? '—'}</Badge></Row>
+            <Row label="Reps"><CountValue r={status.reps} /></Row>
+            <Row label="Boxes"><CountValue r={status.boxes} /></Row>
+            <Row label="Territories"><CountValue r={status.territories} /></Row>
           </div>
         )}
       </Card>

@@ -1,20 +1,18 @@
-import { Card } from '../components/Card'
+import { Hourglass } from 'lucide-react'
+import { PageHeader, EmptyState } from '../components/app/states'
+import { Card } from '../components/ui/misc'
+import type { NavItem } from '../lib/nav'
 
-export default function Placeholder({
-  title,
-  description,
-}: {
-  title: string
-  description: string
-}) {
+export default function Placeholder({ item }: { item: NavItem }) {
   return (
-    <div className="mx-auto max-w-5xl">
-      <h1 className="text-2xl font-bold text-slate-900">{title}</h1>
-      <p className="mb-6 mt-1 text-slate-500">{description}</p>
+    <div>
+      <PageHeader title={item.label} description={item.description} />
       <Card>
-        <div className="py-10 text-center text-slate-400">
-          Nothing here yet — this page will be built in a later phase.
-        </div>
+        <EmptyState
+          icon={Hourglass}
+          title="Coming in a later phase"
+          description="This page is part of the roadmap and is not built yet."
+        />
       </Card>
     </div>
   )

@@ -6,7 +6,7 @@ UI language: English labels. The owner chats in Egyptian Arabic, but the app is 
 
 ## 1. Stack (fixed — do not change)
 - **Database/Auth:** Supabase (PostgreSQL + Auth + RLS). Project URL `https://rmgqlgirfrqwrcxgeamy.supabase.co`. Publishable (anon) key goes in `VITE_SUPABASE_ANON_KEY`.
-- **Frontend:** Vite + React + TypeScript, React Router (**HashRouter**, GitHub Pages), Tailwind CSS, `@supabase/supabase-js`, `xlsx` (SheetJS) for browser-side Excel parsing, a chart lib (Recharts).
+- **Frontend:** Vite + React + TypeScript, React Router (**HashRouter**, GitHub Pages), Tailwind CSS, `@supabase/supabase-js`, `xlsx` (SheetJS) for browser-side Excel parsing, a chart lib (Recharts). **Also allowed (design system, Phase 0.5):** shadcn/ui-style components on Radix primitives, `lucide-react`, `class-variance-authority`, `clsx` + `tailwind-merge`, `@tanstack/react-table`, `cmdk`, `sonner`, `@fontsource-variable/inter` + `@fontsource-variable/jetbrains-mono` (self-hosted, no external CDN), `date-fns`, Recharts.
 - **Hosting:** GitHub Pages (static) via GitHub Actions. Keep-alive: scheduled GitHub Action calling `rpc/ping`.
 - **No custom backend server.** All logic = browser + SQL functions/views.
 
@@ -60,6 +60,13 @@ Dashboard (company → line → manager → rep drill-down) · **360° Rep/Manag
 
 ## 7. UI guidelines
 Professional admin look: left sidebar, top bar with month picker (default = latest month with data), KPI cards, sortable/filterable tables with CSV export, charts, skeleton loaders, empty states, responsive. Light/dark optional. Every table query must filter by month and select only needed columns (performance): never fetch raw visits to compute KPIs in the browser.
+
+## 7b. Design system
+- Tokens live as CSS variables in `src/index.css` (light + dark; theme persisted in localStorage, default = system). Use semantic Tailwind colours (`bg-card`, `text-muted-foreground`, `text-success`...), never raw hex in components.
+- One accent (indigo). Radius 10px cards / 8px controls; 4px spacing grid; 1px low-contrast borders; shadows only on popovers/menus.
+- Numbers use tabular figures (`.tnum`). KPI status colour comes only from `kpiTone(value, target)` (>=100% green, 80-99% amber, <80% red).
+- Reusable components: `src/components/ui` (primitives) and `src/components/app` (PageHeader, KpiCard, DataTable, ChartCard, FilterBar, ...). Mock data appears only on `/design` and must carry a "Sample data" badge.
+- Everything keyboard-accessible with focus rings; respect `prefers-reduced-motion`.
 
 ## 8. Engineering rules
 - TypeScript strict. Small components. Data access in `src/lib/api/*.ts`. Supabase pagination: PostgREST returns max 1000 rows per request — page with `.range()` or use SQL views/RPC.
