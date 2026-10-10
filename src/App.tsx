@@ -13,6 +13,12 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Placeholder from './pages/Placeholder'
 import Settings from './pages/Settings'
+import Org from './pages/Org'
+import Personnel from './pages/Personnel'
+import Targets from './pages/Targets'
+import Calendar from './pages/Calendar'
+
+const BUILT = new Set(['/', '/settings', '/org', '/personnel', '/targets', '/calendar'])
 
 const Design = lazy(() => import('./pages/Design'))
 
@@ -102,10 +108,14 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route element={<Guarded />}>
             <Route index element={<Dashboard />} />
-            {ALL_NAV.filter((n) => n.to !== '/' && n.to !== '/settings').map((n) => (
+            {ALL_NAV.filter((n) => !BUILT.has(n.to)).map((n) => (
               <Route key={n.to} path={n.to.slice(1)} element={<Placeholder item={n} />} />
             ))}
             <Route path="settings" element={<Settings />} />
+            <Route path="org" element={<Org />} />
+            <Route path="personnel" element={<Personnel />} />
+            <Route path="targets" element={<Targets />} />
+            <Route path="calendar" element={<Calendar />} />
             <Route
               path="design"
               element={

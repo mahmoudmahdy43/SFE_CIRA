@@ -17,7 +17,9 @@ export function Combobox({
   placeholder,
   label,
   className,
+  allowAll = true,
 }: {
+  allowAll?: boolean
   options: Option[]
   value: string | null
   onChange: (v: string | null) => void
@@ -56,7 +58,7 @@ export function Combobox({
             <Command.Empty className="px-3 py-6 text-center text-sm text-muted-foreground">
               No results.
             </Command.Empty>
-            <Command.Item
+            {allowAll && <Command.Item
               value="All"
               onSelect={() => {
                 onChange(null)
@@ -66,7 +68,7 @@ export function Combobox({
             >
               <Check className={cn('h-3.5 w-3.5', value === null ? 'opacity-100' : 'opacity-0')} />
               All
-            </Command.Item>
+            </Command.Item>}
             {options.map((o) => (
               <Command.Item
                 key={o.value}

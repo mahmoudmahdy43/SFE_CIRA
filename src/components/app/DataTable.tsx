@@ -30,6 +30,8 @@ export interface DataTableProps<T extends object> {
   pageSize?: number
   emptyTitle?: string
   emptyDescription?: string
+  onRowClick?: (row: T) => void
+  toolbar?: React.ReactNode
 }
 
 export function DataTable<T extends object>({
@@ -43,6 +45,8 @@ export function DataTable<T extends object>({
   pageSize = 10,
   emptyTitle = 'No rows to show',
   emptyDescription = 'Nothing matches the current filters.',
+  onRowClick,
+  toolbar,
 }: DataTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [filter, setFilter] = useState('')
@@ -86,6 +90,7 @@ export function DataTable<T extends object>({
           <Input aria-label="Search table" placeholder="Search…" value={filter} onChange={(e) => setFilter(e.target.value)} className="pl-8" />
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {toolbar}
           <Popover>
             <PopoverTrigger asChild>
               <Button size="sm" aria-label="Choose columns">
@@ -163,7 +168,13 @@ export function DataTable<T extends object>({
                     </tr>
                   ))
                 : rows.map((row) => (
-                    <tr key={row.id} className="group">
+                    <tr
+                      key={row.id}
+                      className={cn("group", onRowClick && "cursor-pointer")}
+                      tabIndex={onRowClick ? 0 : undefined}
+                      onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                      onKeyDown={onRowClick ? (e) => { if (e.key === "Enter" && e.target === e.currentTarget) onRowClick(row.original) } : undefined}
+                    >
                       {row.getVisibleCells().map((cell, i) => (
                         <td
                           key={cell.id}
