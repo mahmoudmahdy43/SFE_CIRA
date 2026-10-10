@@ -55,7 +55,7 @@ export const IGNORED_HEADERS = ['USERNAME', 'District', 'DM', 'Emp. Name', 'No o
 export function normHeader(h: unknown): string {
   return String(h ?? '')
     .toLowerCase()
-    .replace(/[\s._\-]+/g, '')
+    .replace(/[\s._-]+/g, '')
 }
 
 export function matchHeaders(headers: string[]): { index: Partial<Record<keyof ListRow, number>>; missing: string[] } {
