@@ -1,29 +1,37 @@
 import { useState } from 'react'
-import { Clock, Coffee, DollarSign, Plane, type LucideIcon } from 'lucide-react'
+import { DollarSign } from 'lucide-react'
 import { PageHeader } from '../components/app/states'
 import { Badge, Card } from '../components/ui/misc'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/overlay'
 import UploadWizard from '../features/uploads/UploadWizard'
 import { listConfig } from '../features/uploads/list/listConfig'
 import { visitsConfig } from '../features/uploads/visits/visitsConfig'
+import { activitiesConfig, leavesConfig, officeWorkConfig } from '../features/uploads/absence/absenceConfigs'
 import HistoryTab from './uploads/HistoryTab'
 import MonthsTab from './uploads/MonthsTab'
 
-const SOON: { label: string; description: string; icon: LucideIcon }[] = [
-  { label: 'Sales', description: 'Territory-level actual vs target units and value, rolled up through the org.', icon: DollarSign },
-  { label: 'Leaves', description: 'Approved leave ranges per person and shift.', icon: Plane },
-  { label: 'Office Work', description: 'Office-work days per person and shift.', icon: Coffee },
-  { label: 'Activities', description: 'Meetings and activities with time, per person and shift.', icon: Clock },
+type Key = 'list' | 'visits' | 'leaves' | 'office_work' | 'activities'
+
+const AVAILABLE: { key: Key; label: string; description: string; icon: typeof DollarSign }[] = [
+  { key: 'list', ...listConfig },
+  { key: 'visits', ...visitsConfig },
+  { key: 'leaves', ...leavesConfig },
+  { key: 'office_work', ...officeWorkConfig },
+  { key: 'activities', ...activitiesConfig },
 ]
+
+const SOON = [{ label: 'Sales', description: 'Territory-level actual vs target units and value, rolled up through the org.', icon: DollarSign }]
 
 export default function Uploads() {
   const [tab, setTab] = useState('upload')
-  const [wizard, setWizard] = useState<'list' | 'visits' | null>(null)
+  const [wizard, setWizard] = useState<Key | null>(null)
   const [month, setMonth] = useState<string | null>(null)
+  const exit = () => setWizard(null)
+  const noop = () => undefined
 
   return (
     <div>
-      <PageHeader title="Uploads" description="Load Excel exports, review upload history and see month-to-month list changes." />
+      <PageHeader title="Uploads" description="Load Excel exports, review upload history and see what is loaded per month." />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="upload">Upload</TabsTrigger>
@@ -33,17 +41,19 @@ export default function Uploads() {
         <div className="mt-4">
           <TabsContent value="upload">
             {wizard === 'list' ? (
-              <UploadWizard
-                config={listConfig}
-                onExit={() => setWizard(null)}
-                onViewChanges={(m) => { setMonth(m); setTab('months') }}
-              />
+              <UploadWizard config={listConfig} onExit={exit} onViewChanges={(m) => { setMonth(m); setTab('months') }} />
             ) : wizard === 'visits' ? (
-              <UploadWizard config={visitsConfig} onExit={() => setWizard(null)} onViewChanges={() => undefined} />
+              <UploadWizard config={visitsConfig} onExit={exit} onViewChanges={noop} />
+            ) : wizard === 'leaves' ? (
+              <UploadWizard config={leavesConfig} onExit={exit} onViewChanges={noop} />
+            ) : wizard === 'office_work' ? (
+              <UploadWizard config={officeWorkConfig} onExit={exit} onViewChanges={noop} />
+            ) : wizard === 'activities' ? (
+              <UploadWizard config={activitiesConfig} onExit={exit} onViewChanges={noop} />
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {[{ key: 'list' as const, c: listConfig }, { key: 'visits' as const, c: visitsConfig }].map(({ key, c }) => (
-                  <button key={key} onClick={() => setWizard(key)} className="rounded-card border bg-card p-5 text-left transition-colors hover:bg-muted">
+                {AVAILABLE.map((c) => (
+                  <button key={c.key} onClick={() => setWizard(c.key)} className="rounded-card border bg-card p-5 text-left transition-colors hover:bg-muted">
                     <div className="flex items-center justify-between">
                       <span className="flex h-9 w-9 items-center justify-center rounded-control bg-accent text-accent-foreground"><c.icon className="h-4 w-4" aria-hidden /></span>
                       <Badge tone="success">Available</Badge>

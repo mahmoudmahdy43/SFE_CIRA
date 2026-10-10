@@ -4,7 +4,8 @@ import { ChevronLeft, ChevronRight, Download, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader, EmptyState, ErrorState } from '../components/app/states'
 import { useMonth } from '../context/MonthContext'
-import { MissingDaysSection, NoTerritorySection, NonWorkSection, PairingSection, UnmatchedSection } from './dq/VisitsSections'
+import { NoTerritorySection, NonWorkSection, PairingSection, UnmatchedSection } from './dq/VisitsSections'
+import { MissingDaysSection, NoBoxSection } from './dq/AbsenceSections'
 import { Combobox } from '../components/ui/combobox'
 import { Button } from '../components/ui/button'
 import { Badge, Card, Skeleton } from '../components/ui/misc'
@@ -43,6 +44,7 @@ export default function DataQuality() {
       <PairingSection month={month} />
       <NoTerritorySection month={month} />
       <MissingDaysSection month={month} />
+      <NoBoxSection month={month} />
       <ActiveFromSection />
     </div>
   )

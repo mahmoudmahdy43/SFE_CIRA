@@ -9,11 +9,10 @@ import { Button } from '../../components/ui/button'
 import { Combobox } from '../../components/ui/combobox'
 import { Badge, Card, Input, Skeleton } from '../../components/ui/misc'
 import { Dialog, DialogContent } from '../../components/ui/overlay'
-import { fetchAll } from '../../lib/api/core'
 import {
-  fetchMissing, fetchNoTerritory, fetchNonWorkAll, fetchNonWorkPage, fetchOrgForMonth, fetchPairingAll,
+  fetchNoTerritory, fetchNonWorkAll, fetchNonWorkPage, fetchPairingAll,
   fetchPairingPage, fetchUnmatchedAll, fetchUnmatchedCounts, fetchUnmatchedPage, rematchMonth,
-  type GenericRow, type MatchStatus, type MissingRow, type NoTerritoryGroup, type NonWorkRow, type OrgRepInfo, type UnmatchedRow,
+  type GenericRow, type MatchStatus, type NoTerritoryGroup, type NonWorkRow, type UnmatchedRow,
 } from '../../lib/api/dqVisits'
 import type { ProcessResult } from '../../lib/api/visits'
 import { useOrg } from '../../lib/api/org'
@@ -222,113 +221,4 @@ function AliasDialog({ initialText, onClose }: { initialText: string; onClose: (
     )
   }
   return <AddAlias org={org} initialText={initialText} onClose={onClose} onDone={() => toast.info('Alias saved — re-match the month to apply it.')} />
-}
-
-/* ================================== Missing days ================================== */
-interface MissingSummary { rep_id: number; code: string; name: string; line: string; manager: string; am: number; pm: number; total: number }
-
-export function MissingDaysSection({ month }: { month: string }) {
-  const [rows, setRows] = useState<MissingRow[] | null>(null)
-  const [orgInfo, setOrgInfo] = useState<Map<number, OrgRepInfo> | null>(null)
-  const [lines, setLines] = useState<Map<number, string>>(new Map())
-  const [managers, setManagers] = useState<Map<number, string>>(new Map())
-  const [error, setError] = useState<string | null>(null)
-  const [line, setLine] = useState<string | null>(null)
-  const [mgr, setMgr] = useState<string | null>(null)
-  const [detail, setDetail] = useState<number | null>(null)
-
-  const load = useCallback(async () => {
-    setError(null)
-    setRows(null)
-    try {
-      const [m, o, l, mg] = await Promise.all([
-        fetchMissing(month),
-        fetchOrgForMonth(month),
-        fetchAll<{ id: number; name: string }>('lines', 'id,name', ['id']),
-        fetchAll<{ id: number; name: string }>('managers', 'id,name', ['id']),
-      ])
-      setRows(m)
-      setOrgInfo(o)
-      setLines(new Map(l.map((x) => [x.id, x.name])))
-      setManagers(new Map(mg.map((x) => [x.id, x.name])))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load')
-    }
-  }, [month])
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  const summary = useMemo<MissingSummary[]>(() => {
-    const map = new Map<number, MissingSummary>()
-    for (const r of rows ?? []) {
-      const info = orgInfo?.get(r.rep_id)
-      const s = map.get(r.rep_id) ?? {
-        rep_id: r.rep_id, code: r.code, name: r.name,
-        line: info?.line_id ? lines.get(info.line_id) ?? '—' : '—',
-        manager: info?.manager_id ? managers.get(info.manager_id) ?? '—' : 'Vacant',
-        am: 0, pm: 0, total: 0,
-      }
-      if (r.shift === 'AM') s.am++
-      else s.pm++
-      s.total++
-      map.set(r.rep_id, s)
-    }
-    return [...map.values()]
-      .filter((s) => (line ? orgInfo?.get(s.rep_id)?.line_id === Number(line) : true))
-      .filter((s) => (mgr ? (mgr === 'vacant' ? !orgInfo?.get(s.rep_id)?.manager_id : orgInfo?.get(s.rep_id)?.manager_id === Number(mgr)) : true))
-      .sort((a, b) => b.total - a.total)
-  }, [rows, orgInfo, lines, managers, line, mgr])
-
-  const columns = useMemo<ColumnDef<MissingSummary, unknown>[]>(
-    () => [
-      { accessorKey: 'name', header: 'Rep', enableHiding: false },
-      { accessorKey: 'code', header: 'Code' },
-      { accessorKey: 'line', header: 'Line' },
-      { accessorKey: 'manager', header: 'Manager' },
-      { accessorKey: 'am', header: 'Missing AM' },
-      { accessorKey: 'pm', header: 'Missing PM' },
-      { accessorKey: 'total', header: 'Total' },
-    ],
-    [],
-  )
-  const days = detail === null ? [] : (rows ?? []).filter((r) => r.rep_id === detail)
-  const detailRep = summary.find((s) => s.rep_id === detail)
-
-  return (
-    <Section id="missing" title="Missing days" description="Working slots with no visits, leave, office work or activity. Click a rep to see the days.">
-      {error ? <ErrorState message={error} onRetry={() => void load()} /> : (
-        <DataTable
-          data={summary}
-          columns={columns}
-          numericColumns={['am', 'pm', 'total']}
-          loading={!rows}
-          csvName={`missing-days-${month.slice(0, 7)}`}
-          pageSize={15}
-          onRowClick={(r) => setDetail(r.rep_id)}
-          emptyTitle="No missing days"
-          emptyDescription="Every working slot of this month is accounted for."
-          toolbar={
-            <>
-              <Combobox label="Line" placeholder="All lines" className="h-8" options={[...lines].map(([id, n]) => ({ value: String(id), label: n }))} value={line} onChange={setLine} />
-              <Combobox label="Manager" placeholder="All managers" className="h-8" options={[{ value: 'vacant', label: 'Vacant manager' }, ...[...managers].map(([id, n]) => ({ value: String(id), label: n }))]} value={mgr} onChange={setMgr} />
-            </>
-          }
-        />
-      )}
-      <Dialog open={detail !== null} onOpenChange={(o) => !o && setDetail(null)}>
-        <DialogContent title={detailRep?.name ?? 'Missing days'} side="right">
-          <div className="h-full space-y-3 overflow-y-auto p-6">
-            <h3 className="text-lg font-semibold">{detailRep?.name}</h3>
-            <p className="text-sm text-muted-foreground">{days.length} missing slot(s) in {month.slice(0, 7)}</p>
-            <ul className="divide-y text-sm">
-              {days.map((d) => (
-                <li key={`${d.day}-${d.shift}`} className="flex justify-between py-2"><span className="tnum">{d.day}</span><Badge tone="danger">{d.shift}</Badge></li>
-              ))}
-            </ul>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </Section>
-  )
 }

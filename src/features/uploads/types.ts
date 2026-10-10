@@ -24,6 +24,8 @@ export interface ReferenceData {
   existingMonths: Map<string, number>
   /** months that have a Target List loaded. */
   listMonths?: Set<string>
+  /** months that have visits loaded. */
+  visitMonths?: Set<string>
 }
 
 export interface Preview {

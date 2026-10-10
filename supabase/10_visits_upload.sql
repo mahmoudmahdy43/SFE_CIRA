@@ -91,10 +91,11 @@ language sql stable set search_path = public as $$
                                        and p_day between mb.valid_from and coalesce(mb.valid_to,'infinity')))
 $$;
 
--- Matching + territory + Double key for ONE month of visits. Idempotent.
--- Doctor match: normalised doctor name + account name against `doctors`; among several candidates prefer the
--- one in that rep's list for the month. match_status: matched (in rep's list; manager rows: any known doctor)
--- | not_in_list (known doctor, not in rep's list: counts in total visits, valid = 0) | unmatched (unknown / ambiguous).
+-- Matching + territory + Double key for ONE month of visits. Idempotent (also the "Re-match" button).
+-- 1) rep rows: normalised doctor + account name; prefer the doctor in that rep's list for the month.
+--    matched (in rep's list) | not_in_list (known doctor outside the list) | unmatched (unknown / ambiguous).
+-- 2) manager rows of Double visits take the doctor of the paired rep row.
+-- 3) remaining manager rows: any known doctor with the same name + account.
 create or replace function process_visits_month(p_month date) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare v_end date := (p_month + interval '1 month')::date; r jsonb;
@@ -102,36 +103,55 @@ begin
   perform assert_admin();
   if not is_month_start(p_month) then raise exception 'month must be the first day of a month'; end if;
 
-  -- 1) doctors
   update visits set doctor_id = null, match_status = 'unmatched'
    where visit_date >= p_month and visit_date < v_end;
 
   with cand as (
-    select v.id, v.rep_id, d.id as doctor_id, (ls.doctor_id is not null) as in_list
+    select v.id, d.id as doctor_id, (ls.doctor_id is not null) as in_list
     from visits v
     join doctors d on d.name_norm = norm_name(v.doctor_raw) and d.account_norm is not distinct from norm_name(v.account_raw)
     left join list_snapshot ls on ls.month = p_month and ls.doctor_id = d.id and ls.rep_id = v.rep_id
-    where v.visit_date >= p_month and v.visit_date < v_end
+    where v.visit_date >= p_month and v.visit_date < v_end and v.rep_id is not null
   ),
   ranked as (
-    select id, rep_id, doctor_id, in_list,
+    select id, doctor_id, in_list,
            count(*) over (partition by id) as n_all,
            count(*) filter (where in_list) over (partition by id) as n_in,
            row_number() over (partition by id order by in_list desc, doctor_id) as rn
     from cand
   ),
   pick as (
-    select id, doctor_id, in_list, n_all, n_in, rep_id from ranked
+    select id, doctor_id, in_list from ranked
     where rn = 1 and (n_in = 1 or (n_in = 0 and n_all = 1))
   )
   update visits v
      set doctor_id = p.doctor_id,
-         match_status = case when v.rep_id is null then 'matched'
-                             when p.in_list then 'matched' else 'not_in_list' end
-    from pick p
-   where v.id = p.id;
+         match_status = case when p.in_list then 'matched' else 'not_in_list' end
+    from pick p where v.id = p.id;
 
-  -- 2) territory (by the owner's lines, via name or alias)
+  update visits m
+     set doctor_id = x.doctor_id, match_status = 'matched'
+    from (select distinct on (m2.id) m2.id, r.doctor_id
+            from visits m2
+            join visits r on r.rep_id is not null and r.doctor_id is not null
+                         and r.visit_type = 'D' and r.visit_date = m2.visit_date and r.shift = m2.shift
+                         and norm_name(r.doctor_raw) = norm_name(m2.doctor_raw)
+                         and norm_name(r.account_raw) is not distinct from norm_name(m2.account_raw)
+           where m2.manager_id is not null and m2.visit_type = 'D'
+             and m2.visit_date >= p_month and m2.visit_date < v_end
+           order by m2.id, r.id) x
+   where m.id = x.id;
+
+  update visits m
+     set doctor_id = x.doctor_id, match_status = 'matched'
+    from (select distinct on (v.id) v.id, d.id as doctor_id
+            from visits v
+            join doctors d on d.name_norm = norm_name(v.doctor_raw) and d.account_norm is not distinct from norm_name(v.account_raw)
+           where v.manager_id is not null and v.doctor_id is null
+             and v.visit_date >= p_month and v.visit_date < v_end
+           order by v.id, d.id) x
+   where m.id = x.id;
+
   update visits v set territory_id = (
       select t.id from territories t
        where t.line_id = any (person_lines(v.rep_id, v.manager_id, v.visit_date))
@@ -141,23 +161,20 @@ begin
        limit 1)
    where v.visit_date >= p_month and v.visit_date < v_end;
 
-  -- 3) visit_key: Double rows (rep + manager) share one key; every Single row is its own visit
   update visits set visit_key = case
         when visit_type = 'D' then 'D|' || visit_date || '|' || shift || '|' || coalesce(norm_name(doctor_raw),'') || '|' || coalesce(norm_name(account_raw),'')
         else 'S|' || id end
    where visit_date >= p_month and visit_date < v_end;
 
   select jsonb_build_object(
-     'rows',            count(*),
-     'unique_visits',   count(distinct visit_key),
-     'matched',         count(*) filter (where match_status = 'matched'),
-     'not_in_list',     count(*) filter (where match_status = 'not_in_list'),
-     'unmatched',       count(*) filter (where match_status = 'unmatched'),
-     'no_territory',    count(*) filter (where territory_id is null),
-     'rep_rows',        count(*) filter (where rep_id is not null),
-     'manager_rows',    count(*) filter (where manager_id is not null))
-    into r
-    from visits where visit_date >= p_month and visit_date < v_end;
+     'rows', count(*), 'unique_visits', count(distinct visit_key),
+     'matched', count(*) filter (where match_status = 'matched'),
+     'not_in_list', count(*) filter (where match_status = 'not_in_list'),
+     'unmatched', count(*) filter (where match_status = 'unmatched'),
+     'no_territory', count(*) filter (where territory_id is null),
+     'rep_rows', count(*) filter (where rep_id is not null),
+     'manager_rows', count(*) filter (where manager_id is not null))
+    into r from visits where visit_date >= p_month and visit_date < v_end;
   return r;
 end $$;
 

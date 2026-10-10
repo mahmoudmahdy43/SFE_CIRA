@@ -11,6 +11,8 @@ import {
 } from '../../lib/api/lists'
 import { fetchVisitMonths, type VisitMonth } from '../../lib/api/visits'
 import { rpc } from '../../lib/api/core'
+import { ABSENCE_VIEW, fetchAbsenceMonths, type AbsenceMonth } from '../../lib/api/absence'
+import type { AbsenceKind } from '../../features/uploads/absence/absenceParse'
 import { addDaysIso, addMonthsIso } from '../../lib/norm'
 import { cn } from '../../lib/utils'
 
@@ -64,6 +66,7 @@ export default function MonthsTab({ selected, onSelect }: { selected: string | n
       )}
       {selected && <ListChanges month={selected} />}
       <VisitsBlock />
+      {(['leaves', 'office_work', 'activities'] as const).map((k) => <AbsenceBlock key={k} kind={k} />)}
     </div>
   )
 }
@@ -218,6 +221,70 @@ function ListChanges({ month }: { month: string }) {
             </>
           }
         />
+      )}
+    </section>
+  )
+}
+
+/** Leaves / Office Work / Activities loaded per month (v_*_months). */
+function AbsenceBlock({ kind }: { kind: AbsenceKind }) {
+  const [months, setMonths] = useState<AbsenceMonth[] | null>(null)
+  const [working, setWorking] = useState<Record<string, number>>({})
+  const [error, setError] = useState<string | null>(null)
+  const label = ABSENCE_VIEW[kind].label
+
+  const load = useCallback(async () => {
+    setError(null)
+    try {
+      const rows = await fetchAbsenceMonths(kind)
+      setMonths(rows)
+      if (kind !== 'leaves') {
+        const entries = await Promise.all(
+          rows.map(async (m) => {
+            const days = await rpc<{ day: string }[]>('working_days', { p_shift: 'AM', p_from: m.month, p_to: addDaysIso(addMonthsIso(m.month, 1), -1) })
+            return [m.month, days.length] as const
+          }),
+        )
+        setWorking(Object.fromEntries(entries))
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `Failed to load ${label}`)
+    }
+  }, [kind, label])
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  return (
+    <section aria-labelledby={`abs-${kind}`}>
+      <h2 id={`abs-${kind}`} className="mb-3 text-base font-semibold">{label}</h2>
+      {error ? (
+        <Card><ErrorState message={error} onRetry={() => void load()} /></Card>
+      ) : !months ? (
+        <div className="grid gap-3 sm:grid-cols-3" aria-busy="true">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-28" />)}</div>
+      ) : months.length === 0 ? (
+        <Card><EmptyState icon={CalendarSearch} title={`No ${label.toLowerCase()} loaded`} description="Upload the file to see months here." className="py-8" /></Card>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[...months].reverse().map((m) => {
+            const wd = working[m.month]
+            const partial = m.days !== undefined && wd !== undefined && m.days < wd
+            return (
+              <Card key={m.month} className="p-4">
+                <div className="tnum text-base font-semibold">{m.month.slice(0, 7)}</div>
+                <dl className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+                  <div className="flex justify-between"><dt>Rows</dt><dd className="tnum text-foreground">{m.rows.toLocaleString()}</dd></div>
+                  {m.approved !== undefined && <div className="flex justify-between"><dt>Approved</dt><dd className="tnum text-foreground">{m.approved.toLocaleString()}</dd></div>}
+                  {m.not_approved !== undefined && <div className="flex justify-between"><dt>Not approved</dt><dd className={cn('tnum text-foreground', m.not_approved > 0 && 'text-warning')}>{m.not_approved.toLocaleString()}</dd></div>}
+                  <div className="flex justify-between"><dt>Reps</dt><dd className="tnum text-foreground">{m.reps.toLocaleString()}</dd></div>
+                  {m.days !== undefined && <div className="flex justify-between"><dt>Days</dt><dd className="tnum text-foreground">{m.days}{wd !== undefined ? ` of ${wd}` : ''}</dd></div>}
+                  <div className="flex justify-between"><dt>First – last day</dt><dd className="tnum text-foreground">{m.first_day.slice(5)} – {m.last_day.slice(5)}</dd></div>
+                </dl>
+                {partial && <Badge tone="info" className="mt-3">Partial month — {m.days} of {wd} working days</Badge>}
+              </Card>
+            )
+          })}
+        </div>
       )}
     </section>
   )
