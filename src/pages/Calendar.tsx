@@ -8,14 +8,16 @@ import { ChartCard } from '../components/app/ChartCard'
 import { KpiCard, StatGrid } from '../components/app/KpiCard'
 import { DateField, Field, FormDialog } from '../components/app/FormDialog'
 import { Button } from '../components/ui/button'
-import { Input, Skeleton } from '../components/ui/misc'
+import { Badge, Input, Skeleton } from '../components/ui/misc'
 import { useMonth } from '../context/MonthContext'
 import { fetchAll, refreshMonths, rpc } from '../lib/api/core'
 import { addDaysIso, addMonthsIso, daysInMonth } from '../lib/norm'
 import { supabase } from '../lib/supabase'
 import { cn } from '../lib/utils'
 
-interface Holiday { day: string; name: string }
+type HolidayShift = 'FULL' | 'AM' | 'PM'
+interface Holiday { day: string; shift: HolidayShift; name: string }
+const SHIFT_LABEL: Record<HolidayShift, string> = { FULL: 'Full day', AM: 'AM only', PM: 'PM only' }
 type Kind = 'working' | 'weekly' | 'holiday'
 
 // Weekday of an ISO date, 0 = Saturday … 6 = Friday (Egypt week). Only used for laying out the grid.
@@ -49,7 +51,7 @@ export default function Calendar() {
       const to = addDaysIso(addMonthsIso(month, 1), -1)
       // The database is the source of truth for working days (weekly rules + holidays).
       const [h, a, p] = await Promise.all([
-        fetchAll<Holiday>('holidays', 'day,name', ['day']),
+        fetchAll<Holiday>('holidays', 'day,shift,name', ['day', 'shift']),
         rpc<{ day: string }[]>('working_days', { p_shift: 'AM', p_from: from, p_to: to }),
         rpc<{ day: string }[]>('working_days', { p_shift: 'PM', p_from: from, p_to: to }),
       ])
@@ -66,12 +68,14 @@ export default function Calendar() {
     void load()
   }, [load])
 
-  const holidaySet = useMemo(() => new Set(holidays.map((h) => h.day)), [holidays])
+  // A day is a holiday for a shift when there is a FULL row or a row for that exact shift.
+  const holidayKeys = useMemo(() => new Set(holidays.map((h) => `${h.day}|${h.shift}`)), [holidays])
   const kindOf = useCallback(
-    (set: Set<string>, day: string): Kind => (set.has(day) ? 'working' : holidaySet.has(day) ? 'holiday' : 'weekly'),
-    [holidaySet],
+    (set: Set<string>, day: string, shift: 'AM' | 'PM'): Kind =>
+      set.has(day) ? 'working' : holidayKeys.has(`${day}|FULL`) || holidayKeys.has(`${day}|${shift}`) ? 'holiday' : 'weekly',
+    [holidayKeys],
   )
-  const monthHolidays = holidays.filter((h) => h.day.slice(0, 7) === month.slice(0, 7))
+  const monthHolidays = new Set(holidays.filter((h) => h.day.slice(0, 7) === month.slice(0, 7)).map((h) => h.day))
 
   /** Refresh every affected month after a holiday change. */
   const afterChange = async (days: string[]) => {
@@ -90,6 +94,11 @@ export default function Calendar() {
   const cols = useMemo<ColumnDef<Holiday, unknown>[]>(
     () => [
       { accessorKey: 'day', header: 'Date', enableHiding: false },
+      {
+        accessorKey: 'shift',
+        header: 'Shift',
+        cell: (c) => <Badge tone={c.row.original.shift === 'FULL' ? 'warning' : 'info'}>{SHIFT_LABEL[c.row.original.shift]}</Badge>,
+      },
       { accessorKey: 'name', header: 'Name' },
       {
         id: 'actions', header: '', enableSorting: false, enableHiding: false,
@@ -120,7 +129,7 @@ export default function Calendar() {
           <StatGrid>
             <KpiCard label="AM working days" loading={!am} value={am ? String(am.size) : undefined} />
             <KpiCard label="PM working days" loading={!pm} value={pm ? String(pm.size) : undefined} />
-            <KpiCard label="Holidays this month" loading={!am} value={String(monthHolidays.length)} />
+            <KpiCard label="Holiday days this month" loading={!am} value={String(monthHolidays.size)} />
           </StatGrid>
 
           <ChartCard
@@ -145,7 +154,7 @@ export default function Calendar() {
                     <div key={day} role="gridcell" className="rounded-control border p-1.5">
                       <div className="tnum mb-1 text-xs font-semibold">{Number(day.slice(8))}</div>
                       {(['AM', 'PM'] as const).map((s) => {
-                        const k = kindOf(s === 'AM' ? am : pm, day)
+                        const k = kindOf(s === 'AM' ? am : pm, day, s)
                         return (
                           <div key={s} title={`${s}: ${KIND_LABEL[k]}`} className={cn('mb-0.5 flex items-center justify-between rounded px-1.5 py-0.5 text-[10px] font-medium last:mb-0', KIND_STYLE[k])}>
                             <span>{s}</span>
@@ -193,11 +202,11 @@ export default function Calendar() {
           onOpenChange={close}
           onDone={() => undefined}
           title={`Delete ${dlg.h.name}?`}
-          description={`${dlg.h.day} will become a normal working day again.`}
+          description={`${dlg.h.day} (${SHIFT_LABEL[dlg.h.shift]}) will become a normal working slot again.`}
           submitLabel="Delete"
           variant="danger"
           onSubmit={async () => {
-            const { error: err } = await supabase.from('holidays').delete().eq('day', dlg.h.day)
+            const { error: err } = await supabase.from('holidays').delete().eq('day', dlg.h.day).eq('shift', dlg.h.shift)
             if (err) throw new Error(err.message)
             void afterChange([dlg.h.day])
             return { message: 'Holiday deleted' }
@@ -214,6 +223,7 @@ function HolidayForm({ holiday, range, onClose, onSaved }: { holiday?: Holiday; 
   const [from, setFrom] = useState(holiday?.day ?? '')
   const [to, setTo] = useState('')
   const [name, setName] = useState(holiday?.name ?? '')
+  const [shift, setShift] = useState<HolidayShift>(holiday?.shift ?? 'FULL')
   const days = range && from && to && to >= from ? Array.from({ length: Math.min(60, (new Date(to).getTime() - new Date(from).getTime()) / 86400000 + 1) }, (_, i) => addDaysIso(from, i)) : from ? [from] : []
   return (
     <FormDialog
@@ -226,12 +236,12 @@ function HolidayForm({ holiday, range, onClose, onSaved }: { holiday?: Holiday; 
       disabled={!from || !name.trim() || (range === true && (!to || to < from))}
       onSubmit={async () => {
         if (holiday) {
-          const { error } = await supabase.from('holidays').update({ day: from, name: name.trim() }).eq('day', holiday.day)
-          if (error) throw new Error(error.message.includes('duplicate') ? 'A holiday already exists on that date.' : error.message)
+          const { error } = await supabase.from('holidays').update({ day: from, shift, name: name.trim() }).eq('day', holiday.day).eq('shift', holiday.shift)
+          if (error) throw new Error(error.message.includes('duplicate') ? `A ${SHIFT_LABEL[shift]} holiday already exists on that date.` : error.message)
           void onSaved([holiday.day, from])
         } else {
-          const { error } = await supabase.from('holidays').insert(days.map((d) => ({ day: d, name: name.trim() })))
-          if (error) throw new Error(error.message.includes('duplicate') ? 'One of these dates is already a holiday.' : error.message)
+          const { error } = await supabase.from('holidays').insert(days.map((d) => ({ day: d, shift, name: name.trim() })))
+          if (error) throw new Error(error.message.includes('duplicate') ? `One of these dates already has a ${SHIFT_LABEL[shift]} holiday.` : error.message)
           void onSaved(days)
         }
         return { message: holiday ? 'Holiday updated' : `${days.length} holiday day(s) added` }
@@ -239,6 +249,15 @@ function HolidayForm({ holiday, range, onClose, onSaved }: { holiday?: Holiday; 
     >
       <DateField id="hd-from" label={range ? 'From' : 'Date'} value={from} onChange={setFrom} />
       {range && <DateField id="hd-to" label="To (inclusive)" value={to} onChange={setTo} hint={days.length > 1 ? `${days.length} days` : undefined} />}
+      <Field label="Shift" hint="A day can have an AM-only row and a PM-only row; Full day covers both.">
+        <div role="radiogroup" aria-label="Holiday shift" className="flex gap-1 rounded-control bg-muted p-1">
+          {(['FULL', 'AM', 'PM'] as const).map((s) => (
+            <Button key={s} type="button" size="sm" role="radio" aria-checked={shift === s} variant={shift === s ? 'outline' : 'ghost'} className="flex-1" onClick={() => setShift(s)}>
+              {SHIFT_LABEL[s]}
+            </Button>
+          ))}
+        </div>
+      </Field>
       <Field label="Name" htmlFor="hd-name"><Input id="hd-name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Eid al-Fitr" /></Field>
     </FormDialog>
   )
