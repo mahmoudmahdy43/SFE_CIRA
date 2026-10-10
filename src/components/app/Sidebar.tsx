@@ -4,6 +4,7 @@ import { NAV_GROUPS } from '../../lib/nav'
 import { Tooltip } from '../ui/overlay'
 import { Button } from '../ui/button'
 import { UserMenu } from './UserMenu'
+import { BuildStamp } from './BuildStamp'
 import { cn } from '../../lib/utils'
 
 export function Brand({ collapsed }: { collapsed?: boolean }) {
@@ -87,6 +88,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
           {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           {!collapsed && 'Collapse'}
         </Button>
+        {!collapsed && <BuildStamp className="pt-1" />}
       </div>
     </aside>
   )

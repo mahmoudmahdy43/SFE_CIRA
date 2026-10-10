@@ -5,6 +5,7 @@ import { Brand, Sidebar, SidebarNav } from './app/Sidebar'
 import { Topbar } from './app/Topbar'
 import { UserMenu } from './app/UserMenu'
 import { CommandPalette } from './app/CommandPalette'
+import { BuildStamp, UpdateNotifier } from './app/BuildStamp'
 
 const KEY = 'sfe-sidebar-collapsed'
 
@@ -42,6 +43,7 @@ export default function Layout() {
             <SidebarNav onNavigate={() => setDrawerOpen(false)} />
             <div className="border-t p-2">
               <UserMenu />
+              <BuildStamp className="pt-1" />
             </div>
           </div>
         </DialogContent>
@@ -55,6 +57,7 @@ export default function Layout() {
         </main>
       </div>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <UpdateNotifier />
     </div>
   )
 }
