@@ -81,7 +81,7 @@ async function pagedChanges(month: string): Promise<ListChange[]> {
 }
 
 /** `in` filters are chunked: PostgREST puts them in the URL. */
-async function lookup<T extends { id: number }>(table: string, columns: string, ids: number[]): Promise<Map<number, T>> {
+export async function lookup<T extends { id: number }>(table: string, columns: string, ids: number[]): Promise<Map<number, T>> {
   const map = new Map<number, T>()
   const unique = [...new Set(ids)]
   for (let i = 0; i < unique.length; i += 150) {
@@ -107,4 +107,82 @@ export async function fetchChangeDetails(month: string): Promise<ChangeRow[]> {
     fromRep: repText(c.from_rep),
     toRep: repText(c.to_rep),
   }))
+}
+
+/* ---------- Data quality: Target List "Active From" (view v_dq_list_active_from) ---------- */
+export type DqIssue = 'active_from_after_month_end' | 'new_in_list_but_active_earlier' | 'active_from_missing'
+export const DQ_ISSUES: DqIssue[] = ['active_from_after_month_end', 'new_in_list_but_active_earlier', 'active_from_missing']
+export const DQ_LABEL: Record<DqIssue, string> = {
+  active_from_after_month_end: 'Active From after month end',
+  new_in_list_but_active_earlier: 'New in list but Active From earlier',
+  active_from_missing: 'Active From missing',
+}
+export const DQ_HINT: Record<DqIssue, string> = {
+  active_from_after_month_end: 'Active From is later than the last day of the snapshot month.',
+  new_in_list_but_active_earlier: "Doctor was not in last month's list, yet Active From is before this month.",
+  active_from_missing: 'The list row has no Active From date.',
+}
+
+interface DqRaw { month: string; doctor_id: number; rep_id: number; active_from: string | null; issue: DqIssue }
+export interface DqRow extends DqRaw { doctor: string; account: string; repCode: string; repName: string }
+
+function dqBase(months: string[] | null) {
+  const q = supabase.from('v_dq_list_active_from')
+  return { q, months }
+}
+
+/** Issue counts (head-only requests) for one month, several months, or all (null). */
+export async function fetchDqCounts(months: string[] | null): Promise<Record<DqIssue, number>> {
+  const out = { active_from_after_month_end: 0, new_in_list_but_active_earlier: 0, active_from_missing: 0 } as Record<DqIssue, number>
+  await Promise.all(
+    DQ_ISSUES.map(async (i) => {
+      let r = dqBase(months).q.select('*', { count: 'exact', head: true }).eq('issue', i)
+      if (months) r = r.in('month', months)
+      const { count, error } = await r
+      if (error) throw new Error(error.message)
+      out[i] = count ?? 0
+    }),
+  )
+  return out
+}
+
+async function resolveDq(rows: DqRaw[]): Promise<DqRow[]> {
+  const [docs, reps] = await Promise.all([
+    lookup<{ id: number; doctor_name: string; account_name: string | null }>('doctors', 'id,doctor_name,account_name', rows.map((r) => r.doctor_id)),
+    lookup<{ id: number; code: string; name: string }>('reps', 'id,code,name', rows.map((r) => r.rep_id)),
+  ])
+  return rows.map((r) => ({
+    ...r,
+    doctor: docs.get(r.doctor_id)?.doctor_name ?? `#${r.doctor_id}`,
+    account: docs.get(r.doctor_id)?.account_name ?? '—',
+    repCode: reps.get(r.rep_id)?.code ?? '—',
+    repName: reps.get(r.rep_id)?.name ?? `#${r.rep_id}`,
+  }))
+}
+
+function dqQuery(month: string | null, issue: DqIssue | null) {
+  let q = supabase.from('v_dq_list_active_from').select('month,doctor_id,rep_id,active_from,issue', { count: 'exact' })
+  if (month) q = q.eq('month', month)
+  if (issue) q = q.eq('issue', issue)
+  return q.order('month').order('doctor_id').order('issue')
+}
+
+/** One page, with doctor/rep names resolved only for the rows on the page. */
+export async function fetchDqPage(month: string | null, issue: DqIssue | null, page: number, size: number): Promise<{ rows: DqRow[]; total: number }> {
+  const { data, count, error } = await dqQuery(month, issue).range(page * size, page * size + size - 1)
+  if (error) throw new Error(error.message)
+  return { rows: await resolveDq((data ?? []) as DqRaw[]), total: count ?? 0 }
+}
+
+/** Every row for the filter (paged 1000 at a time), for CSV export. */
+export async function fetchDqAll(month: string | null, issue: DqIssue | null): Promise<DqRow[]> {
+  const raw: DqRaw[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await dqQuery(month, issue).range(from, from + 999)
+    if (error) throw new Error(error.message)
+    const rows = (data ?? []) as DqRaw[]
+    raw.push(...rows)
+    if (rows.length < 1000) break
+  }
+  return resolveDq(raw)
 }

@@ -26,6 +26,7 @@ function buildPreview(p: ParsedList, ref: ReferenceData): Preview {
   const warnings: string[] = []
   if (p.divisionDates > 0) warnings.push(`${p.divisionDates.toLocaleString()} Division value(s) looked like dates — original text kept as displayed.`)
   if (p.duplicates > 0) warnings.push(`${p.duplicates.toLocaleString()} duplicate row(s) (same Account ID + Doctor Id in the same month) — the last occurrence is used.`)
+  if (p.ambiguousMonths > 0) warnings.push(`${p.ambiguousMonths.toLocaleString()} Month value(s) such as 3/4/2026 could mean two different months — day-first was assumed. Check the raw values below.`)
   if (p.errors.length > 0) warnings.push(`${p.errors.length.toLocaleString()} row(s) have blank or invalid required values and will be excluded (listed below).`)
   if (unknownReps.size > 0) warnings.push(`${unknownReps.size} unknown rep code(s) — the database will reject those rows.`)
   if (unknownLines.size > 0) warnings.push(`${unknownLines.size} line name(s) not found in the system — the database will reject those rows.`)
@@ -40,6 +41,7 @@ function buildPreview(p: ParsedList, ref: ReferenceData): Preview {
       { label: 'Rows excluded (invalid)', value: p.errors.length },
     ],
     warnings,
+    monthSamples: p.monthSamples,
     months: [...monthCount].map(([month, rows]) => ({ month, rows })).sort((a, b) => a.month.localeCompare(b.month)),
     unknownReps: [...unknownReps].map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count),
     unknownLines: [...unknownLines].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),

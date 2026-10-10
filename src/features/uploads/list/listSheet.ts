@@ -1,10 +1,21 @@
 import * as XLSX from 'xlsx'
 import {
-  LIST_COLUMNS, matchHeaders, normId, normText, parseDate, parseFreq, parseMonth,
+  LIST_COLUMNS, isAmbiguousMonth, matchHeaders, normId, normText, parseDate, parseFreq, parseMonth,
   type Cell, type ListRow,
 } from './listParse'
 
 export interface RowError { excelRow: number; reason: string }
+
+export interface MonthSample {
+  excelRow: number
+  /** Raw cell value (cell.v) as stored in the file. */
+  raw: string
+  /** Cell type: number (Excel serial) or text. */
+  type: 'number' | 'text' | 'empty'
+  /** Text Excel displays for the cell (for comparison only; never used for parsing). */
+  shown: string
+  parsed: string | null
+}
 
 export interface ParsedList {
   rows: ListRow[]
@@ -14,6 +25,10 @@ export interface ParsedList {
   totalRows: number
   duplicates: number
   divisionDates: number
+  /** Month values like 3/4/2026 that could be read two ways (day-first was used). */
+  ambiguousMonths: number
+  /** Raw Month cell of the first data rows, so the owner can verify what was read. */
+  monthSamples: MonthSample[]
   headers: string[]
   missing: string[]
 }
@@ -60,7 +75,7 @@ export function parseListSheet(ws: Sheet, onProgress?: (done: number, total: num
   for (let c = colS; c <= colE; c++) headers.push(String(plain(cellAt(ws, rangeS, c)) ?? ''))
   const { index, missing } = matchHeaders(headers)
   const empty: ParsedList = {
-    rows: [], excelRows: [], errors: [], totalRows: 0, duplicates: 0, divisionDates: 0,
+    rows: [], excelRows: [], errors: [], totalRows: 0, duplicates: 0, divisionDates: 0, ambiguousMonths: 0, monthSamples: [],
     headers: headers.filter((h) => h.trim() !== ''), missing,
   }
   if (missing.length) return empty
@@ -77,6 +92,8 @@ export function parseListSheet(ws: Sheet, onProgress?: (done: number, total: num
   const seen = new Map<string, number>()
   let duplicates = 0
   let divisionDates = 0
+  let ambiguousMonths = 0
+  const monthSamples: MonthSample[] = []
   let totalRows = 0
   const total = rangeE - rangeS
 
@@ -90,7 +107,21 @@ export function parseListSheet(ws: Sheet, onProgress?: (done: number, total: num
     if (!any) continue
     totalRows++
 
-    const month = parseMonth(get(r, 'month'))
+    // The RAW cell value (cell.v) is parsed; the displayed text (cell.w) is only shown for comparison.
+    const rawMonth = get(r, 'month')
+    const month = parseMonth(rawMonth)
+    if (isAmbiguousMonth(rawMonth)) ambiguousMonths++
+    if (monthSamples.length < 3) {
+      const mc = col('month')
+      const mcell = mc === undefined ? undefined : cellAt(ws, r, mc)
+      monthSamples.push({
+        excelRow,
+        raw: rawMonth === null ? '' : String(rawMonth),
+        type: rawMonth === null ? 'empty' : typeof rawMonth === 'number' ? 'number' : 'text',
+        shown: mcell?.w ?? '',
+        parsed: month,
+      })
+    }
     const line = normText(get(r, 'line'))
     const empCode = normId(get(r, 'emp_code'))
     const accountId = normId(get(r, 'account_id'))
@@ -150,5 +181,5 @@ export function parseListSheet(ws: Sheet, onProgress?: (done: number, total: num
     if (onProgress && (r - rangeS) % 5000 === 0) onProgress(r - rangeS, total)
   }
   onProgress?.(total, total)
-  return { rows, excelRows, errors, totalRows, duplicates, divisionDates, headers: empty.headers, missing: [] }
+  return { rows, excelRows, errors, totalRows, duplicates, divisionDates, ambiguousMonths, monthSamples, headers: empty.headers, missing: [] }
 }

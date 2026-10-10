@@ -115,13 +115,44 @@ export function parseMonth(v: Cell): string | null {
     const mo = Number(m[1])
     return mo >= 1 && mo <= 12 ? `${m[2]}-${pad2(mo)}-01` : null
   }
-  m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/.exec(s) // dd/mm/yyyy
+  m = /^([a-zA-Z]{3,9})[\s/.,-]+(\d{2})$/.exec(s) // Oct-26 (mmm-yy as text)
   if (m) {
-    const mo = Number(m[2])
-    return mo >= 1 && mo <= 12 ? `${m[3]}-${pad2(mo)}-01` : null
+    const idx = MONTH_NAMES.indexOf(m[1].slice(0, 3).toLowerCase())
+    return idx >= 0 ? `20${m[2]}-${pad2(idx + 1)}-01` : null
   }
+  const slash = splitSlashDate(s)
+  if (slash) return slash.month
   if (/^\d+(\.\d+)?$/.test(s)) return parseMonth(Number(s))
   return null
+}
+
+/**
+ * 3-part dates such as 10/1/2026 or 1/10/2026. A month start has day 1, so when exactly one part is 1
+ * the other part is the month (both example strings mean October). Otherwise a part > 12 identifies the
+ * day; if nothing decides it the reading is day-first (company exports) and flagged ambiguous.
+ */
+function splitSlashDate(s: string): { month: string | null; ambiguous: boolean } | null {
+  const m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:[T\s].*)?$/.exec(s)
+  if (!m) return null
+  const a = Number(m[1])
+  const b = Number(m[2])
+  let mo: number
+  let ambiguous = false
+  if (a > 12) mo = b
+  else if (b > 12) mo = a
+  else if (a === b) mo = a
+  else if (a === 1) mo = b
+  else if (b === 1) mo = a
+  else {
+    mo = b
+    ambiguous = true
+  }
+  return { month: mo >= 1 && mo <= 12 ? `${m[3]}-${pad2(mo)}-01` : null, ambiguous }
+}
+
+/** True when a text month like 3/4/2026 could mean two different months (day-first reading was used). */
+export function isAmbiguousMonth(v: Cell): boolean {
+  return typeof v === 'string' && (splitSlashDate(v.trim())?.ambiguous ?? false)
 }
 
 /** Date cell -> 'YYYY-MM-DD' or null (empty / unparseable). */

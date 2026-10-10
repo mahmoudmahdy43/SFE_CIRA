@@ -6,7 +6,8 @@ import { Button } from '../../components/ui/button'
 import { Badge, Card, Progress } from '../../components/ui/misc'
 import { FormDialog } from '../../components/app/FormDialog'
 import { fetchAll, rpc } from '../../lib/api/core'
-import { CHANGE_LABEL, CHANGE_TYPES, fetchChangeCounts, fetchListMonths, type ChangeType } from '../../lib/api/lists'
+import { Link } from 'react-router-dom'
+import { CHANGE_LABEL, CHANGE_TYPES, DQ_ISSUES, DQ_LABEL, fetchChangeCounts, fetchDqCounts, fetchListMonths, type ChangeType, type DqIssue } from '../../lib/api/lists'
 import { downloadCsv } from '../../lib/csv'
 import { normName } from '../../lib/norm'
 import { cn } from '../../lib/utils'
@@ -257,6 +258,21 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
             </table>
           </Card>
 
+          {preview.monthSamples && preview.monthSamples.length > 0 && (
+            <Card className="p-5">
+              <h3 className="mb-1 text-sm font-semibold">How the Month column was read</h3>
+              <p className="mb-3 text-sm text-muted-foreground">Detected month(s): <b className="tnum">{preview.months.map((m) => monthLabel(m.month)).join(', ') || 'none'}</b>. Raw values of the first 3 rows:</p>
+              <table className="w-full text-sm">
+                <thead><tr className="border-b text-left text-xs text-muted-foreground"><th className="py-1.5 font-medium">Excel row</th><th className="py-1.5 font-medium">Raw value (cell.v)</th><th className="py-1.5 font-medium">Type</th><th className="py-1.5 font-medium">Excel shows</th><th className="py-1.5 font-medium">Read as</th></tr></thead>
+                <tbody>
+                  {preview.monthSamples.map((s) => (
+                    <tr key={s.excelRow} className="border-b last:border-0"><td className="tnum py-1.5">{s.excelRow}</td><td className="tnum py-1.5 font-mono">{s.raw || '—'}</td><td className="py-1.5">{s.type === 'number' ? 'number (Excel date serial)' : s.type}</td><td className="tnum py-1.5">{s.shown || '—'}</td><td className="tnum py-1.5 font-medium">{s.parsed ?? <span className="text-danger">not a valid month</span>}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
+
           {preview.warnings.length > 0 && (
             <Card className="p-5">
               <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold"><AlertTriangle className="h-4 w-4 text-warning" aria-hidden /> Warnings</h3>
@@ -426,6 +442,13 @@ function ResultStep({ outcome, onViewChanges, onUndo, onAgain }: { outcome: Load
     return () => { cancelled = true }
   }, [outcome.months])
 
+  const [dq, setDq] = useState<Record<DqIssue, number> | null | 'error'>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetchDqCounts(outcome.months).then((c) => !cancelled && setDq(c)).catch(() => !cancelled && setDq('error'))
+    return () => { cancelled = true }
+  }, [outcome.months])
+
   return (
     <>
       <Card className="p-5">
@@ -474,6 +497,15 @@ function ResultStep({ outcome, onViewChanges, onUndo, onAgain }: { outcome: Load
             )
           })}
         </ul>
+      </Card>
+
+      <Card className="p-5">
+        <h3 className="mb-1 text-sm font-semibold">Active From checks (warnings)</h3>
+        <p className="mb-3 text-sm text-muted-foreground">Active From is for review only — the month is determined by the snapshot. These checks never block an upload.</p>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          {!dq ? <span className="text-muted-foreground">Checking…</span> : dq === 'error' ? <span className="text-danger">Could not load the checks</span> : DQ_ISSUES.map((i) => <Badge key={i} tone={dq[i] > 0 ? 'warning' : 'success'}>{DQ_LABEL[i]} <span className="tnum">{dq[i].toLocaleString()}</span></Badge>)}
+          <Link to={`/data-quality?month=${outcome.months[0]}`} className="ml-2 text-sm font-medium text-accent-foreground underline underline-offset-2">Open Data Quality</Link>
+        </div>
       </Card>
 
       <div className="flex gap-2">

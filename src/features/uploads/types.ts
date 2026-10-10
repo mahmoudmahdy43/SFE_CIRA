@@ -28,6 +28,8 @@ export interface Preview {
   unknownReps: { code: string; count: number }[]
   unknownLines: { name: string; count: number }[]
   sample: { columns: string[]; rows: (string | number | null)[][] }
+  /** Raw values of the first rows of the Month column, to verify how dates were read. */
+  monthSamples?: { excelRow: number; raw: string; type: string; shown: string; parsed: string | null }[]
 }
 
 export interface ProgressInfo { done: number; total: number; month: string }
