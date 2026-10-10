@@ -1,6 +1,7 @@
-import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react'
+import { ArrowDownRight, ArrowUpRight, Info, Minus } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Card, Skeleton } from '../ui/misc'
+import { Tooltip } from '../ui/overlay'
 import { cn } from '../../lib/utils'
 import { toneText, type Tone } from '../../lib/kpi'
 
@@ -33,6 +34,8 @@ export interface KpiCardProps {
   loading?: boolean
   empty?: boolean
   hint?: ReactNode
+  /** Formula / explanation shown in a tooltip next to the label. */
+  tooltip?: string
 }
 
 export function KpiCard({
@@ -45,6 +48,7 @@ export function KpiCard({
   loading,
   empty,
   hint,
+  tooltip,
 }: KpiCardProps) {
   if (loading) {
     return (
@@ -60,7 +64,14 @@ export function KpiCard({
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          {label}
+          {tooltip && (
+            <Tooltip side="top" content={<span className="block max-w-xs">{tooltip}</span>}>
+              <button type="button" aria-label={`How ${label} is calculated`} className="rounded text-muted-foreground hover:text-foreground"><Info className="h-3 w-3" /></button>
+            </Tooltip>
+          )}
+        </span>
         {tone !== 'neutral' && (
           <span aria-hidden className={cn('h-2 w-2 rounded-full', { success: 'bg-success', warning: 'bg-warning', danger: 'bg-danger' }[tone])} />
         )}
