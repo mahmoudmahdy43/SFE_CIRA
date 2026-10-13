@@ -37,7 +37,7 @@ export function requireEnv(names) {
   }
 }
 
-export function createClient({ baseUrl, user, pass }) {
+export function createClient({ baseUrl, user, pass, atype = 'user' }) {
   const base = new URL(baseUrl.trim().endsWith('/') ? baseUrl.trim() : `${baseUrl.trim()}/`)
   if (base.protocol !== 'https:') throw new CrmError('CRM_BASE_URL must start with https://', 'config')
   let sid = null
@@ -73,7 +73,7 @@ export function createClient({ baseUrl, user, pass }) {
     if (!sid) throw new CrmError('Login page did not set a session cookie', 'blocked')
 
     // 2. the single POST: the plain login form (no CSRF token exists)
-    const body = new URLSearchParams({ uname: user, upass: pass, atype: 'user', page: '0', button: 'Login' })
+    const body = new URLSearchParams({ uname: user, upass: pass, atype, page: '0', button: 'Login' })
     const post = await paced(() =>
       fetch(new URL('index.php', base), {
         method: 'POST',
@@ -118,7 +118,7 @@ export function createClient({ baseUrl, user, pass }) {
         const buf = Buffer.from(await res.arrayBuffer())
         const text = buf.toString('utf8')
         if (isLoginPage(text)) throw new CrmError('Session is no longer logged in', 'login')
-        return { status: res.status, text, bytes: buf.length, seconds: (Date.now() - t0) / 1000 }
+        return { status: res.status, text, bytes: buf.length, seconds: (Date.now() - t0) / 1000, query: url.search.slice(1) }
       } catch (e) {
         if (e instanceof CrmError) throw e
         if (attempt >= 1) throw new CrmError(`Network error on ${path}: ${e?.name ?? 'error'}`, 'network')
@@ -126,15 +126,17 @@ export function createClient({ baseUrl, user, pass }) {
     }
   }
 
-  /** Ends the CRM session. Returns true when a follow-up read shows the login form again. */
+  /** Ends the CRM session with one logout request (no follow-up read). Returns the HTTP status, or null on a network error. */
   async function logout() {
-    if (!sid) return false
+    if (!sid) return null
     try {
-      await paced(() => fetch(new URL('logout.php', base), { redirect: 'manual', headers: cookieHeader(), signal: AbortSignal.timeout(LOGIN_TIMEOUT_MS) }).then((r) => r.arrayBuffer()))
-      const check = await paced(() => fetch(new URL('reports.php', base), { redirect: 'manual', headers: cookieHeader(), signal: AbortSignal.timeout(LOGIN_TIMEOUT_MS) }))
-      return isLoginPage(await check.text())
+      return await paced(async () => {
+        const res = await fetch(new URL('logout.php', base), { redirect: 'manual', headers: cookieHeader(), signal: AbortSignal.timeout(LOGIN_TIMEOUT_MS) })
+        await res.arrayBuffer()
+        return res.status
+      })
     } catch {
-      return false
+      return null
     } finally {
       sid = null
     }

@@ -4,6 +4,12 @@ name: CRM dry run
 # Reads only. No database writes, no artifacts, no schedule.
 on:
   workflow_dispatch:
+    inputs:
+      atype:
+        description: 'CRM login Type: user (Marketing & Sales), admin or hr'
+        default: 'user'
+        type: choice
+        options: [user, admin, hr]
 
 permissions:
   contents: read
@@ -22,4 +28,5 @@ jobs:
           CRM_USER: ${{ secrets.CRM_USER }}
           CRM_PASS: ${{ secrets.CRM_PASS }}
           CRM_BASE_URL: ${{ secrets.CRM_BASE_URL }}
+          CRM_ATYPE: ${{ inputs.atype }}
         run: node scripts/crm/dryrun.mjs

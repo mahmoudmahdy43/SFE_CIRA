@@ -6,6 +6,7 @@ import { appendFileSync } from 'node:fs'
 import { CrmError, createClient, requireEnv } from './client.mjs'
 
 const TEAM = process.env.CRM_TEAM || '1' // 1 = CIRA 1
+const ATYPE = process.env.CRM_ATYPE || 'user' // login "Type": admin | user | hr
 const MAX_LOOKBACK_DAYS = 4 // a weekend day has no visits: go back until a day has rows
 
 function summary(lines) {
@@ -24,44 +25,73 @@ function countRows(html) {
   return { rows: ids.size, clinicRows: actual.size, headerOk: /Visit Root/.test(html) }
 }
 
+/** Visible text (scripts, styles and tags removed) and table count, for diagnosing an empty report. */
+function pageDiagnostics(html) {
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return { first300: text.slice(0, 300), tables: (html.match(/<table/gi) || []).length }
+}
+
 async function main() {
   requireEnv(['CRM_USER', 'CRM_PASS', 'CRM_BASE_URL'])
-  const crm = createClient({ baseUrl: process.env.CRM_BASE_URL, user: process.env.CRM_USER, pass: process.env.CRM_PASS })
+  const crm = createClient({ baseUrl: process.env.CRM_BASE_URL, user: process.env.CRM_USER, pass: process.env.CRM_PASS, atype: ATYPE })
   const t0 = Date.now()
   let loggedIn = false
-  let loggedOut = false
+  let logoutStatus = 'not sent'
   try {
     await crm.login()
     loggedIn = true
     const loginSeconds = (Date.now() - t0) / 1000
-    let result = null
+    const attempts = []
+    let last = null
     for (let back = 1; back <= MAX_LOOKBACK_DAYS; back++) {
       const day = isoDay(-back)
       const params = { team: TEAM, emp: 0, wteam: '', dfrom: day, dto: day, vtype: 1, vmembers: '', spoint: '', specialty: '', shift: '', clarification: '' }
       for (const k of [1, 2, 3, 4, 5, 6, -1, -2, -3]) params[`acctype_${k}`] = k
       const r = await crm.get('report_ter_visits.php', params)
-      result = { day, ...r, ...countRows(r.text) }
-      if (result.rows > 0) break
+      last = { day, ...r, ...countRows(r.text), ...pageDiagnostics(r.text) }
+      attempts.push(`${day}: HTTP ${r.status}, ${last.rows} rows, ${(r.bytes / 1024).toFixed(0)} KB`)
+      if (last.rows > 0) break
     }
-    loggedOut = await crm.logout()
-    const ok = result.status === 200 && result.rows > 0 && result.headerOk
+    const status = await crm.logout()
+    logoutStatus = status === null ? 'request failed' : `HTTP ${status}`
+    const empty = last.rows === 0
+    const ok = last.status === 200 && !empty && last.headerOk
     summary([
       `## CRM dry run: ${ok ? 'OK' : 'FAILED'}`,
       '',
+      ...(empty ? ['**empty report: check parameters**', ''] : []),
       '| Item | Value |',
       '|---|---|',
-      `| Login | OK (${loginSeconds.toFixed(1)} s) |`,
+      `| Login | OK as type "${ATYPE}" (${loginSeconds.toFixed(1)} s) |`,
       `| Report | Territory Visits, team ${TEAM}, one day |`,
-      `| Day read | ${result.day}${result.day === isoDay(-1) ? ' (yesterday)' : ' (latest day with rows)'} |`,
-      `| HTTP status | ${result.status} |`,
-      `| Rows (all sections) | ${result.rows} (clinic visits: ${result.clinicRows}) |`,
-      `| Size | ${(result.bytes / 1024).toFixed(0)} KB |`,
-      `| Request time | ${result.seconds.toFixed(1)} s |`,
-      `| Logged out | ${loggedOut ? 'yes (login form shown again)' : 'could not confirm'} |`,
+      `| Day read | ${last.day}${last.day === isoDay(-1) ? ' (yesterday)' : ''} |`,
+      `| HTTP status | ${last.status} |`,
+      `| Rows (all sections) | ${last.rows} (clinic visits: ${last.clinicRows}) |`,
+      `| Size | ${(last.bytes / 1024).toFixed(0)} KB |`,
+      `| Request time | ${last.seconds.toFixed(1)} s |`,
+      `| Tables in page | ${last.tables} |`,
+      `| Logout request | ${logoutStatus} |`,
+      '',
+      `Days tried: ${attempts.join(' · ')}`,
+      '',
+      'Query string sent (last request, no cookies):',
+      '```',
+      last.query,
+      '```',
+      'First 300 characters of the visible page text:',
+      '```',
+      last.first300,
+      '```',
     ])
     if (!ok) process.exitCode = 1
   } finally {
-    if (loggedIn && !loggedOut) await crm.logout()
+    if (loggedIn && logoutStatus === 'not sent') await crm.logout()
   }
 }
 

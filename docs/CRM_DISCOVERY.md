@@ -176,3 +176,7 @@ Ask IT Gates / IT for: a read-only account limited to reports, confirmation that
 | `emp=0` on the Doctor List (all employees in one call) | Not tested |
 
 Client guarantees (see `scripts/crm/client.mjs`): GET only apart from the one login POST; a fixed allow-list of read pages; URLs containing `delete`, `remove` or `action=del` are refused; credentials come only from `CRM_USER` / `CRM_PASS` / `CRM_BASE_URL`; the cookie is kept in memory; nothing sensitive is logged.
+
+### First run result and diagnostics (Phase 6B follow-up)
+
+The first dry run logged in but Territory Visits returned HTTP 200 with 0 rows and about 7 KB. The request matches the search form field for field (`team`, `emp`, `wteam`, `dfrom`, `dto`, `vtype`, `vmembers`, `spoint`, `specialty`, `shift`, `clarification`, `acctype_1..6`, `acctype_-1..-3`; the form has no hidden fields), and the same query returned 463 rows from the browser session. One difference is the login **Type**: the discovery session showed "Administrator", while the script sent `atype=user`. The workflow now has a `atype` choice (`user` / `admin` / `hr`), and the summary prints the query string sent, the first 300 characters of the visible page text, the number of tables, and the logout status. If every one of the 4 days has 0 rows the run fails with "empty report: check parameters". Logout is a single request whose HTTP status is logged; the extra confirmation read was removed.
