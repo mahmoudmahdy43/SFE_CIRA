@@ -32,6 +32,7 @@ export interface Metrics {
   covered_doctors: number | null
   coverage: number | null
   total_visits: number | null
+  target_visits: number | null
   valid_visits: number | null
   pcf: number | null
   days_pm: number | null
@@ -60,6 +61,9 @@ export interface KpiRepRow extends Metrics {
 export function toKpiRepRow(r: Record<string, unknown>): KpiRepRow {
   const s = (v: unknown) => (v === null || v === undefined || v === '' ? null : String(v))
   const total = numOrNull(r.total_visits)
+  const target_visits = numOrNull(r.target_visits)
+  const valid_visits = numOrNull(r.valid_visits)
+  const pcf = ratio(n0(valid_visits), n0(target_visits))
   return {
     month: String(r.month ?? ''),
     rep_id: n0(r.rep_id),
@@ -75,17 +79,18 @@ export function toKpiRepRow(r: Record<string, unknown>): KpiRepRow {
     covered_doctors: numOrNull(r.covered_doctors),
     coverage: numOrNull(r.coverage),
     total_visits: total,
-    valid_visits: numOrNull(r.valid_visits),
-    pcf: numOrNull(r.pcf),
+    target_visits,
+    valid_visits,
+    pcf, // valid visits / target visits, recomputed here (the view's own pcf is the old definition)
     days_pm: numOrNull(r.days_pm),
     missing_pm: numOrNull(r.missing_pm),
     call_rate_pm: numOrNull(r.call_rate_pm),
     expected_visits: numOrNull(r.expected_visits),
     ach_cr: numOrNull(r.ach_cr),
-    // the database value wins; if it is missing but the rep has data, apply the same formula
+    // computed here from the new PCF (the database total_kpi still uses the old one)
     total_kpi: hasNoData(numOrNull(r.list_doctors), total, numOrNull(r.expected_visits))
       ? null
-      : numOrNull(r.total_kpi) ?? totalKpiOf(numOrNull(r.pcf), numOrNull(r.coverage), numOrNull(r.ach_cr)),
+      : totalKpiOf(pcf, numOrNull(r.coverage), numOrNull(r.ach_cr)),
     visits_pm: numOrNull(r.visits_pm) ?? total,
   }
 }
@@ -99,16 +104,17 @@ export interface KpiGroup extends Metrics {
 
 /** Sums the given reps and recomputes every ratio from those sums. */
 export function aggregate(rows: KpiRepRow[]): Metrics & { reps: number } {
-  const sum = (k: 'list_doctors' | 'covered_doctors' | 'total_visits' | 'valid_visits' | 'days_pm' | 'missing_pm' | 'expected_visits' | 'visits_pm') =>
+  const sum = (k: 'list_doctors' | 'covered_doctors' | 'total_visits' | 'target_visits' | 'valid_visits' | 'days_pm' | 'missing_pm' | 'expected_visits' | 'visits_pm') =>
     rows.reduce((a, r) => a + n0(r[k]), 0)
   const list = sum('list_doctors')
   const covered = sum('covered_doctors')
   const total = sum('total_visits')
+  const target = sum('target_visits')
   const valid = sum('valid_visits')
   const daysPm = sum('days_pm')
   const expected = sum('expected_visits')
   const coverage = ratio(covered, list)
-  const pcf = ratio(valid, total)
+  const pcf = ratio(valid, target)
   const ach = ratio(total, expected)
   return {
     reps: rows.length,
@@ -116,6 +122,7 @@ export function aggregate(rows: KpiRepRow[]): Metrics & { reps: number } {
     covered_doctors: covered,
     coverage,
     total_visits: total,
+    target_visits: target,
     valid_visits: valid,
     pcf,
     days_pm: daysPm,
@@ -176,6 +183,7 @@ function metricCells(m: Metrics): ExportRow {
     Covered: m.covered_doctors,
     'Coverage %': pct(m.coverage),
     'Total Visits (C/PC)': m.total_visits,
+    'Target Visits': m.target_visits,
     'Valid Visits': m.valid_visits,
     'PCF %': pct(m.pcf),
     'Days PM': m.days_pm,

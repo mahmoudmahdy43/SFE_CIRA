@@ -118,6 +118,8 @@ export interface TreeNode extends KpiNumbers {
 export interface LineRow extends KpiNumbers { line_id: number | null }
 export interface ManagerRow extends KpiNumbers { line_id: number | null; manager_id: number | null }
 export interface RepRow extends KpiNumbers {
+  /** Σ Freq over the rep's C/PC list doctors (v_kpi_rep.target_visits); the PCF denominator. */
+  target_visits: number | null
   rep_id: number
   box_id: number | null
   line_id: number | null

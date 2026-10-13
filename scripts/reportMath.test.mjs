@@ -68,10 +68,10 @@ t('pharmacy: totals divide sums, null rate stays null, pharmacy mode has no AM/P
 })
 const kr = (o) => k.toKpiRepRow({ month: '2026-09-01', rep_id: 1, line_id: 1, manager_id: 1, rep_name: 'R', rep_code: 'C', line: 'CIRA 1', manager: 'M1', ...o })
 t('KPI by rep: totals come from sums, exclusion changes them and clearing restores them exactly', () => {
-  const a = kr({ rep_id: 1, list_doctors: 100, covered_doctors: 80, total_visits: 200, valid_visits: 150, days_pm: 20, expected_visits: 220, call_rate_pm: 10 })
-  const b = kr({ rep_id: 2, list_doctors: 50, covered_doctors: 10, total_visits: 40, valid_visits: 40, days_pm: 20, expected_visits: 220, call_rate_pm: 2 })
+  const a = kr({ rep_id: 1, list_doctors: 100, covered_doctors: 80, total_visits: 200, target_visits: 180, valid_visits: 150, days_pm: 20, expected_visits: 220, call_rate_pm: 10 })
+  const b = kr({ rep_id: 2, list_doctors: 50, covered_doctors: 10, total_visits: 40, target_visits: 50, valid_visits: 40, days_pm: 20, expected_visits: 220, call_rate_pm: 2 })
   const all = k.aggregate([a, b])
-  assert.equal(all.coverage, 90 / 150); assert.equal(all.pcf, 190 / 240); assert.equal(all.ach_cr, 240 / 440); assert.equal(all.call_rate_pm, 240 / 40)
+  assert.equal(all.coverage, 90 / 150); assert.equal(all.pcf, 190 / 230); assert.equal(all.ach_cr, 240 / 440); assert.equal(all.call_rate_pm, 240 / 40)
   assert.ok(Math.abs(all.total_kpi - (all.pcf * 0.5 + all.coverage * 0.35 + all.ach_cr * 0.15)) < 1e-12)
   const split = k.splitExcluded([a, b], new Set([2]))
   assert.deepEqual(split.included.map((r) => r.rep_id), [1])
@@ -80,14 +80,14 @@ t('KPI by rep: totals come from sums, exclusion changes them and clearing restor
   assert.deepEqual(k.aggregate(k.splitExcluded([a, b], new Set()).included), all)
 })
 t('KPI by rep: expected_visits = 0 -> Total KPI = PCF*50% + Coverage*35% (missing Ach CR counts as 0), cells keep their dash', () => {
-  const r = kr({ rep_id: 1, list_doctors: 100, covered_doctors: 80, total_visits: 40, valid_visits: 30, days_pm: 10, expected_visits: 0, pcf: 0.75, coverage: 0.8, ach_cr: null, total_kpi: null })
+  const r = kr({ rep_id: 1, list_doctors: 100, covered_doctors: 80, total_visits: 40, target_visits: 40, valid_visits: 30, days_pm: 10, expected_visits: 0, coverage: 0.8, ach_cr: null, total_kpi: null })
   assert.ok(Math.abs(r.total_kpi - (0.75 * 0.5 + 0.8 * 0.35)) < 1e-12) // rep row, DB value missing
   const t = k.aggregate([r])
   assert.equal(t.ach_cr, null); assert.equal(k.fmtPct(t.ach_cr), '—')
   assert.ok(Math.abs(t.total_kpi - (0.75 * 0.5 + 0.8 * 0.35)) < 1e-12)
   assert.equal(k.byManager([r])[0].total_kpi, t.total_kpi)
-  const db = kr({ list_doctors: 10, total_visits: 5, expected_visits: 0, total_kpi: 0.42 })
-  assert.equal(db.total_kpi, 0.42) // the database value is kept
+  assert.equal(r.pcf, 0.75); assert.equal(k.exportReps([r], t, [], false)[0]['Target Visits'], 40)
+  assert.ok(Math.abs(kr({ list_doctors: 10, total_visits: 5, target_visits: 10, valid_visits: 5, expected_visits: 0, total_kpi: 0.42 }).total_kpi - 0.25) < 1e-12) // DB total_kpi ignored (old PCF)
   assert.equal(kr({ list_doctors: 0, total_visits: 0, expected_visits: 0, total_kpi: 0 }).total_kpi, null) // no data at all -> dash
 })
 t('KPI by rep: empty denominators give null (dash), never 0 or NaN; roll-ups group by DM and line', () => {

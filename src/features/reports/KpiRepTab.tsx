@@ -35,7 +35,7 @@ interface Col<T> {
 
 const kpiCell = (v: number | null) => <span className={cn('font-medium', v !== null && toneText[kpiTone(v, 1)])}>{fmtPct(v)}</span>
 
-/** The twelve metric columns shared by the rep table and the roll-ups. */
+/** The thirteen metric columns shared by the rep table and the roll-ups. */
 function metricCols<T extends Metrics>(): Col<T>[] {
   const m = (id: string, header: string, key: keyof Metrics, render: (v: number | null) => ReactNode, foot: (t: Metrics) => ReactNode, tip?: string): Col<T> => ({
     id, header, tip, numeric: true, value: (r) => r[key], render: (r) => render(r[key]), foot,
@@ -45,8 +45,9 @@ function metricCols<T extends Metrics>(): Col<T>[] {
     m('covered', 'Covered', 'covered_doctors', fmtInt, (t) => fmtInt(t.covered_doctors)),
     m('coverage', 'Coverage %', 'coverage', fmtPct, (t) => fmtPct(t.coverage), 'Covered ÷ List doctors.'),
     m('total', 'Total Visits (C/PC)', 'total_visits', fmtInt, (t) => fmtInt(t.total_visits), 'PM-shift visits to Clinics and Poly Clinics. Pharmacy and AM Center / A / H are outside the KPI.'),
-    m('valid', 'Valid Visits', 'valid_visits', fmtInt, (t) => fmtInt(t.valid_visits)),
-    m('pcf', 'PCF %', 'pcf', fmtPct, (t) => fmtPct(t.pcf), 'Valid visits ÷ total visits.'),
+    m('target', 'Target Visits', 'target_visits', fmtInt, (t) => fmtInt(t.target_visits), "Sum of Freq over the rep's Clinic / Poly Clinic list doctors."),
+    m('valid', 'Valid Visits', 'valid_visits', fmtInt, (t) => fmtInt(t.valid_visits), 'Per doctor: visits capped at Freq.'),
+    m('pcf', 'PCF %', 'pcf', fmtPct, (t) => fmtPct(t.pcf), 'Valid visits ÷ target visits.'),
     m('days', 'Days PM', 'days_pm', fmtInt, (t) => fmtInt(t.days_pm)),
     m('missing', 'Missing Days', 'missing_pm', fmtInt, (t) => fmtInt(t.missing_pm)),
     m('cr', 'Call Rate PM', 'call_rate_pm', fmtRate, (t) => fmtRate(t.call_rate_pm), 'PM visits ÷ PM days.'),

@@ -59,6 +59,7 @@ export async function fetchMonthDetail(month: string): Promise<MonthDetail> {
     manager_id: num(r.manager_id),
     target_am: num(r.target_am),
     target_pm: num(r.target_pm),
+    target_visits: num(r.target_visits),
   }))
   // Names: chunked `in` lookups (PostgREST URL limit), only for the ids on this page.
   const [repMap, mgrMap, boxMap] = await Promise.all([
