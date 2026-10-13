@@ -90,7 +90,7 @@ export function kpiRepRows(detail: MonthDetail, month: string): KpiRepRow[] {
   return rows
 }
 
-const ABS_IDENT = 'month,line,line_id,manager_id,direct_manager,rep_code,rep_name,box,rep_id'
+const ABS_IDENT = 'month,line,line_id,manager_id,direct_manager,rep_code,rep_name,box,rep_id,hire_date'
 
 /** Leave days per rep for the month (v_leave_report: only reps with at least one leave day). */
 export async function fetchLeaveReport(month: string): Promise<LeaveRow[]> {

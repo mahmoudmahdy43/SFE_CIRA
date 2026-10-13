@@ -14,6 +14,13 @@ export async function downloadXlsx(
     if (s.rows.length === 0) continue
     const headers = Object.keys(s.rows[0])
     const ws = XLSX.utils.json_to_sheet(s.rows, { header: headers, dateNF: 'dd-mmm' })
+    // real dates: hire dates show as dd-mmm-yyyy, other dates as dd-mmm
+    const hireCol = headers.indexOf('Hire Date')
+    for (const addr of Object.keys(ws)) {
+      if (addr[0] === '!') continue
+      const c = ws[addr]
+      if (c.t === 'd') c.z = XLSX.utils.decode_cell(addr).c === hireCol ? 'dd-mmm-yyyy' : 'dd-mmm'
+    }
     ws['!cols'] = headers.map((h) => ({ wch: h === 'Dates' ? 60 : Math.max(h.length, 10) + 2 }))
     XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31))
   }

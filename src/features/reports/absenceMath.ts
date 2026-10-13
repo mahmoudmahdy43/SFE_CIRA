@@ -39,7 +39,7 @@ function identity(r: Record<string, unknown>): AbsenceIdentity {
     rep_code: str(r.rep_code),
     rep_name: str(r.rep_name),
     box: str(r.box),
-    hire_date: null,
+    hire_date: str(r.hire_date),
   }
 }
 
@@ -106,7 +106,7 @@ export function lineManagerRep<T extends AbsenceIdentity>(rows: T[]): T[] {
 }
 
 /* ------------------------------ missing-days detail ------------------------------ */
-export interface MissingDetail { line: string | null; manager: string | null; rep: string | null; code: string | null; box: string | null; date: Date; shift: 'AM' | 'PM' | 'Both' }
+export interface MissingDetail { line: string | null; manager: string | null; rep: string | null; code: string | null; hire: string | null; box: string | null; date: Date; shift: 'AM' | 'PM' | 'Both' }
 
 /** One entry per missing day: the date comes from missing_dates_list, the shift from the AM / PM suffix in missing_dates ("07 Sep AM"). */
 export function missingDetail(rows: MissingRow[]): MissingDetail[] {
@@ -127,7 +127,7 @@ export function missingDetail(rows: MissingRow[]): MissingDetail[] {
       const i = dates.findIndex((x, j) => !used.has(j) && x.d === day)
       if (i < 0) continue
       used.add(i)
-      out.push({ line: r.line, manager: r.manager, rep: r.rep_name, code: r.rep_code, box: r.box, date: new Date(dates[i].y, dates[i].m - 1, dates[i].d), shift })
+      out.push({ line: r.line, manager: r.manager, rep: r.rep_name, code: r.rep_code, hire: r.hire_date, box: r.box, date: new Date(dates[i].y, dates[i].m - 1, dates[i].d), shift })
     }
   }
   return out
@@ -135,12 +135,23 @@ export function missingDetail(rows: MissingRow[]): MissingDetail[] {
 
 /* ------------------------------ export ------------------------------ */
 export type ExportRow = Record<string, string | number | Date | null>
-const idCells = (r: AbsenceIdentity): ExportRow => ({ Line: r.line, 'Direct Manager': r.manager, 'Medical Rep': r.rep_name, Code: r.rep_code, Box: r.box })
+/** 'YYYY-MM-DD' -> a local Date (a real Excel date), null when missing / unparseable. */
+export function hireDateValue(iso: string | null): Date | null {
+  const m = iso ? /^(d{4})-(d{2})-(d{2})/.exec(iso) : null
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null
+}
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+/** '2026-08-15' -> '15-Aug-2026'; empty -> a dash. */
+export function fmtHire(iso: string | null): string {
+  const m = iso ? /^(d{4})-(d{2})-(d{2})/.exec(iso) : null
+  return m ? `${m[3]}-${MONTHS[Number(m[2]) - 1]}-${m[1]}` : DASH
+}
+const idCells = (r: AbsenceIdentity): ExportRow => ({ Line: r.line, 'Direct Manager': r.manager, 'Medical Rep': r.rep_name, Code: r.rep_code, 'Hire Date': hireDateValue(r.hire_date), Box: r.box })
 
 export function exportLeaves(rows: LeaveRow[], total: LeaveSums): ExportRow[] {
   return [
     ...rows.map((r) => ({ ...idCells(r), 'Vacation AM': r.vacation_am, 'Vacation PM': r.vacation_pm, 'Full Day': r.full_days, Total: r.total_days })),
-    { Line: 'Total', 'Direct Manager': null, 'Medical Rep': null, Code: null, Box: null, 'Vacation AM': total.vacation_am, 'Vacation PM': total.vacation_pm, 'Full Day': total.full_days, Total: total.total_days },
+    { Line: 'Total', 'Direct Manager': null, 'Medical Rep': null, Code: null, 'Hire Date': null, Box: null, 'Vacation AM': total.vacation_am, 'Vacation PM': total.vacation_pm, 'Full Day': total.full_days, Total: total.total_days },
   ]
 }
 export function exportLeaveGroups(groups: LeaveGroup[], total: LeaveSums, label: string, reps: number): ExportRow[] {
@@ -150,8 +161,8 @@ export function exportLeaveGroups(groups: LeaveGroup[], total: LeaveSums, label:
 export function exportMissing(rows: MissingRow[], total: MissingSums): ExportRow[] {
   return [
     ...rows.map((r) => ({ ...idCells(r), 'Missing AM': r.missing_am, 'Missing PM': r.missing_pm, Total: r.missing_total, Dates: r.missing_dates })),
-    { Line: 'Total', 'Direct Manager': null, 'Medical Rep': null, Code: null, Box: null, 'Missing AM': total.missing_am, 'Missing PM': total.missing_pm, Total: total.missing_total, Dates: null },
+    { Line: 'Total', 'Direct Manager': null, 'Medical Rep': null, Code: null, 'Hire Date': null, Box: null, 'Missing AM': total.missing_am, 'Missing PM': total.missing_pm, Total: total.missing_total, Dates: null },
   ]
 }
 export const exportMissingDetail = (rows: MissingRow[]): ExportRow[] =>
-  missingDetail(rows).map((d) => ({ Line: d.line, 'Direct Manager': d.manager, Rep: d.rep, Code: d.code, Box: d.box, Date: d.date, Shift: d.shift }))
+  missingDetail(rows).map((d) => ({ Line: d.line, 'Direct Manager': d.manager, Rep: d.rep, Code: d.code, 'Hire Date': hireDateValue(d.hire), Box: d.box, Date: d.date, Shift: d.shift }))

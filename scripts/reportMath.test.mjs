@@ -116,12 +116,14 @@ t('default order Line -> Manager -> Box; filters', () => {
 t('leaves: AM-only 0.5 + full day 1 -> 0.5 / 1 / 1.5, totals are sums, zero is a dash', () => {
   const r = a.toLeaveRow({ month: '2026-09-01', rep_id: 1, line: 'L1', line_id: 1, direct_manager: 'M', rep_name: 'R', vacation_am: 0.5, vacation_pm: 0, full_days: 1, total_days: 1.5 })
   assert.equal(a.fmtDaysUpTo1(r.vacation_am), '0.5'); assert.equal(a.fmtDaysUpTo1(r.full_days), '1'); assert.equal(a.fmtDaysUpTo1(r.total_days), '1.5'); assert.equal(a.fmtDaysUpTo1(r.vacation_pm), '—')
+  assert.equal(r.hire_date, null); assert.equal(a.fmtHire(null), '—'); assert.equal(a.fmtHire('2026-08-15'), '15-Aug-2026'); assert.equal(a.exportLeaves([r], a.totalLeaves([r]))[0]['Hire Date'], null)
+  assert.equal(a.hireDateValue('2026-08-15').getDate(), 15)
   assert.equal(a.totalLeaves([r, r]).total_days, 3); assert.equal(a.leavesByManager([r, r])[0].reps, 2)
 })
 t('missing: detail rows from missing_dates + missing_dates_list, shift from suffix', () => {
-  const r = a.toMissingRow({ month: '2026-09-01', rep_id: 1, line: 'L1', direct_manager: 'M', rep_name: 'R', rep_code: 'C', missing_am: 1.5, missing_pm: 1, missing_total: 2.5, missing_dates: '02 Sep, 07 Sep AM, 09 Sep PM', missing_dates_list: ['2026-09-02', '2026-09-07', '2026-09-09'] })
+  const r = a.toMissingRow({ month: '2026-09-01', rep_id: 1, line: 'L1', direct_manager: 'M', rep_name: 'R', rep_code: 'C', hire_date: '2024-03-05', missing_am: 1.5, missing_pm: 1, missing_total: 2.5, missing_dates: '02 Sep, 07 Sep AM, 09 Sep PM', missing_dates_list: ['2026-09-02', '2026-09-07', '2026-09-09'] })
   const d = a.missingDetail([r])
-  assert.deepEqual(d.map((x) => x.shift), ['Both', 'AM', 'PM']); assert.deepEqual(d.map((x) => x.date.getDate()), [2, 7, 9]); assert.equal(d[0].date.getMonth(), 8)
+  assert.deepEqual(d.map((x) => x.shift), ['Both', 'AM', 'PM']); assert.deepEqual(d.map((x) => x.date.getDate()), [2, 7, 9]); assert.equal(d[0].date.getMonth(), 8); assert.equal(a.exportMissingDetail([r])[0]['Hire Date'].getFullYear(), 2024)
   assert.equal(a.exportMissing([r], a.totalMissing([r]))[0].Dates, '02 Sep, 07 Sep AM, 09 Sep PM'); assert.equal(a.fmtDays1(r.missing_total), '2.5')
 })
 console.log(`\n${n} tests passed`)

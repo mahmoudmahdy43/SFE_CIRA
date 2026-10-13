@@ -10,7 +10,7 @@ import { useAsync } from '../dashboard/useAsync'
 import { ReportToolbar } from './ReportToolbar'
 import { filterRows, managerOptions, type ReportFilters } from './reportMath'
 import {
-  DASH, exportLeaveGroups, exportLeaves, exportMissing, exportMissingDetail, fmtDays1, fmtDaysUpTo1, leavesByLine, leavesByManager,
+  DASH, fmtHire, exportLeaveGroups, exportLeaves, exportMissing, exportMissingDetail, fmtDays1, fmtDaysUpTo1, leavesByLine, leavesByManager,
   lineManagerRep, totalLeaves, totalMissing, type LeaveGroup, type LeaveRow, type MissingRow,
 } from './absenceMath'
 
@@ -127,6 +127,7 @@ export function LeavesTab({ month, lines, filters, onFilters }: Props) {
     { id: 'line', header: 'Line', value: (r) => r.line, render: (r) => r.line ?? DASH, foot: `Total · ${visible.length} reps` },
     { id: 'dm', header: 'Direct Manager', value: (r) => r.manager, render: (r) => r.manager ?? DASH },
     { id: 'rep', header: 'Medical Rep', value: (r) => r.rep_name, render: repCell },
+    { id: 'hire', header: 'Hire Date', value: (r) => r.hire_date, render: (r) => fmtHire(r.hire_date) },
     { id: 'box', header: 'Box', value: (r) => r.box, render: (r) => r.box ?? DASH },
     num('vam', 'Vacation AM', 'vacation_am', total.vacation_am),
     num('vpm', 'Vacation PM', 'vacation_pm', total.vacation_pm),
@@ -216,6 +217,7 @@ export function MissingTab({ month, lines, filters, onFilters }: Props) {
     { id: 'line', header: 'Line', value: (r) => r.line, render: (r) => r.line ?? DASH, foot: `Total · ${visible.length} reps` },
     { id: 'dm', header: 'Direct Manager', value: (r) => r.manager, render: (r) => r.manager ?? DASH },
     { id: 'rep', header: 'Medical Rep', value: (r) => r.rep_name, render: repCell },
+    { id: 'hire', header: 'Hire Date', value: (r) => r.hire_date, render: (r) => fmtHire(r.hire_date) },
     { id: 'box', header: 'Box', value: (r) => r.box, render: (r) => r.box ?? DASH },
     { id: 'am', header: 'Missing AM', numeric: true, value: (r) => r.missing_am, render: (r) => fmtDays1(r.missing_am), foot: fmtDays1(total.missing_am) },
     { id: 'pm', header: 'Missing PM', numeric: true, value: (r) => r.missing_pm, render: (r) => fmtDays1(r.missing_pm), foot: fmtDays1(total.missing_pm) },

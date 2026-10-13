@@ -2,7 +2,7 @@ export function downloadCsv(filename: string, rows: Record<string, unknown>[]): 
   if (rows.length === 0) return
   const cols = Object.keys(rows[0])
   const esc = (v: unknown) => {
-    const s = v == null ? '' : String(v)
+    const s = v == null ? '' : v instanceof Date ? `${String(v.getDate()).padStart(2, '0')}-${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][v.getMonth()]}-${v.getFullYear()}` : String(v)
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }
   const text = [cols.join(','), ...rows.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n')
