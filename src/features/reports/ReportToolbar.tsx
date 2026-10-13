@@ -53,6 +53,7 @@ export function ReportToolbar({ lines, filters, onFilters, managers, columns, hi
         </div>
         {children}
         <div className="ml-auto flex items-center gap-2">
+          {columns.length > 0 && (
           <Popover>
             <PopoverTrigger asChild>
               <Button size="sm" aria-label="Choose columns"><Columns3 className="h-4 w-4" /> Columns</Button>
@@ -66,6 +67,7 @@ export function ReportToolbar({ lines, filters, onFilters, managers, columns, hi
               ))}
             </PopoverContent>
           </Popover>
+          )}
           <Button size="sm" onClick={onXlsx} disabled={!canExport}><FileSpreadsheet className="h-4 w-4" /> Excel</Button>
           <Button size="sm" onClick={onCsv} disabled={!canExport}><Download className="h-4 w-4" /> CSV</Button>
         </div>

@@ -1,6 +1,7 @@
 // Run: npm run test:reports   (Node >= 22.18 strips TypeScript types natively)
 import assert from 'node:assert/strict'
 import * as m from '../src/features/reports/reportMath.ts'
+import * as k from '../src/features/reports/kpiRepMath.ts'
 
 let n = 0
 const t = (name, fn) => { fn(); n++; console.log('ok -', name) }
@@ -64,6 +65,40 @@ t('pharmacy: totals divide sums, null rate stays null, pharmacy mode has no AM/P
   assert.equal(m.callRateColumns('pharmacy', true).length, 0)
   const ex = m.exportCallRate([a, b], tot, 'pharmacy', false)
   assert.equal(ex[0]['Pharmacy Call Rate'], 2.5); assert.equal(ex[1]['Pharmacy Call Rate'], null)
+})
+const kr = (o) => k.toKpiRepRow({ month: '2026-09-01', rep_id: 1, line_id: 1, manager_id: 1, rep_name: 'R', rep_code: 'C', line: 'CIRA 1', manager: 'M1', ...o })
+t('KPI by rep: totals come from sums, exclusion changes them and clearing restores them exactly', () => {
+  const a = kr({ rep_id: 1, list_doctors: 100, covered_doctors: 80, total_visits: 200, valid_visits: 150, days_pm: 20, expected_visits: 220, call_rate_pm: 10 })
+  const b = kr({ rep_id: 2, list_doctors: 50, covered_doctors: 10, total_visits: 40, valid_visits: 40, days_pm: 20, expected_visits: 220, call_rate_pm: 2 })
+  const all = k.aggregate([a, b])
+  assert.equal(all.coverage, 90 / 150); assert.equal(all.pcf, 190 / 240); assert.equal(all.ach_cr, 240 / 440); assert.equal(all.call_rate_pm, 240 / 40)
+  assert.ok(Math.abs(all.total_kpi - (all.pcf * 0.5 + all.coverage * 0.35 + all.ach_cr * 0.15)) < 1e-12)
+  const split = k.splitExcluded([a, b], new Set([2]))
+  assert.deepEqual(split.included.map((r) => r.rep_id), [1])
+  const without = k.aggregate(split.included)
+  assert.equal(without.coverage, 0.8); assert.notEqual(without.total_kpi, all.total_kpi); assert.equal(without.reps, 1)
+  assert.deepEqual(k.aggregate(k.splitExcluded([a, b], new Set()).included), all)
+})
+t('KPI by rep: expected_visits = 0 -> Total KPI = PCF*50% + Coverage*35% (missing Ach CR counts as 0), cells keep their dash', () => {
+  const r = kr({ rep_id: 1, list_doctors: 100, covered_doctors: 80, total_visits: 40, valid_visits: 30, days_pm: 10, expected_visits: 0, pcf: 0.75, coverage: 0.8, ach_cr: null, total_kpi: null })
+  assert.ok(Math.abs(r.total_kpi - (0.75 * 0.5 + 0.8 * 0.35)) < 1e-12) // rep row, DB value missing
+  const t = k.aggregate([r])
+  assert.equal(t.ach_cr, null); assert.equal(k.fmtPct(t.ach_cr), '—')
+  assert.ok(Math.abs(t.total_kpi - (0.75 * 0.5 + 0.8 * 0.35)) < 1e-12)
+  assert.equal(k.byManager([r])[0].total_kpi, t.total_kpi)
+  const db = kr({ list_doctors: 10, total_visits: 5, expected_visits: 0, total_kpi: 0.42 })
+  assert.equal(db.total_kpi, 0.42) // the database value is kept
+  assert.equal(kr({ list_doctors: 0, total_visits: 0, expected_visits: 0, total_kpi: 0 }).total_kpi, null) // no data at all -> dash
+})
+t('KPI by rep: empty denominators give null (dash), never 0 or NaN; roll-ups group by DM and line', () => {
+  const z = k.aggregate([kr({ list_doctors: 0, total_visits: 0, expected_visits: 0, days_pm: 0 })])
+  assert.equal(z.coverage, null); assert.equal(z.pcf, null); assert.equal(z.ach_cr, null); assert.equal(z.call_rate_pm, null); assert.equal(z.total_kpi, null) // no data at all
+  assert.equal(k.fmtPct(null), '—'); assert.equal(k.fmtRate(0.5), '0.50'); assert.equal(k.fmtPct(0.8512), '85.1%')
+  const rows = [kr({ rep_id: 1, manager_id: 1, manager: 'M1', total_visits: 10, visits_pm: 10, days_pm: 5 }), kr({ rep_id: 2, manager_id: 2, manager: 'M2', total_visits: 30, visits_pm: 30, days_pm: 10 }), kr({ rep_id: 3, manager_id: 2, manager: 'M2', total_visits: 10, days_pm: 10 })]
+  const dm = k.byManager(rows)
+  assert.equal(dm.length, 2); assert.equal(dm.find((g) => g.label === 'M2').call_rate_pm, 40 / 20)
+  assert.equal(k.byLine(rows).length, 1)
+  assert.deepEqual(k.parseIds('[1,2,"x"]'), [1, 2]); assert.deepEqual(k.parseIds('nope'), []); assert.deepEqual(k.parseIds(null), [])
 })
 t('target dot thresholds and no-target', () => {
   assert.equal(m.targetTone(8, 8), 'success'); assert.equal(m.targetTone(6.4, 8), 'warning'); assert.equal(m.targetTone(6.3, 8), 'danger')

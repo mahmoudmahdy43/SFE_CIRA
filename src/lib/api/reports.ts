@@ -1,4 +1,6 @@
 import { fetchAll } from './core'
+import type { MonthDetail } from './kpi'
+import { toKpiRepRow, type KpiRepRow } from '../../features/reports/kpiRepMath'
 import {
   numOrNull, toCallRateRow, toCoverageRow, type CallRateRow, type CoverageRow,
 } from '../../features/reports/reportMath'
@@ -64,4 +66,25 @@ export async function fetchRepTargets(month: string): Promise<Map<number, { am: 
 
 export async function fetchLineNames(): Promise<{ id: number; name: string }[]> {
   return fetchAll<{ id: number; name: string }>('lines', 'id,name', ['id'])
+}
+
+/** One row per real rep for the KPI-by-rep report: v_kpi_rep (via the shared month detail) joined with rep / box / line / manager names. */
+export function kpiRepRows(detail: MonthDetail, month: string): KpiRepRow[] {
+  const rows: KpiRepRow[] = []
+  for (const r of detail.reps) {
+    const info = detail.names.reps.get(r.rep_id)
+    if (!info) continue // vacant boxes / staff have no rep record: not part of this report
+    rows.push(
+      toKpiRepRow({
+        ...r,
+        month,
+        rep_code: info.code,
+        rep_name: info.name,
+        box: r.box_id === null ? null : detail.names.boxes.get(r.box_id) ?? null,
+        line: r.line_id === null ? null : detail.names.lines.get(r.line_id) ?? null,
+        manager: r.manager_id === null ? null : detail.names.managers.get(r.manager_id) ?? null,
+      }),
+    )
+  }
+  return rows
 }
