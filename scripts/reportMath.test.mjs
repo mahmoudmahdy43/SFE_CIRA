@@ -1,6 +1,7 @@
 // Run: npm run test:reports   (Node >= 22.18 strips TypeScript types natively)
 import assert from 'node:assert/strict'
 import * as m from '../src/features/reports/reportMath.ts'
+import * as a from '../src/features/reports/absenceMath.ts'
 import * as k from '../src/features/reports/kpiRepMath.ts'
 
 let n = 0
@@ -111,5 +112,16 @@ t('default order Line -> Manager -> Box; filters', () => {
   assert.equal(m.filterRows(rows, { lineId: null, manager: 'A', search: '' }).length, 1)
   assert.equal(m.filterRows(rows, { lineId: null, manager: '', search: 'r1' }).length, 3) // code R1
   assert.deepEqual(m.managerOptions(rows, 1), ['B'])
+})
+t('leaves: AM-only 0.5 + full day 1 -> 0.5 / 1 / 1.5, totals are sums, zero is a dash', () => {
+  const r = a.toLeaveRow({ month: '2026-09-01', rep_id: 1, line: 'L1', line_id: 1, direct_manager: 'M', rep_name: 'R', vacation_am: 0.5, vacation_pm: 0, full_days: 1, total_days: 1.5 })
+  assert.equal(a.fmtDaysUpTo1(r.vacation_am), '0.5'); assert.equal(a.fmtDaysUpTo1(r.full_days), '1'); assert.equal(a.fmtDaysUpTo1(r.total_days), '1.5'); assert.equal(a.fmtDaysUpTo1(r.vacation_pm), '—')
+  assert.equal(a.totalLeaves([r, r]).total_days, 3); assert.equal(a.leavesByManager([r, r])[0].reps, 2)
+})
+t('missing: detail rows from missing_dates + missing_dates_list, shift from suffix', () => {
+  const r = a.toMissingRow({ month: '2026-09-01', rep_id: 1, line: 'L1', direct_manager: 'M', rep_name: 'R', rep_code: 'C', missing_am: 1.5, missing_pm: 1, missing_total: 2.5, missing_dates: '02 Sep, 07 Sep AM, 09 Sep PM', missing_dates_list: ['2026-09-02', '2026-09-07', '2026-09-09'] })
+  const d = a.missingDetail([r])
+  assert.deepEqual(d.map((x) => x.shift), ['Both', 'AM', 'PM']); assert.deepEqual(d.map((x) => x.date.getDate()), [2, 7, 9]); assert.equal(d[0].date.getMonth(), 8)
+  assert.equal(a.exportMissing([r], a.totalMissing([r]))[0].Dates, '02 Sep, 07 Sep AM, 09 Sep PM'); assert.equal(a.fmtDays1(r.missing_total), '2.5')
 })
 console.log(`\n${n} tests passed`)

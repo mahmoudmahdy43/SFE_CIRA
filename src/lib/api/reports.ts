@@ -1,6 +1,7 @@
 import { fetchAll } from './core'
 import type { MonthDetail } from './kpi'
 import { toKpiRepRow, type KpiRepRow } from '../../features/reports/kpiRepMath'
+import { toLeaveRow, toMissingRow, type LeaveRow, type MissingRow } from '../../features/reports/absenceMath'
 import {
   numOrNull, toCallRateRow, toCoverageRow, type CallRateRow, type CoverageRow,
 } from '../../features/reports/reportMath'
@@ -87,4 +88,18 @@ export function kpiRepRows(detail: MonthDetail, month: string): KpiRepRow[] {
     )
   }
   return rows
+}
+
+const ABS_IDENT = 'month,line,line_id,manager_id,direct_manager,rep_code,rep_name,box,rep_id'
+
+/** Leave days per rep for the month (v_leave_report: only reps with at least one leave day). */
+export async function fetchLeaveReport(month: string): Promise<LeaveRow[]> {
+  const rows = await fetchAll<Raw>('v_leave_report', `${ABS_IDENT},vacation_am,vacation_pm,full_days,total_days`, ['rep_id'], (q) => q.eq('month', month))
+  return rows.map(toLeaveRow)
+}
+
+/** Missing days per rep for the month (v_missing_report: only reps with at least one missing day). */
+export async function fetchMissingReport(month: string): Promise<MissingRow[]> {
+  const rows = await fetchAll<Raw>('v_missing_report', `${ABS_IDENT},missing_am,missing_pm,missing_total,missing_dates,missing_dates_list`, ['rep_id'], (q) => q.eq('month', month))
+  return rows.map(toMissingRow)
 }
