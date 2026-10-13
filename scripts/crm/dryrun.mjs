@@ -34,7 +34,10 @@ function pageDiagnostics(html) {
     .replace(/&nbsp;/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-  return { first300: text.slice(0, 300), tables: (html.match(/<table/gi) || []).length }
+  const clean = (x) => x.replace(/<[^>]*>/g, ' ').replace(/s+/g, ' ').trim().slice(0, 300)
+  const title = /<title[^>]*>([sS]*?)</title>/i.exec(html)
+  const heading = /<h[12][^>]*>([sS]*?)</h[12]>/i.exec(html)
+  return { first300: text.slice(0, 300), tables: (html.match(/<table/gi) || []).length, title: title ? clean(title[1]) : '(none)', heading: heading ? clean(heading[1]) : '(none)' }
 }
 
 async function main() {
@@ -48,14 +51,17 @@ async function main() {
     loggedIn = true
     const loginSeconds = (Date.now() - t0) / 1000
     const attempts = []
+    // Open the search form first (what the browser does), then ask for the report with that page as Referer.
+    const form = await crm.get('report_ter_visits_search.php', {})
+    attempts.push(`${form.path}: HTTP ${form.status}${form.location ? ` -> Location ${form.location}` : ''}`)
     let last = null
     for (let back = 1; back <= MAX_LOOKBACK_DAYS; back++) {
       const day = isoDay(-back)
       const params = { team: TEAM, emp: 0, wteam: '', dfrom: day, dto: day, vtype: 1, vmembers: '', spoint: '', specialty: '', shift: '', clarification: '' }
       for (const k of [1, 2, 3, 4, 5, 6, -1, -2, -3]) params[`acctype_${k}`] = k
-      const r = await crm.get('report_ter_visits.php', params)
+      const r = await crm.get('report_ter_visits.php', params, { referer: form.url })
       last = { day, ...r, ...countRows(r.text), ...pageDiagnostics(r.text) }
-      attempts.push(`${day}: HTTP ${r.status}, ${last.rows} rows, ${(r.bytes / 1024).toFixed(0)} KB`)
+      attempts.push(`${r.path} (${day}): HTTP ${r.status}${r.location ? ` -> Location ${r.location}` : ''}, ${last.rows} rows, ${(r.bytes / 1024).toFixed(0)} KB`)
       if (last.rows > 0) break
     }
     const status = await crm.logout()
@@ -78,7 +84,12 @@ async function main() {
       `| Tables in page | ${last.tables} |`,
       `| Logout request | ${logoutStatus} |`,
       '',
-      `Days tried: ${attempts.join(' · ')}`,
+      'Requests (path only, redirects not followed):',
+      ...attempts.map((a) => `- ${a}`),
+      '',
+      `Page title: ${last.title}`,
+      '',
+      `First h1/h2: ${last.heading}`,
       '',
       'Query string sent (last request, no cookies):',
       '```',

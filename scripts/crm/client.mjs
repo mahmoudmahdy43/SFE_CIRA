@@ -14,6 +14,7 @@ const ALLOWED_PATHS = new Set([
   'home.php',
   'reports.php',
   'report_ter_visits.php',
+  'report_ter_visits_search.php',
   'report_vacations.php',
   'report_territory_accounts_emp.php',
   'show_data.php',
@@ -107,18 +108,18 @@ export function createClient({ baseUrl, user, pass, atype = 'user' }) {
   }
 
   /** GET one allow-listed page. Returns { status, text, bytes, seconds }. */
-  async function get(path, params) {
+  async function get(path, params, opts = {}) {
     const url = buildUrl(path, params)
     if (!sid) throw new CrmError('Not logged in', 'login')
     for (let attempt = 0; ; attempt++) {
       const t0 = Date.now()
       try {
-        const res = await paced(() => fetch(url, { redirect: 'manual', headers: cookieHeader(), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }))
+        const res = await paced(() => fetch(url, { redirect: 'manual', headers: { ...cookieHeader(), ...(opts.referer ? { referer: opts.referer.href } : {}) }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }))
         takeCookie(res)
         const buf = Buffer.from(await res.arrayBuffer())
         const text = buf.toString('utf8')
         if (isLoginPage(text)) throw new CrmError('Session is no longer logged in', 'login')
-        return { status: res.status, text, bytes: buf.length, seconds: (Date.now() - t0) / 1000, query: url.search.slice(1) }
+        return { status: res.status, text, bytes: buf.length, seconds: (Date.now() - t0) / 1000, query: url.search.slice(1), path: url.pathname.replace(base.pathname, ''), location: res.headers.get('location'), url }
       } catch (e) {
         if (e instanceof CrmError) throw e
         if (attempt >= 1) throw new CrmError(`Network error on ${path}: ${e?.name ?? 'error'}`, 'network')
