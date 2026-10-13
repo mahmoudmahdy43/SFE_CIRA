@@ -22,66 +22,81 @@ export async function ownerNames(codes: string[]): Promise<Map<string, string>> 
   return out
 }
 
-/* ------------------------------ unmatched ------------------------------ */
-export type MatchStatus = 'unmatched' | 'not_in_list'
-export interface UnmatchedRow {
+/** Rows of the month on the Pharmacy shift (outside Total Visits / Call Rate AM-PM / Coverage / PCF). */
+export async function fetchPharmacyCount(month: string): Promise<number> {
+  const { from, to } = monthRange(month)
+  const { count, error } = await supabase
+    .from('visits')
+    .select('id', { count: 'exact', head: true })
+    .gte('visit_date', from)
+    .lte('visit_date', to)
+    .eq('shift_group', 'PHARMACY')
+  if (error) throw new Error(error.message)
+  return count ?? 0
+}
+
+/* ------------------------------ visits not linked ------------------------------ */
+export type UnlinkedReason = 'no Doctor ID' | 'ID not found in list tables'
+export const UNLINKED_REASONS: UnlinkedReason[] = ['no Doctor ID', 'ID not found in list tables']
+export interface UnlinkedRow {
   visit_date: string
   shift: string
   owner_code: string
-  doctor_raw: string | null
+  owner_name: string | null
+  territory_raw: string | null
+  acc_type_code: string | null
   account_raw: string | null
-  match_status: MatchStatus
-  owner: string
+  doctor_raw: string | null
+  account_ext_id: string | null
+  doctor_ext_id: string | null
+  reason: string
 }
 
-function unmatchedQuery(month: string, status: MatchStatus | null, code: string) {
+const UNLINKED_COLS = 'visit_date,shift,owner_code,owner_name,territory_raw,acc_type_code,account_raw,doctor_raw,account_ext_id,doctor_ext_id,reason'
+
+function unlinkedQuery(month: string, reason: UnlinkedReason | null, text: string) {
   const { from, to } = monthRange(month)
-  let q = supabase
-    .from('visits')
-    .select('visit_date,shift,owner_code,doctor_raw,account_raw,match_status', { count: 'exact' })
-    .gte('visit_date', from)
-    .lte('visit_date', to)
-  q = status ? q.eq('match_status', status) : q.in('match_status', ['unmatched', 'not_in_list'])
-  if (code.trim()) q = q.ilike('owner_code', `%${code.trim().replace(/[%_,()]/g, '')}%`)
-  return q.order('visit_date').order('owner_code').order('id')
+  let q = supabase.from('v_dq_visits_unlinked').select(UNLINKED_COLS, { count: 'exact' }).gte('visit_date', from).lte('visit_date', to)
+  if (reason) q = q.eq('reason', reason)
+  const t = text.trim().replace(/[%_,()*]/g, '')
+  if (t) {
+    const like = `%${t}%`
+    q = q.or(['owner_code', 'owner_name', 'territory_raw', 'account_raw', 'doctor_raw', 'account_ext_id', 'doctor_ext_id'].map((c) => `${c}.ilike.${like}`).join(','))
+  }
+  return q.order('visit_date').order('owner_code').order('doctor_raw')
 }
 
-async function withOwners(rows: Omit<UnmatchedRow, 'owner'>[]): Promise<UnmatchedRow[]> {
-  const names = await ownerNames(rows.map((r) => r.owner_code))
-  return rows.map((r) => ({ ...r, owner: names.get(r.owner_code) ?? '—' }))
-}
-
-export async function fetchUnmatchedPage(month: string, status: MatchStatus | null, code: string, page: number, size: number) {
-  const { data, count, error } = await unmatchedQuery(month, status, code).range(page * size, page * size + size - 1)
+export async function fetchUnlinkedPage(month: string, reason: UnlinkedReason | null, text: string, page: number, size: number) {
+  const { data, count, error } = await unlinkedQuery(month, reason, text).range(page * size, page * size + size - 1)
   if (error) throw new Error(error.message)
-  return { rows: await withOwners((data ?? []) as Omit<UnmatchedRow, 'owner'>[]), total: count ?? 0 }
+  return { rows: (data ?? []) as unknown as UnlinkedRow[], total: count ?? 0 }
 }
 
-export async function fetchUnmatchedAll(month: string, status: MatchStatus | null, code: string): Promise<UnmatchedRow[]> {
-  const raw: Omit<UnmatchedRow, 'owner'>[] = []
+export async function fetchUnlinkedAll(month: string, reason: UnlinkedReason | null, text: string): Promise<UnlinkedRow[]> {
+  const out: UnlinkedRow[] = []
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await unmatchedQuery(month, status, code).range(from, from + 999)
+    const { data, error } = await unlinkedQuery(month, reason, text).range(from, from + 999)
     if (error) throw new Error(error.message)
-    const rows = (data ?? []) as Omit<UnmatchedRow, 'owner'>[]
-    raw.push(...rows)
+    const rows = (data ?? []) as unknown as UnlinkedRow[]
+    out.push(...rows)
     if (rows.length < 1000) break
   }
-  return withOwners(raw)
+  return out
 }
 
-export async function fetchUnmatchedCounts(month: string): Promise<Record<MatchStatus, number>> {
+export async function fetchUnlinkedCounts(month: string): Promise<Record<UnlinkedReason, number>> {
   const { from, to } = monthRange(month)
-  const out = { unmatched: 0, not_in_list: 0 } as Record<MatchStatus, number>
+  const out = { 'no Doctor ID': 0, 'ID not found in list tables': 0 } as Record<UnlinkedReason, number>
   await Promise.all(
-    (['unmatched', 'not_in_list'] as const).map(async (s) => {
+    UNLINKED_REASONS.map(async (r) => {
       const { count, error } = await supabase
-        .from('visits')
-        .select('id', { count: 'exact', head: true })
+        .from('v_dq_visits_unlinked')
+        .select('visit_date', { count: 'exact', head: true })
         .gte('visit_date', from)
         .lte('visit_date', to)
-        .eq('match_status', s)
+        .eq('reason', r)
       if (error) throw new Error(error.message)
-      out[s] = count ?? 0
+      out[r] = count ?? 0
     }),
   )
   return out

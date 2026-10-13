@@ -55,7 +55,7 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
   const [choices, setChoices] = useState<Record<string, Choice>>({})
   const [loadProg, setLoadProg] = useState<{ done: number; total: number; month: string; phase?: string } | null>(null)
   const [outcome, setOutcome] = useState<LoadOutcome | null>(null)
-  const [failure, setFailure] = useState<{ message: string; where: string; batch: number | null } | null>(null)
+  const [failure, setFailure] = useState<{ message: string; where: string; batch: number | null; retry?: () => Promise<LoadOutcome> } | null>(null)
   const [undoBatch, setUndoBatch] = useState<number | null>(null)
   const session = useRef<ParseSession<P> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -128,22 +128,33 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
     setStage('loading')
     setFailure(null)
     setLoadProg({ done: 0, total: parsed.rows.length, month: '' })
+    await runLoad(() => config.load({
+      fileName,
+      rows: parsed.rows,
+      excelRows: parsed.excelRows,
+      replaceMonths: Object.entries(choices).filter(([, c]) => c === 'replace').map(([m]) => m),
+      skipMonths: Object.entries(choices).filter(([, c]) => c === 'skip').map(([m]) => m),
+      onProgress: setLoadProg,
+      onBatch: (id) => { batchRef.current = id },
+    }))
+  }
+
+  const runLoad = async (fn: () => Promise<LoadOutcome>) => {
     try {
-      const out = await config.load({
-        fileName,
-        rows: parsed.rows,
-        excelRows: parsed.excelRows,
-        replaceMonths: Object.entries(choices).filter(([, c]) => c === 'replace').map(([m]) => m),
-        skipMonths: Object.entries(choices).filter(([, c]) => c === 'skip').map(([m]) => m),
-        onProgress: setLoadProg,
-        onBatch: (id) => { batchRef.current = id },
-      })
+      const out = await fn()
       setOutcome(out)
       setStage('result')
     } catch (e) {
       const f = e instanceof LoadFailure ? e : null
-      setFailure({ message: e instanceof Error ? e.message : 'Upload failed', where: f?.where ?? 'unknown step', batch: f?.batch ?? batchRef.current })
+      setFailure({ message: e instanceof Error ? e.message : 'Upload failed', where: f?.where ?? 'unknown step', batch: f?.batch ?? batchRef.current, retry: f?.retry })
     }
+  }
+
+  const retryStep = async () => {
+    const retry = failure?.retry
+    if (!retry) return
+    setFailure(null)
+    await runLoad(retry)
   }
 
   const stepIndex = STEPS.findIndex((s) => s.id.includes(stage))
@@ -338,8 +349,9 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
               <p className="mt-2 text-sm">{failure.message}</p>
               <p className="mt-1 text-sm text-muted-foreground">It stopped at: <b>{failure.where}</b>. {loadProg ? `${loadProg.done.toLocaleString()} of ${loadProg.total.toLocaleString()} rows had been sent.` : ''} Some rows may already be stored.</p>
               <div className="mt-4 flex gap-2">
-                {failure.batch !== null && <Button variant="danger" onClick={() => setUndoBatch(failure.batch)}><Undo2 className="h-4 w-4" aria-hidden /> Undo this batch</Button>}
-                <Button onClick={reset}>Start over</Button>
+                {failure.retry && <Button variant="primary" onClick={() => void retryStep()}>Retry this month</Button>}
+                {failure.batch !== null && <Button variant={failure.retry ? 'outline' : 'danger'} onClick={() => setUndoBatch(failure.batch)}><Undo2 className="h-4 w-4" aria-hidden /> Undo this batch</Button>}
+                <Button variant={failure.retry ? 'outline' : undefined} onClick={reset}>Start over</Button>
               </div>
             </div>
           ) : (

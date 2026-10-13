@@ -89,6 +89,7 @@ export function CoverageTab({ month, lines, filters, onFilters }: {
         onXlsx={() => void downloadXlsx(`${name}.xlsx`, 'Coverage', records())}
         onCsv={() => downloadCsv(`${name}.csv`, records())}
       />
+      <p className="text-xs text-muted-foreground">Pharmacy visits are not part of Coverage / PCF.</p>
       <ReportTable
         cols={cols} rows={rows} total={total} loading={data.loading} error={data.error} onRetry={data.reload}
         onRowClick={setDrawer} onRowsChange={onRowsChange}

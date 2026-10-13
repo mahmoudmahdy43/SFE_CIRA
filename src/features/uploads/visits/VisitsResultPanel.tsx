@@ -32,8 +32,7 @@ export default function VisitsResultPanel({ outcome }: { outcome: LoadOutcome; o
           { label: 'Matched', value: r.matched },
         ]
         const warns: Item[] = [
-          { label: 'Not in list', value: r.not_in_list, section: 'unmatched' },
-          { label: 'Unmatched', value: r.unmatched, section: 'unmatched' },
+          { label: 'Not linked to a doctor', value: r.unlinked ?? r.not_in_list, section: 'unlinked' },
           { label: 'Without territory', value: r.no_territory, section: 'noterritory' },
         ]
         return (
@@ -48,7 +47,7 @@ export default function VisitsResultPanel({ outcome }: { outcome: LoadOutcome; o
               ))}
             </dl>
             <p className="mt-1 text-xs text-muted-foreground">Unique visits is the company total: a Double visit (rep row + manager row) is counted once.</p>
-            <div className="mt-4 grid gap-3 border-t pt-3 sm:grid-cols-3">
+            <div className="mt-4 grid gap-3 border-t pt-3 sm:grid-cols-2">
               {warns.map((w) => (
                 <div key={w.label}>
                   <div className="text-xs text-muted-foreground">{w.label}</div>

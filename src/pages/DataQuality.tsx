@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Download, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader, EmptyState, ErrorState } from '../components/app/states'
 import { useMonth } from '../context/MonthContext'
-import { NoTerritorySection, NonWorkSection, PairingSection, UnmatchedSection } from './dq/VisitsSections'
+import { NoTerritorySection, NonWorkSection, PairingSection, UnlinkedSection } from './dq/VisitsSections'
 import { MissingDaysSection, NoBoxSection } from './dq/AbsenceSections'
 import { Combobox } from '../components/ui/combobox'
 import { Button } from '../components/ui/button'
@@ -24,9 +24,9 @@ export default function DataQuality() {
   const qMonth = params.get('month')
   const section = params.get('section')
 
-  // Deep links from the upload result: ?month=YYYY-MM-01&section=unmatched
+  // Deep links from the upload result: ?month=YYYY-MM-01&section=unlinked
   useEffect(() => {
-    if (qMonth && /^d{4}-d{2}-01$/.test(qMonth) && qMonth !== month) setMonth(qMonth)
+    if (qMonth && /^\d{4}-\d{2}-01$/.test(qMonth) && qMonth !== month) setMonth(qMonth)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qMonth])
   useEffect(() => {
@@ -39,7 +39,7 @@ export default function DataQuality() {
     <div>
       <PageHeader title="Data Quality" description="Checks on loaded data. These are warnings for review — they never block an upload." />
       <p className="-mt-3 mb-6 text-sm text-muted-foreground">Visit checks below are for <b className="tnum text-foreground">{month.slice(0, 7)}</b> — change the month with the picker in the top bar.</p>
-      <UnmatchedSection month={month} />
+      <UnlinkedSection month={month} />
       <NonWorkSection month={month} />
       <PairingSection month={month} />
       <NoTerritorySection month={month} />

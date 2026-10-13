@@ -9,6 +9,7 @@ import {
   CHANGE_LABEL, CHANGE_TYPES, fetchChangeCounts, fetchChangeDetails, fetchListMonths,
   type ChangeRow, type ChangeType, type ListMonth,
 } from '../../lib/api/lists'
+import { fetchPharmacyCount } from '../../lib/api/dqVisits'
 import { fetchVisitMonths, type VisitMonth } from '../../lib/api/visits'
 import { rpc } from '../../lib/api/core'
 import { ABSENCE_VIEW, fetchAbsenceMonths, type AbsenceMonth } from '../../lib/api/absence'
@@ -75,6 +76,7 @@ export default function MonthsTab({ selected, onSelect }: { selected: string | n
 function VisitsBlock() {
   const [months, setMonths] = useState<VisitMonth[] | null>(null)
   const [working, setWorking] = useState<Record<string, number>>({})
+  const [pharmacy, setPharmacy] = useState<Record<string, number>>({})
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -82,6 +84,9 @@ function VisitsBlock() {
     try {
       const vm = await fetchVisitMonths()
       setMonths(vm)
+      void Promise.all(vm.map(async (m) => [m.month, await fetchPharmacyCount(m.month)] as const))
+        .then((e) => setPharmacy(Object.fromEntries(e)))
+        .catch(() => undefined)
       // Working AM days per month from the database (single source of truth for the calendar rules).
       const entries = await Promise.all(
         vm.map(async (m) => {
@@ -121,7 +126,8 @@ function VisitsBlock() {
                   <div className="flex justify-between"><dt>Reps</dt><dd className="tnum text-foreground">{m.reps.toLocaleString()}</dd></div>
                   <div className="flex justify-between"><dt>Days covered</dt><dd className="tnum text-foreground">{m.days}{wd !== undefined ? ` of ${wd}` : ''}</dd></div>
                   <div className="flex justify-between"><dt>First – last day</dt><dd className="tnum text-foreground">{m.first_day.slice(5)} – {m.last_day.slice(5)}</dd></div>
-                  <div className="flex justify-between"><dt>Unmatched</dt><dd className={cn('tnum text-foreground', m.unmatched > 0 && 'text-warning')}>{m.unmatched.toLocaleString()}</dd></div>
+                  <div className="flex justify-between"><dt>Pharmacy visits</dt><dd className="tnum text-foreground">{pharmacy[m.month] === undefined ? '…' : pharmacy[m.month].toLocaleString()}</dd></div>
+                  <div className="flex justify-between"><dt>Not linked to a doctor</dt><dd className={cn('tnum text-foreground', (m.unlinked ?? 0) > 0 && 'text-warning')}>{(m.unlinked ?? 0).toLocaleString()}</dd></div>
                 </dl>
                 {partial && <Badge tone="info" className="mt-3">Partial month — {m.days} of {wd} working days</Badge>}
               </Card>

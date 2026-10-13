@@ -19,7 +19,7 @@ export async function fetchCoverageReport(month: string): Promise<CoverageRow[]>
 
 const CALL_COLS = ['working', 'field', 'leave', 'ow', 'activity', 'missing', 'visits']
   .flatMap((g) => [`${g}_am`, `${g}_pm`, `${g}_total`])
-  .concat(['call_rate_am', 'call_rate_pm', 'call_rate_total'])
+  .concat(['call_rate_am', 'call_rate_pm', 'call_rate_total', 'visits_pharmacy', 'field_days', 'call_rate_pharmacy'])
   .join(',')
 
 export async function fetchCallRateReport(month: string): Promise<CallRateRow[]> {

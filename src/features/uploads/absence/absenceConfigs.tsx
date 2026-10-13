@@ -3,6 +3,7 @@ import { fetchAll, rpc } from '../../../lib/api/core'
 import { fetchListMonths } from '../../../lib/api/lists'
 import { fetchAbsenceMonths } from '../../../lib/api/absence'
 import { fetchVisitMonths } from '../../../lib/api/visits'
+import { makeFinisher } from '../finish'
 import { LoadFailure, type LoadOutcome, type LoadParams, type Preview, type ReferenceData, type RejectedRow, type UploadTypeConfig } from '../types'
 import { chunkRows, excelRowOf } from '../list/listParse'
 import { RowsPerDay } from '../visits/RowsPerDay'
@@ -190,7 +191,7 @@ function makeConfig(kind: AbsenceKind): UploadTypeConfig<AbsenceRow, ParsedAbsen
     }
   }
 
-  /** start_upload -> clear range (Replace only) -> chunks -> finish_upload(every month touched). */
+  /** start_upload -> clear range (Replace only) -> chunks -> finish_upload_nr -> refresh_month per month. */
   async function load(p: LoadParams<AbsenceRow>): Promise<LoadOutcome> {
     const skip = new Set(p.skipMonths)
     const items = p.rows
@@ -242,13 +243,20 @@ function makeConfig(kind: AbsenceKind): UploadTypeConfig<AbsenceRow, ParsedAbsen
         done += chunk.length
         p.onProgress({ done, total: items.length, month: chunk[chunk.length - 1].month, phase: 'Loading rows' })
       }
-      where = 'finishing (refreshing KPIs)'
-      p.onProgress({ done: touched.length, total: touched.length, month: '', phase: 'Refreshing KPIs' })
-      await rpc('finish_upload', { p_batch: batch, p_total: items.length, p_loaded: loaded, p_rejected: rejectedCount, p_months: touched })
     } catch (e) {
       throw new LoadFailure(e instanceof Error ? e.message : 'Upload failed', batch, where)
     }
-    return { batch, total: items.length, loaded, rejectedCount, rejected, months: touched }
+    const outcome: LoadOutcome = { batch, total: items.length, loaded, rejectedCount, rejected, months: touched }
+    const fin = makeFinisher({ batch, total: items.length, loaded, rejectedCount, months: touched, onProgress: p.onProgress })
+    const finish = async (): Promise<LoadOutcome> => {
+      try {
+        await fin.run()
+      } catch (e) {
+        throw new LoadFailure(e instanceof Error ? e.message : 'Finishing failed', batch, fin.current(), finish)
+      }
+      return outcome
+    }
+    return finish()
   }
 
   return {

@@ -61,8 +61,11 @@ export interface LoadOutcome {
 }
 
 export class LoadFailure extends Error {
-  constructor(message: string, public batch: number | null, public where: string) {
+  /** Set when rows are loaded and only a finishing step failed: re-runs the failed step, then the rest. */
+  retry?: () => Promise<LoadOutcome>
+  constructor(message: string, public batch: number | null, public where: string, retry?: () => Promise<LoadOutcome>) {
     super(message)
+    this.retry = retry
   }
 }
 

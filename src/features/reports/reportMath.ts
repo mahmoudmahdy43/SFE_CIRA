@@ -14,7 +14,8 @@ export function numOrNull(v: unknown): number | null {
 const n0 = (v: unknown): number => numOrNull(v) ?? 0
 
 export type Shift = 'am' | 'pm' | 'total'
-export type ViewMode = 'both' | 'am' | 'pm'
+/** Shift filter of the Call Rate report: 'both' = All (AM, PM, Total + the separate Pharmacy group). */
+export type ViewMode = 'both' | 'am' | 'pm' | 'pharmacy'
 
 /* ------------------------------------ row shapes ------------------------------------ */
 export interface RepIdentity {
@@ -43,6 +44,10 @@ export type CallRateRow = RepIdentity & { [K in `${CountGroup}_${Shift}`]: numbe
   call_rate_am: number | null
   call_rate_pm: number | null
   call_rate_total: number | null
+  /** Pharmacy is a separate group: never part of the AM / PM / Total columns above. */
+  visits_pharmacy: number
+  field_days: number
+  call_rate_pharmacy: number | null
 }
 
 function identity(r: Record<string, unknown>): RepIdentity {
@@ -78,6 +83,9 @@ export function toCallRateRow(r: Record<string, unknown>): CallRateRow {
     for (const s of ['am', 'pm', 'total'] as const) out[`${g}_${s}`] = n0(r[`${g}_${s}`])
   }
   for (const s of ['am', 'pm', 'total'] as const) out[`call_rate_${s}`] = numOrNull(r[`call_rate_${s}`])
+  out.visits_pharmacy = n0(r.visits_pharmacy)
+  out.field_days = n0(r.field_days)
+  out.call_rate_pharmacy = numOrNull(r.call_rate_pharmacy)
   return out as unknown as CallRateRow
 }
 
@@ -116,6 +124,9 @@ export function totalCallRate(rows: CallRateRow[]): CallRateRow {
   t.call_rate_am = ratio(t.visits_am, t.field_am)
   t.call_rate_pm = ratio(t.visits_pm, t.field_pm)
   t.call_rate_total = ratio(t.visits_total, t.field_total)
+  t.visits_pharmacy = rows.reduce((a, r) => a + r.visits_pharmacy, 0)
+  t.field_days = rows.reduce((a, r) => a + r.field_days, 0)
+  t.call_rate_pharmacy = ratio(t.visits_pharmacy, t.field_days)
   return t
 }
 
@@ -130,6 +141,7 @@ export function fmtHireDate(iso: string | null): string {
 export const fmtCount = (v: number | null): string => (v === null ? DASH : Math.round(v).toLocaleString('en-US'))
 export const fmtCoverage = (v: number | null): string => (v === null ? DASH : `${(v * 100).toFixed(1)}%`)
 export const fmtCallRate = (v: number | null): string => (v === null ? DASH : v.toFixed(2))
+export const fmtDays = (v: number | null): string => (v === null ? DASH : v.toFixed(1))
 export const fmtTarget = (v: number | null): string => (v === null ? DASH : v.toFixed(1))
 
 /** Dot colour of a call rate against its box target: >=100% success, 80-99% warning, <80% danger; no target -> none. */
@@ -180,7 +192,7 @@ export const SHIFT_LABEL: Record<Shift, string> = { am: 'AM', pm: 'PM', total: '
 export interface CallCol { id: keyof CallRateRow & string; group: CallGroup; shift: Shift; header: string }
 
 /** Shifts shown in a mode. Total mixes both shifts, so single-shift modes hide it. */
-export const shiftsFor = (mode: ViewMode): Shift[] => (mode === 'both' ? ['am', 'pm', 'total'] : [mode])
+export const shiftsFor = (mode: ViewMode): Shift[] => (mode === 'both' ? ['am', 'pm', 'total'] : mode === 'pharmacy' ? [] : [mode])
 
 /** Visible grouped columns for a mode, in display order. */
 export function callRateColumns(mode: ViewMode, showMissing: boolean): CallCol[] {
@@ -191,6 +203,15 @@ export function callRateColumns(mode: ViewMode, showMissing: boolean): CallCol[]
     })),
   )
 }
+
+export interface PharmacyCol { id: 'field_days' | 'visits_pharmacy' | 'call_rate_pharmacy'; header: string; decimals: number }
+/** Pharmacy group: shown in All and Pharmacy views only. */
+export const PHARMACY_COLS: PharmacyCol[] = [
+  { id: 'field_days', header: 'Field Days', decimals: 1 },
+  { id: 'visits_pharmacy', header: 'Pharmacy Visits', decimals: 0 },
+  { id: 'call_rate_pharmacy', header: 'Pharmacy Call Rate', decimals: 2 },
+]
+export const showsPharmacy = (mode: ViewMode): boolean => mode === 'both' || mode === 'pharmacy'
 
 /* ------------------------------------ export mapping ------------------------------------ */
 export type ExportRow = Record<string, string | number | null>
@@ -230,6 +251,7 @@ export function exportCallRate(
   return [...rows, total].map((r) => {
     const o = identityCells(r, visible)
     for (const c of cols) o[c.header] = c.group === 'call_rate' ? round(r[c.id] as number | null, 2) : (r[c.id] as number)
+    if (showsPharmacy(mode) && visible('pharmacy')) for (const c of PHARMACY_COLS) o[c.header] = round(r[c.id], c.decimals)
     return o
   })
 }

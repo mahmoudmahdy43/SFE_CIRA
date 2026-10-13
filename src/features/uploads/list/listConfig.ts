@@ -2,6 +2,7 @@ import { FileSpreadsheet } from 'lucide-react'
 import { normName } from '../../../lib/norm'
 import { fetchAll, rpc } from '../../../lib/api/core'
 import { fetchListMonths } from '../../../lib/api/lists'
+import { makeFinisher } from '../finish'
 import ListResultPanel from './ListResultPanel'
 import { LoadFailure, type LoadOutcome, type LoadParams, type Preview, type ReferenceData, type RejectedRow, type UploadTypeConfig } from '../types'
 import { LIST_COLUMNS, chunkRows, excelRowOf, type ListRow } from './listParse'
@@ -76,7 +77,7 @@ async function sendChunk(batch: number, rows: ListRow[]): Promise<ChunkResult> {
   }
 }
 
-/** start_upload -> (clear_list_month per Replace month) -> load_list_chunk* -> finish_upload. */
+/** start_upload -> (clear_list_month per Replace month) -> load_list_chunk* -> finish_upload_nr -> refresh_month per month. */
 async function load(p: LoadParams<ListRow>): Promise<LoadOutcome> {
   const skip = new Set(p.skipMonths)
   const items = p.rows
@@ -118,12 +119,20 @@ async function load(p: LoadParams<ListRow>): Promise<LoadOutcome> {
       done += chunk.length
       p.onProgress({ done, total: items.length, month: chunk[chunk.length - 1].month })
     }
-    where = 'finishing (rebuilding org and KPIs)'
-    await rpc('finish_upload', { p_batch: batch, p_total: items.length, p_loaded: loaded, p_rejected: rejectedCount, p_months: months })
   } catch (e) {
     throw new LoadFailure(e instanceof Error ? e.message : 'Upload failed', batch, where)
   }
-  return { batch, total: items.length, loaded, rejectedCount, rejected, months }
+  const outcome: LoadOutcome = { batch, total: items.length, loaded, rejectedCount, rejected, months }
+  const fin = makeFinisher({ batch, total: items.length, loaded, rejectedCount, months, onProgress: p.onProgress })
+  const finish = async (): Promise<LoadOutcome> => {
+    try {
+      await fin.run()
+    } catch (e) {
+      throw new LoadFailure(e instanceof Error ? e.message : 'Finishing failed', batch, fin.current(), finish)
+    }
+    return outcome
+  }
+  return finish()
 }
 
 export const listConfig: UploadTypeConfig<ListRow, ParsedList> = {

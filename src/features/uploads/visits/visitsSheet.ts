@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx'
 import type { Cell } from '../list/listParse'
 import { cellAt, plain, type RowError, type Sheet } from '../list/listSheet'
 import {
-  codeText, inferDateOrder, keepText, matchVisitHeaders, parseShift, parseVisitDate, parseVisitRoot, parseVisitType,
+  codeText, idText, inferDateOrder, keepText, matchVisitHeaders, parseShift, parseVisitDate, parseVisitRoot, parseVisitType,
   VISIT_COLUMNS, type DateOrder, type VisitRow,
 } from './visitsParse'
 
@@ -89,6 +89,9 @@ export function parseVisitsSheet(ws: Sheet, onProgress?: (done: number, total: n
     rows.push({
       month: `${(date as string).slice(0, 7)}-01`,
       territory: keepText(get(r, 'territory')),
+      acc_type: keepText(get(r, 'acc_type')),
+      account_id: idText(get(r, 'account_id')),
+      doctor_id: idText(get(r, 'doctor_id')),
       code: code as string,
       shift: shift as 'AM' | 'PM',
       visit_type: type as 'S' | 'D',

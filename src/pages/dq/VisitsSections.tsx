@@ -11,8 +11,8 @@ import { Badge, Card, Input, Skeleton } from '../../components/ui/misc'
 import { Dialog, DialogContent } from '../../components/ui/overlay'
 import {
   fetchNoTerritory, fetchNonWorkAll, fetchNonWorkPage, fetchPairingAll,
-  fetchPairingPage, fetchUnmatchedAll, fetchUnmatchedCounts, fetchUnmatchedPage, rematchMonth,
-  type GenericRow, type MatchStatus, type NoTerritoryGroup, type NonWorkRow, type UnmatchedRow,
+  fetchPairingPage, fetchUnlinkedAll, fetchUnlinkedCounts, fetchUnlinkedPage, rematchMonth, UNLINKED_REASONS,
+  type GenericRow, type NoTerritoryGroup, type NonWorkRow, type UnlinkedReason, type UnlinkedRow,
 } from '../../lib/api/dqVisits'
 import type { ProcessResult } from '../../lib/api/visits'
 import { useOrg } from '../../lib/api/org'
@@ -38,19 +38,19 @@ function Stat({ label, value, tone }: { label: string; value: number | null; ton
   )
 }
 
-/* =============================== Unmatched doctors =============================== */
-export function UnmatchedSection({ month }: { month: string }) {
-  const [status, setStatus] = useState<MatchStatus | null>(null)
-  const [code, setCode] = useState('')
-  const [codeInput, setCodeInput] = useState('')
-  const [counts, setCounts] = useState<Record<MatchStatus, number> | null>(null)
+/* =============================== Visits not linked =============================== */
+export function UnlinkedSection({ month }: { month: string }) {
+  const [reason, setReason] = useState<UnlinkedReason | null>(null)
+  const [text, setText] = useState('')
+  const [textInput, setTextInput] = useState('')
+  const [counts, setCounts] = useState<Record<UnlinkedReason, number> | null>(null)
   const [version, setVersion] = useState(0)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<ProcessResult | null>(null)
 
   useEffect(() => {
     setCounts(null)
-    fetchUnmatchedCounts(month).then(setCounts).catch(() => setCounts({ unmatched: 0, not_in_list: 0 }))
+    fetchUnlinkedCounts(month).then(setCounts).catch(() => setCounts({ 'no Doctor ID': 0, 'ID not found in list tables': 0 }))
   }, [month, version])
 
   const rematch = async () => {
@@ -66,21 +66,25 @@ export function UnmatchedSection({ month }: { month: string }) {
     }
   }
 
-  const columns: PagedColumn<UnmatchedRow>[] = [
+  const columns: PagedColumn<UnlinkedRow>[] = [
     { header: 'Date', cell: (r) => <span className="tnum whitespace-nowrap">{r.visit_date}</span> },
     { header: 'Shift', cell: (r) => r.shift },
     { header: 'CODE', cell: (r) => <span className="tnum">{r.owner_code}</span> },
-    { header: 'Owner', cell: (r) => r.owner },
-    { header: 'Doctor', cell: (r) => r.doctor_raw ?? '—' },
+    { header: 'Owner', cell: (r) => r.owner_name ?? '—' },
+    { header: 'Territory', cell: (r) => r.territory_raw ?? '—' },
+    { header: 'Acc. Type', cell: (r) => r.acc_type_code ?? '—' },
     { header: 'Account', cell: (r) => r.account_raw ?? '—' },
-    { header: 'Status', cell: (r) => <Badge tone={r.match_status === 'unmatched' ? 'danger' : 'warning'}>{r.match_status === 'unmatched' ? 'Unmatched' : 'Not in list'}</Badge> },
+    { header: 'Doctor', cell: (r) => r.doctor_raw ?? '—' },
+    { header: 'Account ID', cell: (r) => <span className="tnum">{r.account_ext_id ?? '—'}</span> },
+    { header: 'Doctor ID', cell: (r) => <span className="tnum">{r.doctor_ext_id ?? '—'}</span> },
+    { header: 'Reason', cell: (r) => <Badge tone={r.reason === 'no Doctor ID' ? 'warning' : 'danger'}>{r.reason}</Badge> },
   ]
 
   return (
-    <Section id="unmatched" title="Unmatched doctors" description="not_in_list = a known doctor outside the rep's list (counts in the rep's total visits, valid = 0). unmatched = the doctor/account was not found in any list.">
+    <Section id="unlinked" title="Visits not linked" description="These visits are counted in Total Visits and Call Rate but not in Coverage / PCF.">
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
-        <Stat label="Unmatched" value={counts?.unmatched ?? null} tone="warning" />
-        <Stat label="Not in list" value={counts?.not_in_list ?? null} tone="warning" />
+        <Stat label="No Doctor ID" value={counts?.['no Doctor ID'] ?? null} tone="warning" />
+        <Stat label="ID not found in list tables" value={counts?.['ID not found in list tables'] ?? null} tone="warning" />
         <Card className="flex flex-col justify-between p-4">
           <div className="text-xs font-medium text-muted-foreground">Re-match this month</div>
           <Button className="mt-2" disabled={busy} onClick={() => void rematch()}>
@@ -91,24 +95,24 @@ export function UnmatchedSection({ month }: { month: string }) {
       {result && (
         <Card className="mb-4 p-4 text-sm" role="status">
           <b>Re-match result:</b>{' '}
-          <span className="tnum">{result.rows.toLocaleString()} rows · {result.unique_visits.toLocaleString()} unique visits · matched {result.matched.toLocaleString()} · not in list {result.not_in_list.toLocaleString()} · unmatched {result.unmatched.toLocaleString()} · no territory {result.no_territory.toLocaleString()}</span>
+          <span className="tnum">{result.rows.toLocaleString()} rows · {result.unique_visits.toLocaleString()} unique visits · matched {result.matched.toLocaleString()} · not linked {(result.unlinked ?? result.not_in_list).toLocaleString()} · no territory {result.no_territory.toLocaleString()}</span>
         </Card>
       )}
       <PagedTable
-        key={`${month}-${status}-${code}`}
+        key={`${month}-${reason}-${text}`}
         refreshKey={version}
         columns={columns}
-        csvName={`unmatched-visits-${month.slice(0, 7)}`}
-        emptyTitle="No unmatched visits"
-        emptyDescription="Every visit of this month matched a doctor in the list."
-        load={(p, s) => fetchUnmatchedPage(month, status, code, p, s)}
-        exportAll={async () => (await fetchUnmatchedAll(month, status, code)).map((r) => ({ date: r.visit_date, shift: r.shift, code: r.owner_code, owner: r.owner, doctor: r.doctor_raw ?? '', account: r.account_raw ?? '', status: r.match_status }))}
+        csvName={`visits-not-linked-${month.slice(0, 7)}`}
+        emptyTitle="No unlinked visits"
+        emptyDescription="Every visit of this month is linked to a doctor in the list."
+        load={(p, s) => fetchUnlinkedPage(month, reason, text, p, s)}
+        exportAll={async () => (await fetchUnlinkedAll(month, reason, text)).map((r) => ({ date: r.visit_date, shift: r.shift, code: r.owner_code, owner: r.owner_name ?? '', territory: r.territory_raw ?? '', acc_type: r.acc_type_code ?? '', account: r.account_raw ?? '', doctor: r.doctor_raw ?? '', account_id: r.account_ext_id ?? '', doctor_id: r.doctor_ext_id ?? '', reason: r.reason }))}
         toolbar={
           <>
-            <Combobox label="Status" placeholder="Both statuses" className="h-8" options={[{ value: 'unmatched', label: 'Unmatched' }, { value: 'not_in_list', label: 'Not in list' }]} value={status} onChange={(v) => setStatus(v as MatchStatus | null)} />
-            <form className="flex gap-1" onSubmit={(e) => { e.preventDefault(); setCode(codeInput) }}>
-              <Input aria-label="Filter by CODE" placeholder="CODE…" value={codeInput} onChange={(e) => setCodeInput(e.target.value)} className="h-8 w-32" />
-              <Button size="sm" type="submit">Filter</Button>
+            <Combobox label="Reason" placeholder="All reasons" className="h-8" options={UNLINKED_REASONS.map((r) => ({ value: r, label: r }))} value={reason} onChange={(v) => setReason(v as UnlinkedReason | null)} />
+            <form className="flex gap-1" onSubmit={(e) => { e.preventDefault(); setText(textInput) }}>
+              <Input aria-label="Search visits" placeholder="Search code, owner, doctor, ID…" value={textInput} onChange={(e) => setTextInput(e.target.value)} className="h-8 w-56" />
+              <Button size="sm" type="submit">Search</Button>
             </form>
           </>
         }

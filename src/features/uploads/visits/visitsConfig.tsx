@@ -2,6 +2,7 @@ import { Stethoscope } from 'lucide-react'
 import { fetchAll, rpc } from '../../../lib/api/core'
 import { fetchListMonths } from '../../../lib/api/lists'
 import { fetchVisitMonths, type ProcessResult } from '../../../lib/api/visits'
+import { makeFinisher } from '../finish'
 import { LoadFailure, type LoadOutcome, type LoadParams, type Preview, type ReferenceData, type RejectedRow, type UploadTypeConfig } from '../types'
 import { chunkRows, excelRowOf } from '../list/listParse'
 import VisitsResultPanel, { type VisitsExtra } from './VisitsResultPanel'
@@ -41,6 +42,8 @@ function buildPreview(p: ParsedVisits, ref: ReferenceData): Preview {
   const unknown = new Map<string, number>()
   const monthRows = new Map<string, number>()
   let single = 0
+  let withDoctorId = 0
+  let withoutDoctorId = 0
   let double = 0
   let planned = 0
   let direct = 0
@@ -49,6 +52,8 @@ function buildPreview(p: ParsedVisits, ref: ReferenceData): Preview {
     monthRows.set(r.month, (monthRows.get(r.month) ?? 0) + 1)
     codes.add(r.code)
     if (!ref.repCodes.has(r.code)) unknown.set(r.code, (unknown.get(r.code) ?? 0) + 1)
+    if (r.doctor_id && r.account_id) withDoctorId++
+    else withoutDoctorId++
     if (r.visit_type === 'D') double++
     else single++
     if (r.visit_root === 'Planned') planned++
@@ -67,6 +72,7 @@ function buildPreview(p: ParsedVisits, ref: ReferenceData): Preview {
     .filter((m) => !ref.listMonths?.has(m.month))
     .map((m) => `Target List for ${m.month.slice(0, 7)} is not loaded — visits will not match any list: load the list first. (You can still continue and use Re-match later.)`)
   const warnings: string[] = []
+  if (withDoctorId + withoutDoctorId > 0) warnings.push(`${withDoctorId.toLocaleString()} rows with Doctor ID, ${withoutDoctorId.toLocaleString()} rows without (they will be stored as visits outside the list: counted in Total Visits / Call Rate, no Coverage / PCF).`)
   if (p.otherRoots > 0) warnings.push(`${p.otherRoots.toLocaleString()} row(s) have a Visit Root other than Planned / Direct — kept as written.`)
   if (p.undecidedDateOrder) warnings.push('Some dates are text like 07/10/2026 and the file does not show whether day or month comes first — day-first was assumed. Check the date range above.')
   if (p.errors.length > 0) warnings.push(`${p.errors.length.toLocaleString()} row(s) have a bad shift, visit type, date, or blank required value and will be excluded (listed below).`)
@@ -86,6 +92,8 @@ function buildPreview(p: ParsedVisits, ref: ReferenceData): Preview {
       { label: 'Double rows (rep + manager pairs)', value: double },
       { label: 'Planned', value: planned },
       { label: 'Direct', value: direct },
+      { label: 'Rows with Doctor ID', value: withDoctorId },
+      { label: 'Rows without Doctor ID', value: withoutDoctorId },
       { label: 'Rows excluded (invalid)', value: p.errors.length },
     ],
     alerts,
@@ -95,8 +103,8 @@ function buildPreview(p: ParsedVisits, ref: ReferenceData): Preview {
     unknownLabel: 'Unknown CODEs',
     unknownLines: [],
     sample: {
-      columns: ['Date', 'Shift', 'CODE', 'Territory', 'Type', 'Doctor Name', 'Acc. Name', 'Root'],
-      rows: p.rows.slice(0, 20).map((r) => [r.visit_date, r.shift, r.code, r.territory, r.visit_type, r.doctor_name, r.acc_name, r.visit_root]),
+      columns: ['Date', 'Shift', 'CODE', 'Territory', 'Type', 'Acc. Type', 'Account ID', 'Doctor ID', 'Doctor Name', 'Acc. Name', 'Root'],
+      rows: p.rows.slice(0, 20).map((r) => [r.visit_date, r.shift, r.code, r.territory, r.visit_type, r.acc_type, r.account_id, r.doctor_id, r.doctor_name, r.acc_name, r.visit_root]),
     },
     extra: <RowsPerDay days={sortedDays.map((d) => ({ day: d, rows: days.get(d) as number }))} />,
   }
@@ -111,7 +119,7 @@ async function sendChunk(batch: number, rows: Omit<VisitRow, 'month'>[]): Promis
   }
 }
 
-/** start_upload -> clear_visits_range (Replace only, exactly the file's dates) -> chunks -> process_visits_month -> finish_upload. */
+/** start_upload -> clear_visits_range (Replace only, exactly the file's dates) -> chunks -> finish_upload_nr -> process_visits_month / refresh_month per month. */
 async function load(p: LoadParams<VisitRow>): Promise<LoadOutcome> {
   const skip = new Set(p.skipMonths)
   const items = p.rows
@@ -163,28 +171,29 @@ async function load(p: LoadParams<VisitRow>): Promise<LoadOutcome> {
       done += chunk.length
       p.onProgress({ done, total: items.length, month: chunk[chunk.length - 1].month, phase: 'Loading rows' })
     }
-    for (let k = 0; k < months.length; k++) {
-      where = `matching doctors for ${months[k].slice(0, 7)}`
-      p.onProgress({ done: k, total: months.length, month: months[k], phase: 'Matching doctors and territories' })
-      try {
-        extra[months[k]] = await rpc<ProcessResult>('process_visits_month', { p_month: months[k] })
-      } catch (e) {
-        extra[months[k]] = { error: e instanceof Error ? e.message : 'matching failed' }
-      }
-    }
-    where = 'finishing (refreshing org and KPIs)'
-    p.onProgress({ done: months.length, total: months.length, month: '', phase: 'Refreshing KPIs' })
-    await rpc('finish_upload', { p_batch: batch, p_total: items.length, p_loaded: loaded, p_rejected: rejectedCount, p_months: months })
   } catch (e) {
     throw new LoadFailure(e instanceof Error ? e.message : 'Upload failed', batch, where)
   }
-  return { batch, total: items.length, loaded, rejectedCount, rejected, months, extra }
+  const outcome: LoadOutcome = { batch, total: items.length, loaded, rejectedCount, rejected, months, extra }
+  const fin = makeFinisher({
+    batch, total: items.length, loaded, rejectedCount, months, onProgress: p.onProgress,
+    processVisits: async (m) => { extra[m] = await rpc<ProcessResult>('process_visits_month', { p_month: m }) },
+  })
+  const finish = async (): Promise<LoadOutcome> => {
+    try {
+      await fin.run()
+    } catch (e) {
+      throw new LoadFailure(e instanceof Error ? e.message : 'Finishing failed', batch, fin.current(), finish)
+    }
+    return outcome
+  }
+  return finish()
 }
 
 export const visitsConfig: UploadTypeConfig<VisitRow, ParsedVisits> = {
   kind: 'visits',
   label: 'Visits',
-  description: 'Daily visit log per rep and manager (Single / Double, Planned / Direct). Matched to the monthly Target List by doctor and account name.',
+  description: 'Daily visit log per rep and manager (Single / Double, Planned / Direct). Linked to the monthly Target List by Account Type + Account ID + Doctor ID.',
   icon: Stethoscope,
   enabled: true,
   templateHeaders: VISIT_COLUMNS.map((c) => c.label),

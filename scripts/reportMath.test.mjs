@@ -55,6 +55,16 @@ t('AM-only export has only AM columns, same headers as the table', () => {
   assert.ok(!keys.includes('Missing days AM'))
   assert.ok(Object.keys(m.exportCallRate(crRows, m.totalCallRate(crRows), 'both', true)[0]).includes('Missing days Total'))
 })
+t('pharmacy: totals divide sums, null rate stays null, pharmacy mode has no AM/PM columns', () => {
+  const a = call({ rep_id: 1, visits_pharmacy: 10, field_days: 4, call_rate_pharmacy: 2.5 })
+  const b = call({ rep_id: 2, visits_pharmacy: 5, field_days: 0, call_rate_pharmacy: null })
+  const tot = m.totalCallRate([a, b])
+  assert.equal(tot.visits_pharmacy, 15); assert.equal(tot.field_days, 4); assert.equal(tot.call_rate_pharmacy, 15 / 4)
+  assert.equal(m.totalCallRate([b]).call_rate_pharmacy, null)
+  assert.equal(m.callRateColumns('pharmacy', true).length, 0)
+  const ex = m.exportCallRate([a, b], tot, 'pharmacy', false)
+  assert.equal(ex[0]['Pharmacy Call Rate'], 2.5); assert.equal(ex[1]['Pharmacy Call Rate'], null)
+})
 t('target dot thresholds and no-target', () => {
   assert.equal(m.targetTone(8, 8), 'success'); assert.equal(m.targetTone(6.4, 8), 'warning'); assert.equal(m.targetTone(6.3, 8), 'danger')
   assert.equal(m.targetTone(5, null), null); assert.equal(m.targetTone(null, 8), null)
