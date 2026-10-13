@@ -50,6 +50,9 @@ export interface MissingRow extends AbsenceIdentity {
   missing_total: number
   missing_dates: string
   missing_dates_list: string[]
+  /** Days with the AM slot missing / the PM slot missing, e.g. "03 Sep, 07 Sep". */
+  missing_dates_am: string
+  missing_dates_pm: string
 }
 
 export const toLeaveRow = (r: Record<string, unknown>): LeaveRow => ({
@@ -61,8 +64,46 @@ export function toMissingRow(r: Record<string, unknown>): MissingRow {
   return {
     ...identity(r), missing_am: num(r.missing_am), missing_pm: num(r.missing_pm), missing_total: num(r.missing_total),
     missing_dates: str(r.missing_dates) ?? '', missing_dates_list: list,
+    missing_dates_am: str(r.missing_dates_am) ?? '', missing_dates_pm: str(r.missing_dates_pm) ?? '',
   }
 }
+
+/* ------------------------------ month range ------------------------------ */
+/** From > To -> swapped. Months are 'YYYY-MM-01' strings, which sort as text. */
+export const orderRange = (from: string, to: string): { from: string; to: string } => (from <= to ? { from, to } : { from: to, to: from })
+
+/** Rep-month rows -> one row per rep (identity from the latest month, hire date from the latest month that has one). */
+function byRep<T extends AbsenceIdentity>(rows: T[]): T[][] {
+  const by = new Map<number, T[]>()
+  for (const r of [...rows].sort((a, b) => a.month.localeCompare(b.month))) {
+    const l = by.get(r.rep_id)
+    if (l) l.push(r)
+    else by.set(r.rep_id, [r])
+  }
+  return [...by.values()]
+}
+const latestHire = (l: AbsenceIdentity[]): string | null => [...l].reverse().find((r) => r.hire_date)?.hire_date ?? null
+
+export const mergeLeaves = (rows: LeaveRow[]): LeaveRow[] =>
+  byRep(rows).map((l) => ({ ...l[l.length - 1], hire_date: latestHire(l), ...totalLeaves(l) }))
+
+/** Sums the days; AM / PM date strings are joined in month order (each date already carries its month). */
+export const mergeMissing = (rows: MissingRow[]): MissingRow[] =>
+  byRep(rows).map((l) => {
+    const join = (k: 'missing_dates' | 'missing_dates_am' | 'missing_dates_pm') => l.map((r) => r[k]).filter(Boolean).join(', ')
+    return {
+      ...l[l.length - 1], hire_date: latestHire(l), ...totalMissing(l),
+      missing_dates: join('missing_dates'), missing_dates_am: join('missing_dates_am'), missing_dates_pm: join('missing_dates_pm'),
+      missing_dates_list: l.flatMap((r) => r.missing_dates_list),
+    }
+  })
+
+/** '2026-09-01' -> '2026-09'; a range -> '2026-09_to_2026-11' (file names) */
+export const rangeSlug = (from: string, to: string): string => (from === to ? from.slice(0, 7) : `${from.slice(0, 7)}_to_${to.slice(0, 7)}`)
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const monthLabel = (m: string): string => `${MON[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`
+/** 'Sep 2026' or 'Sep 2026 – Nov 2026' */
+export const rangeLabel = (from: string, to: string): string => (from === to ? monthLabel(from) : `${monthLabel(from)} – ${monthLabel(to)}`)
 
 /* ------------------------------ totals / roll-ups ------------------------------ */
 export type LeaveSums = { vacation_am: number; vacation_pm: number; full_days: number; total_days: number }
@@ -160,9 +201,15 @@ export function exportLeaveGroups(groups: LeaveGroup[], total: LeaveSums, label:
 }
 export function exportMissing(rows: MissingRow[], total: MissingSums): ExportRow[] {
   return [
-    ...rows.map((r) => ({ ...idCells(r), 'Missing AM': r.missing_am, 'Missing PM': r.missing_pm, Total: r.missing_total, Dates: r.missing_dates })),
-    { Line: 'Total', 'Direct Manager': null, 'Medical Rep': null, Code: null, 'Hire Date': null, Box: null, 'Missing AM': total.missing_am, 'Missing PM': total.missing_pm, Total: total.missing_total, Dates: null },
+    ...rows.map((r) => ({ ...idCells(r), 'Missing AM': r.missing_am, 'Missing PM': r.missing_pm, Total: r.missing_total, 'AM Dates': r.missing_dates_am, 'PM Dates': r.missing_dates_pm })),
+    { Line: 'Total', 'Direct Manager': null, 'Medical Rep': null, Code: null, 'Hire Date': null, Box: null, 'Missing AM': total.missing_am, 'Missing PM': total.missing_pm, Total: total.missing_total, 'AM Dates': null, 'PM Dates': null },
   ]
 }
-export const exportMissingDetail = (rows: MissingRow[]): ExportRow[] =>
-  missingDetail(rows).map((d) => ({ Line: d.line, 'Direct Manager': d.manager, Rep: d.rep, Code: d.code, 'Hire Date': hireDateValue(d.hire), Box: d.box, Date: d.date, Shift: d.shift }))
+/** Detail sheet: one row per rep per missing day. Built from the original rep-month rows (a day number alone is ambiguous across months), in the order of the visible reps. */
+export function exportMissingDetail(rows: MissingRow[], rawRows: MissingRow[]): ExportRow[] {
+  const raw = new Map<number, MissingRow[]>()
+  for (const r of [...rawRows].sort((a, b) => a.month.localeCompare(b.month))) raw.set(r.rep_id, [...(raw.get(r.rep_id) ?? []), r])
+  return rows.flatMap((r) =>
+    missingDetail(raw.get(r.rep_id) ?? []).map((d) => ({ Line: r.line, 'Direct Manager': r.manager, Rep: d.rep, Code: d.code, 'Hire Date': hireDateValue(r.hire_date), Box: d.box, Date: d.date, Shift: d.shift })),
+  )
+}

@@ -92,14 +92,19 @@ export function kpiRepRows(detail: MonthDetail, month: string): KpiRepRow[] {
 
 const ABS_IDENT = 'month,line,line_id,manager_id,direct_manager,rep_code,rep_name,box,rep_id,hire_date'
 
-/** Leave days per rep for the month (v_leave_report: only reps with at least one leave day). */
-export async function fetchLeaveReport(month: string): Promise<LeaveRow[]> {
-  const rows = await fetchAll<Raw>('v_leave_report', `${ABS_IDENT},vacation_am,vacation_pm,full_days,total_days`, ['rep_id'], (q) => q.eq('month', month))
+/** Leave days per rep and month for months from..to (v_leave_report: only reps with at least one leave day). */
+export async function fetchLeaveReport(from: string, to: string): Promise<LeaveRow[]> {
+  const rows = await fetchAll<Raw>('v_leave_report', `${ABS_IDENT},vacation_am,vacation_pm,full_days,total_days`, ['month', 'rep_id'], (q) => q.gte('month', from).lte('month', to))
   return rows.map(toLeaveRow)
 }
 
-/** Missing days per rep for the month (v_missing_report: only reps with at least one missing day). */
-export async function fetchMissingReport(month: string): Promise<MissingRow[]> {
-  const rows = await fetchAll<Raw>('v_missing_report', `${ABS_IDENT},missing_am,missing_pm,missing_total,missing_dates,missing_dates_list`, ['rep_id'], (q) => q.eq('month', month))
+/** Missing days per rep and month for months from..to (v_missing_report: only reps with at least one missing day). */
+export async function fetchMissingReport(from: string, to: string): Promise<MissingRow[]> {
+  const rows = await fetchAll<Raw>(
+    'v_missing_report',
+    `${ABS_IDENT},missing_am,missing_pm,missing_total,missing_dates,missing_dates_list,missing_dates_am,missing_dates_pm`,
+    ['month', 'rep_id'],
+    (q) => q.gte('month', from).lte('month', to),
+  )
   return rows.map(toMissingRow)
 }

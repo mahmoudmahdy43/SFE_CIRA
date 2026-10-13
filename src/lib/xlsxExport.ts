@@ -21,7 +21,7 @@ export async function downloadXlsx(
       const c = ws[addr]
       if (c.t === 'd') c.z = XLSX.utils.decode_cell(addr).c === hireCol ? 'dd-mmm-yyyy' : 'dd-mmm'
     }
-    ws['!cols'] = headers.map((h) => ({ wch: h === 'Dates' ? 60 : Math.max(h.length, 10) + 2 }))
+    ws['!cols'] = headers.map((h) => ({ wch: h.endsWith('Dates') ? 40 : Math.max(h.length, 10) + 2 }))
     XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31))
   }
   XLSX.writeFile(wb, filename)

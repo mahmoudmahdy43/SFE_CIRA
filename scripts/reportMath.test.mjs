@@ -123,7 +123,21 @@ t('leaves: AM-only 0.5 + full day 1 -> 0.5 / 1 / 1.5, totals are sums, zero is a
 t('missing: detail rows from missing_dates + missing_dates_list, shift from suffix', () => {
   const r = a.toMissingRow({ month: '2026-09-01', rep_id: 1, line: 'L1', direct_manager: 'M', rep_name: 'R', rep_code: 'C', hire_date: '2024-03-05', missing_am: 1.5, missing_pm: 1, missing_total: 2.5, missing_dates: '02 Sep, 07 Sep AM, 09 Sep PM', missing_dates_list: ['2026-09-02', '2026-09-07', '2026-09-09'] })
   const d = a.missingDetail([r])
-  assert.deepEqual(d.map((x) => x.shift), ['Both', 'AM', 'PM']); assert.deepEqual(d.map((x) => x.date.getDate()), [2, 7, 9]); assert.equal(d[0].date.getMonth(), 8); assert.equal(a.exportMissingDetail([r])[0]['Hire Date'].getFullYear(), 2024)
-  assert.equal(a.exportMissing([r], a.totalMissing([r]))[0].Dates, '02 Sep, 07 Sep AM, 09 Sep PM'); assert.equal(a.fmtDays1(r.missing_total), '2.5')
+  assert.deepEqual(d.map((x) => x.shift), ['Both', 'AM', 'PM']); assert.deepEqual(d.map((x) => x.date.getDate()), [2, 7, 9]); assert.equal(d[0].date.getMonth(), 8); assert.equal(a.exportMissingDetail([r], [r])[0]['Hire Date'].getFullYear(), 2024)
+  assert.equal(a.fmtDays1(r.missing_total), '2.5')
+})
+t('month range: rep summed across months, AM / PM dates joined in month order, swap, detail per rep-month', () => {
+  const mk = (month, o) => a.toMissingRow({ month, rep_id: 1, line: 'L1', line_id: 1, direct_manager: 'M', rep_name: 'R', rep_code: 'C', hire_date: null, ...o })
+  const oct = mk('2026-10-01', { hire_date: '2024-03-05', missing_am: 0.5, missing_pm: 0, missing_total: 0.5, missing_dates: '02 Oct AM', missing_dates_list: ['2026-10-02'], missing_dates_am: '02 Oct', missing_dates_pm: '' })
+  const sep = mk('2026-09-01', { missing_am: 1.5, missing_pm: 1, missing_total: 2.5, missing_dates: '03 Sep, 07 Sep AM, 09 Sep PM', missing_dates_list: ['2026-09-03', '2026-09-07', '2026-09-09'], missing_dates_am: '03 Sep, 07 Sep', missing_dates_pm: '03 Sep, 09 Sep' })
+  const [x] = a.mergeMissing([oct, sep]) // out of order on purpose
+  assert.equal(x.missing_total, 3); assert.equal(x.missing_am, 2); assert.equal(x.missing_dates_am, '03 Sep, 07 Sep, 02 Oct'); assert.equal(x.missing_dates_pm, '03 Sep, 09 Sep'); assert.equal(x.hire_date, '2024-03-05')
+  const ex = a.exportMissing([x], a.totalMissing([x])); assert.equal(ex[0]['AM Dates'], '03 Sep, 07 Sep, 02 Oct'); assert.ok(!('Dates' in ex[0]))
+  assert.equal(a.exportMissingDetail([x], [oct, sep]).length, 4)
+  const l = (month, o) => a.toLeaveRow({ month, rep_id: 1, line: 'L1', direct_manager: 'M', rep_name: 'R', ...o })
+  const [lv] = a.mergeLeaves([l('2026-09-01', { vacation_am: 0.5, full_days: 1, total_days: 1.5 }), l('2026-10-01', { vacation_pm: 0.5, total_days: 0.5 })])
+  assert.equal(lv.total_days, 2); assert.equal(lv.vacation_am, 0.5); assert.equal(lv.vacation_pm, 0.5)
+  assert.deepEqual(a.orderRange('2026-11-01', '2026-09-01'), { from: '2026-09-01', to: '2026-11-01' })
+  assert.equal(a.rangeSlug('2026-09-01', '2026-09-01'), '2026-09'); assert.equal(a.rangeSlug('2026-09-01', '2026-11-01'), '2026-09_to_2026-11'); assert.equal(a.rangeLabel('2026-09-01', '2026-11-01'), 'Sep 2026 – Nov 2026')
 })
 console.log(`\n${n} tests passed`)

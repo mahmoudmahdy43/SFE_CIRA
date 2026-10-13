@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
 import { Skeleton } from '../../components/ui/misc'
 import { EmptyState, ErrorState } from '../../components/app/states'
@@ -11,7 +11,7 @@ import { ReportToolbar } from './ReportToolbar'
 import { filterRows, managerOptions, type ReportFilters } from './reportMath'
 import {
   DASH, fmtHire, exportLeaveGroups, exportLeaves, exportMissing, exportMissingDetail, fmtDays1, fmtDaysUpTo1, leavesByLine, leavesByManager,
-  lineManagerRep, totalLeaves, totalMissing, type LeaveGroup, type LeaveRow, type MissingRow,
+  lineManagerRep, mergeLeaves, mergeMissing, orderRange, rangeLabel, rangeSlug, totalLeaves, totalMissing, type LeaveGroup, type LeaveRow, type MissingRow,
 } from './absenceMath'
 
 type Dir = 'asc' | 'desc'
@@ -99,6 +99,35 @@ const TEXT_IDS = new Set(['line', 'dm', 'rep', 'box', 'name'])
 const nextSort = (s: { id: string; dir: Dir } | null, id: string): { id: string; dir: Dir } =>
   s?.id === id ? { id, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { id, dir: TEXT_IDS.has(id) ? 'asc' : 'desc' }
 
+/** From / To month for a tab; defaults (and resets) to the month in the top bar. From > To is swapped. */
+function useMonthRange(month: string) {
+  const [pick, setPick] = useState<{ from: string; to: string } | null>(null)
+  useEffect(() => setPick(null), [month])
+  const { from, to } = orderRange(pick?.from ?? month, pick?.to ?? month)
+  return { from, to, setFrom: (v: string) => setPick({ from: v, to: pick?.to ?? month }), setTo: (v: string) => setPick({ from: pick?.from ?? month, to: v }) }
+}
+
+function MonthRange({ month, from, to, setFrom, setTo }: { month: string; from: string; to: string; setFrom: (v: string) => void; setTo: (v: string) => void }) {
+  const options = useMemo(() => {
+    const [y, m] = month.split('-').map(Number)
+    const set = new Set([from, to])
+    for (let i = -24; i <= 12; i++) {
+      const d = new Date(y, m - 1 + i, 1)
+      set.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`)
+    }
+    return [...set].sort()
+  }, [month, from, to])
+  const sel = (label: string, value: string, onChange: (v: string) => void) => (
+    <label className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+      {label}
+      <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className="h-9 rounded-control border bg-card px-2 text-sm text-foreground">
+        {options.map((o) => <option key={o} value={o}>{rangeLabel(o, o)}</option>)}
+      </select>
+    </label>
+  )
+  return <div className="flex flex-wrap items-center gap-2">{sel('From month', from, setFrom)}{sel('To month', to, setTo)}</div>
+}
+
 interface Props {
   month: string
   lines: { id: number; name: string }[]
@@ -106,12 +135,13 @@ interface Props {
   onFilters: (f: ReportFilters) => void
 }
 
-const NOTE = (what: string) => `Only reps with at least one ${what} in the month appear. Values are in days: an AM-only or PM-only slot counts 0.5, a full day counts 1.`
+const NOTE = (what: string) => `Only reps with at least one ${what} in the selected months appear. Values are in days: an AM-only or PM-only slot counts 0.5, a full day counts 1.`
 
 /* ------------------------------ Leaves ------------------------------ */
 export function LeavesTab({ month, lines, filters, onFilters }: Props) {
-  const data = useAsync(`report:leaves:${month}`, () => fetchLeaveReport(month))
-  const all = useMemo(() => data.data ?? [], [data.data])
+  const { from, to, setFrom, setTo } = useMonthRange(month)
+  const data = useAsync(`report:leaves:${from}:${to}`, () => fetchLeaveReport(from, to))
+  const all = useMemo(() => mergeLeaves(data.data ?? []), [data.data])
   const [view, setView] = useState<'reps' | 'dm' | 'line'>('reps')
   const [sort, setSort] = useState<{ id: string; dir: Dir } | null>(null) // null = Line, Direct Manager, Rep
 
@@ -156,8 +186,8 @@ export function LeavesTab({ month, lines, filters, onFilters }: Props) {
   }, [visible, view, groupCols, sort])
 
   const records = () => (view === 'reps' ? exportLeaves(repRows, total) : exportLeaveGroups(groups, total, view === 'dm' ? 'Direct Manager' : 'Line', visible.length))
-  const fileName = `leaves-${view}-${month.slice(0, 7)}`
-  const empty = { title: `No leaves in ${month.slice(0, 7)}`, description: all.length === 0 ? 'Nobody has a leave day this month.' : 'No reps match the filters.' }
+  const fileName = `leaves-${view}-${rangeSlug(from, to)}`
+  const empty = { title: `No leaves in ${rangeLabel(from, to)}`, description: all.length === 0 ? 'Nobody has a leave day in these months.' : 'No reps match the filters.' }
 
   return (
     <div className="space-y-3">
@@ -170,6 +200,8 @@ export function LeavesTab({ month, lines, filters, onFilters }: Props) {
       >
         <ViewToggle value={view} onChange={(v) => { setView(v); setSort(null) }} />
       </ReportToolbar>
+      <MonthRange month={month} from={from} to={to} setFrom={setFrom} setTo={setTo} />
+      <h3 className="text-sm font-semibold">Leaves · {rangeLabel(from, to)}</h3>
       <p className="text-xs text-muted-foreground">{NOTE('leave day')}</p>
       {data.error ? (
         <div className="rounded-card border bg-card"><ErrorState message={data.error} onRetry={data.reload} /></div>
@@ -204,8 +236,10 @@ function ViewToggle({ value, onChange }: { value: 'reps' | 'dm' | 'line'; onChan
 
 /* ------------------------------ Missing days ------------------------------ */
 export function MissingTab({ month, lines, filters, onFilters }: Props) {
-  const data = useAsync(`report:missing:${month}`, () => fetchMissingReport(month))
-  const all = useMemo(() => data.data ?? [], [data.data])
+  const { from, to, setFrom, setTo } = useMonthRange(month)
+  const data = useAsync(`report:missing:${from}:${to}`, () => fetchMissingReport(from, to))
+  const raw = data.data
+  const all = useMemo(() => mergeMissing(raw ?? []), [raw])
   const [sort, setSort] = useState<{ id: string; dir: Dir }>({ id: 'total', dir: 'desc' })
 
   const managers = useMemo(() => managerOptions(all, filters.lineId), [all, filters.lineId])
@@ -222,11 +256,12 @@ export function MissingTab({ month, lines, filters, onFilters }: Props) {
     { id: 'am', header: 'Missing AM', numeric: true, value: (r) => r.missing_am, render: (r) => fmtDays1(r.missing_am), foot: fmtDays1(total.missing_am) },
     { id: 'pm', header: 'Missing PM', numeric: true, value: (r) => r.missing_pm, render: (r) => fmtDays1(r.missing_pm), foot: fmtDays1(total.missing_pm) },
     { id: 'total', header: 'Total', numeric: true, value: (r) => r.missing_total, render: (r) => fmtDays1(r.missing_total), foot: fmtDays1(total.missing_total) },
-    { id: 'dates', header: 'Dates', wrap: true, value: (r) => r.missing_dates, render: (r) => r.missing_dates || DASH },
+    { id: 'datesAm', header: 'AM Dates', wrap: true, value: (r) => r.missing_dates_am, render: (r) => r.missing_dates_am || DASH },
+    { id: 'datesPm', header: 'PM Dates', wrap: true, value: (r) => r.missing_dates_pm, render: (r) => r.missing_dates_pm || DASH },
   ], [total, visible.length])
 
   const rows = useMemo(() => sortBy(visible, cols, sort), [visible, cols, sort])
-  const fileName = `missing-days-${month.slice(0, 7)}`
+  const fileName = `missing-days-${rangeSlug(from, to)}`
 
   return (
     <div className="space-y-3">
@@ -234,10 +269,12 @@ export function MissingTab({ month, lines, filters, onFilters }: Props) {
         lines={lines} filters={effective} onFilters={onFilters} managers={managers}
         columns={[]} hidden={new Set()} onToggleColumn={() => undefined}
         canExport={rows.length > 0}
-        onXlsx={() => void downloadXlsx(`${fileName}.xlsx`, 'Missing Days', exportMissing(rows, total), [{ name: 'Detail', rows: exportMissingDetail(rows) }])}
+        onXlsx={() => void downloadXlsx(`${fileName}.xlsx`, 'Missing Days', exportMissing(rows, total), [{ name: 'Detail', rows: exportMissingDetail(rows, raw ?? []) }])}
         onCsv={() => downloadCsv(`${fileName}.csv`, exportMissing(rows, total))}
       />
-      <p className="text-xs text-muted-foreground">{NOTE('missing day')} In Dates, a day without a suffix is missing in both shifts.</p>
+      <MonthRange month={month} from={from} to={to} setFrom={setFrom} setTo={setTo} />
+      <h3 className="text-sm font-semibold">Missing Days · {rangeLabel(from, to)}</h3>
+      <p className="text-xs text-muted-foreground">{NOTE('missing day')} AM Dates / PM Dates list the days with that shift missing, month by month.</p>
       {data.error ? (
         <div className="rounded-card border bg-card"><ErrorState message={data.error} onRetry={data.reload} /></div>
       ) : data.loading ? (
@@ -245,7 +282,7 @@ export function MissingTab({ month, lines, filters, onFilters }: Props) {
       ) : (
         <Table
           cols={cols} rows={rows} rowKey={(r) => String(r.rep_id)} sort={sort} onSort={(id) => setSort((s) => nextSort(s, id) as { id: string; dir: Dir })}
-          empty={{ title: `No missing days in ${month.slice(0, 7)}`, description: all.length === 0 ? 'Nobody has a missing day this month.' : 'No reps match the filters.' }}
+          empty={{ title: `No missing days in ${rangeLabel(from, to)}`, description: all.length === 0 ? 'Nobody has a missing day in these months.' : 'No reps match the filters.' }}
         />
       )}
     </div>

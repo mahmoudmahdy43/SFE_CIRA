@@ -20,7 +20,7 @@ export default function Reports() {
     <div>
       <PageHeader
         title="Reports"
-        description={`Coverage, call-rate, KPI, leave and missing-day reports for ${month.slice(0, 7)} — read straight from the database views; change the month in the top bar.`}
+        description={`Coverage, call-rate, KPI, leave and missing-day reports for ${month.slice(0, 7)} — read straight from the database views; change the month in the top bar (Leaves and Missing Days also have their own From / To months).`}
       />
       <Tabs defaultValue="coverage">
         <TabsList className="mb-4">
