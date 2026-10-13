@@ -1,0 +1,25 @@
+name: CRM dry run
+
+# Manual only: proves a GitHub runner can log in to the CRM and read one small report.
+# Reads only. No database writes, no artifacts, no schedule.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dryrun:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Dry run
+        env:
+          CRM_USER: ${{ secrets.CRM_USER }}
+          CRM_PASS: ${{ secrets.CRM_PASS }}
+          CRM_BASE_URL: ${{ secrets.CRM_BASE_URL }}
+        run: node scripts/crm/dryrun.mjs

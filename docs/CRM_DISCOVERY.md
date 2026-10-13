@@ -159,3 +159,20 @@ Suggested shape (Node 20 or Python in a scheduled GitHub Action):
 7. First run: do one test from a GitHub runner to rule out IP restrictions before building anything else.
 
 Ask IT Gates / IT for: a read-only account limited to reports, confirmation that scripted access is allowed, the idle session timeout, any rate limits, and a maintenance window to avoid.
+
+## 6. Still unverified (Phase 6B dry run)
+
+`scripts/crm/dryrun.mjs`, run by hand from the workflow **CRM dry run**, reads one small report (one team, one day) and logs out. It does not write anything. Open questions that the first run, or IT, must answer:
+
+| Open question | How it is checked |
+|---|---|
+| **IP rules**: does the CRM accept a GitHub runner (different, changing IP)? | The dry run fails with one line (`blocked` / `login`) in the step summary and stops without retrying |
+| **Login response**: exact reply to a good and a bad POST (redirect vs 200) | The client does not depend on it: it proves the login by reading `reports.php` and checking that the login form is gone |
+| **Idle session timeout** (the cookie lives ~4 days, the server side is unknown) | Not tested. The job logs in at the start of every run and never keeps a session |
+| **Rate limits / blocking** | Not observed at one request per 3 s. The client never goes faster. Ask IT for the real limit |
+| **Maintenance windows** | Unknown. Ask IT |
+| **Session lock**: one slow report blocked a whole session for 5+ minutes | The client runs one request at a time with a 120 s timeout; it does not call the heavy "Customer Visits" report |
+| **Visits for a weekend day are empty** (Friday / Saturday) | The dry run steps back up to 4 days until a day has rows and says which day it read |
+| `emp=0` on the Doctor List (all employees in one call) | Not tested |
+
+Client guarantees (see `scripts/crm/client.mjs`): GET only apart from the one login POST; a fixed allow-list of read pages; URLs containing `delete`, `remove` or `action=del` are refused; credentials come only from `CRM_USER` / `CRM_PASS` / `CRM_BASE_URL`; the cookie is kept in memory; nothing sensitive is logged.
