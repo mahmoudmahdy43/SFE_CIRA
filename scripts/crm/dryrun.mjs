@@ -34,9 +34,9 @@ function pageDiagnostics(html) {
     .replace(/&nbsp;/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-  const clean = (x) => x.replace(/<[^>]*>/g, ' ').replace(/s+/g, ' ').trim().slice(0, 300)
-  const title = /<title[^>]*>([sS]*?)</title>/i.exec(html)
-  const heading = /<h[12][^>]*>([sS]*?)</h[12]>/i.exec(html)
+  const clean = (x) => x.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300)
+  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)
+  const heading = /<h[12][^>]*>([\s\S]*?)<\/h[12]>/i.exec(html)
   return { first300: text.slice(0, 300), tables: (html.match(/<table/gi) || []).length, title: title ? clean(title[1]) : '(none)', heading: heading ? clean(heading[1]) : '(none)' }
 }
 
