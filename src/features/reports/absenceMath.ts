@@ -137,13 +137,13 @@ export function missingDetail(rows: MissingRow[]): MissingDetail[] {
 export type ExportRow = Record<string, string | number | Date | null>
 /** 'YYYY-MM-DD' -> a local Date (a real Excel date), null when missing / unparseable. */
 export function hireDateValue(iso: string | null): Date | null {
-  const m = iso ? /^(d{4})-(d{2})-(d{2})/.exec(iso) : null
+  const m = iso ? /^(\d{4})-(\d{2})-(\d{2})/.exec(iso) : null
   return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null
 }
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 /** '2026-08-15' -> '15-Aug-2026'; empty -> a dash. */
 export function fmtHire(iso: string | null): string {
-  const m = iso ? /^(d{4})-(d{2})-(d{2})/.exec(iso) : null
+  const m = iso ? /^(\d{4})-(\d{2})-(\d{2})/.exec(iso) : null
   return m ? `${m[3]}-${MONTHS[Number(m[2]) - 1]}-${m[1]}` : DASH
 }
 const idCells = (r: AbsenceIdentity): ExportRow => ({ Line: r.line, 'Direct Manager': r.manager, 'Medical Rep': r.rep_name, Code: r.rep_code, 'Hire Date': hireDateValue(r.hire_date), Box: r.box })
