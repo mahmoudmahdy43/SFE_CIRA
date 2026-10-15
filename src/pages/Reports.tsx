@@ -7,6 +7,7 @@ import { useAsync } from '../features/dashboard/useAsync'
 import { CallRateTab } from '../features/reports/CallRateTab'
 import { CoverageTab } from '../features/reports/CoverageTab'
 import { LeavesTab, MissingTab } from '../features/reports/AbsenceTab'
+import { ManagersTab } from '../features/reports/ManagersTab'
 import { KpiRepTab } from '../features/reports/KpiRepTab'
 import type { ReportFilters } from '../features/reports/reportMath'
 
@@ -29,12 +30,14 @@ export default function Reports() {
           <TabsTrigger value="kpi-rep">KPI by Rep</TabsTrigger>
           <TabsTrigger value="leaves">Leaves</TabsTrigger>
           <TabsTrigger value="missing">Missing Days</TabsTrigger>
+          <TabsTrigger value="managers">Managers</TabsTrigger>
         </TabsList>
         <TabsContent value="coverage"><CoverageTab {...shared} /></TabsContent>
         <TabsContent value="call-rate"><CallRateTab {...shared} /></TabsContent>
         <TabsContent value="kpi-rep"><KpiRepTab {...shared} /></TabsContent>
         <TabsContent value="leaves"><LeavesTab {...shared} /></TabsContent>
         <TabsContent value="missing"><MissingTab {...shared} /></TabsContent>
+        <TabsContent value="managers"><ManagersTab {...shared} /></TabsContent>
       </Tabs>
     </div>
   )

@@ -19,9 +19,13 @@ interface Props {
   onCsv: () => void
   /** Tab-specific controls (view mode, missing-days toggle). */
   children?: React.ReactNode
+  /** Replaces the Direct manager dropdown (Managers tab: Role). */
+  roleSelect?: React.ReactNode
+  searchLabel?: string
+  searchPlaceholder?: string
 }
 
-export function ReportToolbar({ lines, filters, onFilters, managers, columns, hidden, onToggleColumn, canExport, onXlsx, onCsv, children }: Props) {
+export function ReportToolbar({ lines, filters, onFilters, managers, columns, hidden, onToggleColumn, canExport, onXlsx, onCsv, children, roleSelect, searchLabel, searchPlaceholder }: Props) {
   const chips = [{ id: null as number | null, name: 'All' }, ...lines]
   return (
     <div className="space-y-3">
@@ -38,18 +42,20 @@ export function ReportToolbar({ lines, filters, onFilters, managers, columns, hi
         ))}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <select
-          aria-label="Direct manager"
-          value={filters.manager}
-          onChange={(e) => onFilters({ ...filters, manager: e.target.value })}
-          className="h-9 max-w-[14rem] rounded-control border bg-card px-2 text-sm"
-        >
-          <option value="">All managers</option>
-          {managers.map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
+        {roleSelect ?? (
+          <select
+            aria-label="Direct manager"
+            value={filters.manager}
+            onChange={(e) => onFilters({ ...filters, manager: e.target.value })}
+            className="h-9 max-w-[14rem] rounded-control border bg-card px-2 text-sm"
+          >
+            <option value="">All managers</option>
+            {managers.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        )}
         <div className="relative min-w-48 flex-1 sm:max-w-xs">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden />
-          <Input aria-label="Search rep, code or box" placeholder="Rep, code or box…" value={filters.search} onChange={(e) => onFilters({ ...filters, search: e.target.value })} className="pl-8" />
+          <Input aria-label={searchLabel ?? 'Search rep, code or box'} placeholder={searchPlaceholder ?? 'Rep, code or box…'} value={filters.search} onChange={(e) => onFilters({ ...filters, search: e.target.value })} className="pl-8" />
         </div>
         {children}
         <div className="ml-auto flex items-center gap-2">
