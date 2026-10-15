@@ -173,4 +173,23 @@ t('manager totals follow the shift; null rates are dashes; export columns follow
   assert.ok(!('Call Rate PM' in ex[0]) && !('Call Rate Pharmacy' in ex[0]))
   assert.equal(ex[ex.length - 1]['Working Days'], 24)
 })
+t('manager missing dates: shift columns, export text, detail sheet with real dates', () => {
+  const rows = [mrow({ manager_id: 1, name: 'A', line: 'CIRA 1', missing_dates_am: '03 Sep, 07 Sep', missing_dates_pm: '07 Sep' }), mrow({ manager_id: 2, name: 'B', missing_dates_am: null, missing_dates_pm: null })]
+  assert.deepEqual(mg.shiftDateCols('ALL'), ['am', 'pm'])
+  assert.deepEqual(mg.shiftDateCols('PM'), ['pm'])
+  assert.deepEqual(mg.shiftDateCols('PHARMACY'), [])
+  assert.equal(rows[1].missing_dates_am, '')
+  const exp = (shift) => mg.exportManagers(rows, mg.totalManagers(rows), false, shift)[0]
+  assert.equal(exp('ALL')['AM Missing Dates'], '03 Sep, 07 Sep')
+  const keys = Object.keys(exp('ALL'))
+  assert.deepEqual(keys.slice(keys.indexOf('Missing Days'), keys.indexOf('Missing Days') + 3), ['Missing Days', 'AM Missing Dates', 'PM Missing Dates'])
+  assert.ok(!('AM Missing Dates' in exp('PHARMACY')))
+  assert.ok(!('AM Missing Dates' in exp('PM')) && 'PM Missing Dates' in exp('PM'))
+  const d = mg.exportMissingDetail(rows, 'ALL', '2026-09-01')
+  assert.deepEqual(d.map((x) => x.Shift), ['AM', 'AM', 'PM'])
+  assert.equal(d[0].Date.getTime(), new Date(2026, 8, 3).getTime())
+  assert.equal(mg.exportMissingDetail(rows, 'PM', '2026-09-01').length, 1)
+  assert.equal(mg.exportMissingDetail(rows, 'PHARMACY', '2026-09-01').length, 0)
+  assert.deepEqual(mg.parseMissingDates('', 2026), [])
+})
 console.log(`\n${n} tests passed`)

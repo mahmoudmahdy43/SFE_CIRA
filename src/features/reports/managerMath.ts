@@ -34,6 +34,9 @@ export interface ManagerRow {
   office_work_days: number
   activity_days: number
   missing_days: number
+  /** Days with the AM / PM slot missing, e.g. "03 Sep, 07 Sep"; empty when none. */
+  missing_dates_am: string
+  missing_dates_pm: string
   single_visits: number
   double_visits: number
   total_visits: number
@@ -57,7 +60,7 @@ type SlotField =
 
 export const MANAGER_COLS =
   'month,manager_id,code,name,role_type,title,line,line_id,hire_date,working_days,field_days,leave_days,office_work_days,activity_days,missing_days,' +
-  'single_visits,double_visits,total_visits,visits_am,visits_pm,visits_pharmacy,call_rate_am,call_rate_pm,call_rate_pharmacy,' +
+  'single_visits,double_visits,total_visits,visits_am,visits_pm,visits_pharmacy,call_rate_am,call_rate_pm,call_rate_pharmacy,missing_dates_am,missing_dates_pm,' +
   SLOT_FIELDS.join(',')
 
 export const toManagerRow = (r: Record<string, unknown>): ManagerRow => ({
@@ -76,6 +79,8 @@ export const toManagerRow = (r: Record<string, unknown>): ManagerRow => ({
   office_work_days: num(r.office_work_days),
   activity_days: num(r.activity_days),
   missing_days: num(r.missing_days),
+  missing_dates_am: str(r.missing_dates_am) ?? '',
+  missing_dates_pm: str(r.missing_dates_pm) ?? '',
   single_visits: num(r.single_visits),
   double_visits: num(r.double_visits),
   total_visits: num(r.total_visits),
@@ -144,11 +149,41 @@ export const fmtMDays = (v: number): string => (v === 0 ? DASH : v.toFixed(1))
 export const fmtMCount = (v: number): string => (v === 0 ? DASH : String(v))
 export const fmtRate = (v: number | null): string => (v === null ? DASH : v.toFixed(2))
 
+/** Which missing-date columns the shift shows (Pharmacy has none). */
+export const shiftDateCols = (s: ManagerShift): ('am' | 'pm')[] => (s === 'ALL' ? ['am', 'pm'] : s === 'AM' ? ['am'] : s === 'PM' ? ['pm'] : [])
+
+const MON = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+/** "03 Sep, 07 Sep" -> real dates in the given year (unparseable tokens are skipped). */
+export function parseMissingDates(text: string, year: number): Date[] {
+  const out: Date[] = []
+  for (const tok of text.split(',')) {
+    const m = /^\s*(\d{1,2})\s+([A-Za-z]{3})/.exec(tok)
+    const mi = m ? MON.indexOf(m[2].toLowerCase()) : -1
+    if (m && mi >= 0) out.push(new Date(year, mi, Number(m[1])))
+  }
+  return out
+}
+
+/** One row per manager per missing day (AM and PM entries of the same date stay separate rows). `month` = 'YYYY-MM-01' from the top bar. */
+export function exportMissingDetail(rows: ManagerRow[], shift: ManagerShift, month: string): ExportRow[] {
+  const year = Number(month.slice(0, 4))
+  const cols = shiftDateCols(shift)
+  return rows.flatMap((r) =>
+    cols.flatMap((c) =>
+      parseMissingDates(c === 'am' ? r.missing_dates_am : r.missing_dates_pm, year).map((d) => ({ Line: r.line, Manager: r.name, Code: r.code, Role: r.role_type, Date: d, Shift: c.toUpperCase() })),
+    ),
+  )
+}
+
 export function exportManagers(rows: ManagerRow[], total: ManagerSums, withVisits: boolean, shift: ManagerShift = 'ALL'): ExportRow[] {
   const rates = shiftRates(shift)
-  const cells = (r: ManagerSums & { call_rate_am: number | null; call_rate_pm: number | null; call_rate_pharmacy: number | null }): ExportRow => ({
+  const dates = shiftDateCols(shift)
+  const cells = (r: ManagerSums & { missing_dates_am: string | null; missing_dates_pm: string | null; call_rate_am: number | null; call_rate_pm: number | null; call_rate_pharmacy: number | null }): ExportRow => ({
     'Working Days': r.working_days, 'Field Days': r.field_days, Vacation: r.leave_days, 'Office Work': r.office_work_days, Activities: r.activity_days,
-    'Missing Days': r.missing_days, 'Single Visits': r.single_visits, 'Double Visits': r.double_visits,
+    'Missing Days': r.missing_days,
+    ...(dates.includes('am') ? { 'AM Missing Dates': r.missing_dates_am } : {}),
+    ...(dates.includes('pm') ? { 'PM Missing Dates': r.missing_dates_pm } : {}),
+    'Single Visits': r.single_visits, 'Double Visits': r.double_visits,
     ...(rates.includes('am') ? { 'Call Rate AM': r.call_rate_am } : {}),
     ...(rates.includes('pm') ? { 'Call Rate PM': r.call_rate_pm } : {}),
     ...(rates.includes('pharmacy') ? { 'Call Rate Pharmacy': r.call_rate_pharmacy } : {}),
@@ -162,6 +197,6 @@ export function exportManagers(rows: ManagerRow[], total: ManagerSums, withVisit
   })
   return [
     ...rows.map((r) => ({ Line: r.line, Manager: r.name, Code: r.code, Role: r.role_type, 'Hire Date': hireDateValue(r.hire_date), ...cells(r) })),
-    { Line: 'Total', Manager: null, Code: null, Role: null, 'Hire Date': null, ...cells({ ...total, call_rate_am: null, call_rate_pm: null, call_rate_pharmacy: null }) },
+    { Line: 'Total', Manager: null, Code: null, Role: null, 'Hire Date': null, ...cells({ ...total, missing_dates_am: null, missing_dates_pm: null, call_rate_am: null, call_rate_pm: null, call_rate_pharmacy: null }) },
   ]
 }

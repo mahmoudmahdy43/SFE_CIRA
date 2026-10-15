@@ -10,7 +10,7 @@ import { useAsync } from '../dashboard/useAsync'
 import { ReportToolbar } from './ReportToolbar'
 import { DASH, fmtHire, rangeLabel } from './absenceMath'
 import {
-  MANAGER_ROLES, SHIFT_LABEL, applyShift, exportManagers, filterManagers, fmtMCount, fmtMDays, fmtRate, lineManagerOrder, shiftRates, shiftUnit, totalManagers,
+  MANAGER_ROLES, SHIFT_LABEL, applyShift, exportManagers, exportMissingDetail, shiftDateCols, filterManagers, fmtMCount, fmtMDays, fmtRate, lineManagerOrder, shiftRates, shiftUnit, totalManagers,
   type ManagerRow, type ManagerShift, type ManagerSums,
 } from './managerMath'
 import type { ReportFilters } from './reportMath'
@@ -20,6 +20,7 @@ interface Col {
   id: string
   header: string
   numeric?: boolean
+  wrap?: boolean
   /** Sub-column of the Call Rate group. */
   group?: 'rate'
   /** Header tooltip (units). */
@@ -53,6 +54,7 @@ export function ManagersTab({ month, lines, filters, onFilters }: Props) {
   const total = useMemo(() => totalManagers(visible), [visible])
   const unit = shiftUnit(shift)
   const rateKeys = shiftRates(shift)
+  const dateKeys = shiftDateCols(shift)
 
   const days = (id: string, header: string, key: keyof ManagerSums): Col => ({
     id, header, title: unit, numeric: true, value: (r) => r[key], render: (r) => fmtMDays(r[key]), foot: fmtMDays(total[key]),
@@ -89,6 +91,8 @@ export function ManagersTab({ month, lines, filters, onFilters }: Props) {
     days('ow', 'Office Work', 'office_work_days'),
     days('activity', 'Activities', 'activity_days'),
     days('missing', 'Missing Days', 'missing_days'),
+    ...(dateKeys.includes('am') ? [{ id: 'datesAm', header: 'AM Missing Dates', wrap: true, value: (r: ManagerRow) => r.missing_dates_am, render: (r: ManagerRow) => r.missing_dates_am || DASH } as Col] : []),
+    ...(dateKeys.includes('pm') ? [{ id: 'datesPm', header: 'PM Missing Dates', wrap: true, value: (r: ManagerRow) => r.missing_dates_pm, render: (r: ManagerRow) => r.missing_dates_pm || DASH } as Col] : []),
     count('single', 'Single Visits', 'single_visits'),
     count('double', 'Double Visits', 'double_visits'),
     ...(rateKeys.includes('am') ? [rate('rateAm', 'AM', 'call_rate_am', 'visits_am')] : []),
@@ -159,7 +163,7 @@ export function ManagersTab({ month, lines, filters, onFilters }: Props) {
         columns={VISIT_COLS} hidden={hidden}
         onToggleColumn={(id) => setHidden((h) => { const n = new Set(h); if (n.has(id)) n.delete(id); else n.add(id); return n })}
         canExport={rows.length > 0}
-        onXlsx={() => void downloadXlsx(`${fileName}.xlsx`, 'Managers', records())}
+        onXlsx={() => void downloadXlsx(`${fileName}.xlsx`, 'Managers', records(), dateKeys.length ? [{ name: 'Missing Detail', rows: exportMissingDetail(rows, shift, month) }] : [])}
         onCsv={() => downloadCsv(`${fileName}.csv`, records())}
       />
       <h3 className="text-sm font-semibold">Managers · {rangeLabel(month, month)}</h3>
@@ -191,7 +195,7 @@ export function ManagersTab({ month, lines, filters, onFilters }: Props) {
                 {rows.map((r) => (
                   <tr key={r.manager_id} className="group">
                     {cols.map((c) => (
-                      <td key={c.id} className={cn('whitespace-nowrap border-b bg-card px-3 py-2 align-top group-hover:bg-muted/60', c.numeric && 'tnum text-right')}>{c.render(r)}</td>
+                      <td key={c.id} className={cn('border-b bg-card px-3 py-2 align-top group-hover:bg-muted/60', c.wrap ? 'min-w-48 whitespace-normal' : 'whitespace-nowrap', c.numeric && 'tnum text-right')}>{c.render(r)}</td>
                     ))}
                   </tr>
                 ))}
