@@ -2,7 +2,7 @@
  * Pure helpers for the Managers report (v_manager_report: one row per manager per month, days in 0.5 steps).
  * Call rates come from the view; the totals row cannot recompute them (field slots are not in the view), so it shows a dash.
  */
-import { DASH, hireDateValue, type ExportRow } from './absenceMath'
+import { DASH, hireDateValue, type ExportRow } from './absenceMath.ts'
 
 const num = (v: unknown): number => {
   if (v === null || v === undefined || v === '') return 0
@@ -43,11 +43,22 @@ export interface ManagerRow {
   call_rate_am: number | null
   call_rate_pm: number | null
   call_rate_pharmacy: number | null
+  /** Per-shift slots (one per working shift): working / field / leave / ow / act / missing, and single / double visits. */
+  slots: Record<SlotField, number>
 }
+
+const SLOT_FIELDS = [
+  ...(['working', 'field', 'leave', 'ow', 'act', 'missing'] as const).flatMap((g) => [`${g}_am`, `${g}_pm`] as const),
+  ...(['single', 'double'] as const).flatMap((g) => [`${g}_am`, `${g}_pm`, `${g}_pharmacy`] as const),
+]
+type SlotField =
+  | `${'working' | 'field' | 'leave' | 'ow' | 'act' | 'missing'}_${'am' | 'pm'}`
+  | `${'single' | 'double'}_${'am' | 'pm' | 'pharmacy'}`
 
 export const MANAGER_COLS =
   'month,manager_id,code,name,role_type,title,line,line_id,hire_date,working_days,field_days,leave_days,office_work_days,activity_days,missing_days,' +
-  'single_visits,double_visits,total_visits,visits_am,visits_pm,visits_pharmacy,call_rate_am,call_rate_pm,call_rate_pharmacy'
+  'single_visits,double_visits,total_visits,visits_am,visits_pm,visits_pharmacy,call_rate_am,call_rate_pm,call_rate_pharmacy,' +
+  SLOT_FIELDS.join(',')
 
 export const toManagerRow = (r: Record<string, unknown>): ManagerRow => ({
   month: String(r.month ?? ''),
@@ -74,7 +85,29 @@ export const toManagerRow = (r: Record<string, unknown>): ManagerRow => ({
   call_rate_am: numOrNull(r.call_rate_am),
   call_rate_pm: numOrNull(r.call_rate_pm),
   call_rate_pharmacy: numOrNull(r.call_rate_pharmacy),
+  slots: Object.fromEntries(SLOT_FIELDS.map((k) => [k, num(r[k])])) as Record<SlotField, number>,
 })
+
+export type ManagerShift = 'ALL' | 'AM' | 'PM' | 'PHARMACY'
+export const SHIFT_LABEL: Record<ManagerShift, string> = { ALL: 'All', AM: 'AM', PM: 'PM', PHARMACY: 'Pharmacy' }
+/** AM / PM columns are in shift days (1 per working shift); All and Pharmacy are in days (slots / 2). */
+export const shiftUnit = (s: ManagerShift): string => (s === 'AM' || s === 'PM' ? 'shift days' : 'days')
+/** Which call-rate columns the shift shows. */
+export const shiftRates = (s: ManagerShift): ('am' | 'pm' | 'pharmacy')[] => (s === 'ALL' ? ['am', 'pm', 'pharmacy'] : [s.toLowerCase() as 'am' | 'pm' | 'pharmacy'])
+
+/** Re-points the generic day / visit fields at the selected shift. All keeps the view's day columns; Pharmacy keeps them too (it has no calendar of its own). */
+export function applyShift(rows: ManagerRow[], shift: ManagerShift): ManagerRow[] {
+  if (shift === 'ALL') return rows
+  const s = shift.toLowerCase() as 'am' | 'pm' | 'pharmacy'
+  return rows.map((r) => {
+    const x = r.slots
+    const days =
+      s === 'pharmacy'
+        ? {}
+        : { working_days: x[`working_${s}`], field_days: x[`field_${s}`], leave_days: x[`leave_${s}`], office_work_days: x[`ow_${s}`], activity_days: x[`act_${s}`], missing_days: x[`missing_${s}`] }
+    return { ...r, ...days, single_visits: x[`single_${s}`], double_visits: x[`double_${s}`] }
+  })
+}
 
 export interface ManagerFilters { lineId: number | null; role: string; search: string }
 
@@ -111,12 +144,21 @@ export const fmtMDays = (v: number): string => (v === 0 ? DASH : v.toFixed(1))
 export const fmtMCount = (v: number): string => (v === 0 ? DASH : String(v))
 export const fmtRate = (v: number | null): string => (v === null ? DASH : v.toFixed(2))
 
-export function exportManagers(rows: ManagerRow[], total: ManagerSums, withVisits: boolean): ExportRow[] {
+export function exportManagers(rows: ManagerRow[], total: ManagerSums, withVisits: boolean, shift: ManagerShift = 'ALL'): ExportRow[] {
+  const rates = shiftRates(shift)
   const cells = (r: ManagerSums & { call_rate_am: number | null; call_rate_pm: number | null; call_rate_pharmacy: number | null }): ExportRow => ({
     'Working Days': r.working_days, 'Field Days': r.field_days, Vacation: r.leave_days, 'Office Work': r.office_work_days, Activities: r.activity_days,
     'Missing Days': r.missing_days, 'Single Visits': r.single_visits, 'Double Visits': r.double_visits,
-    'Call Rate AM': r.call_rate_am, 'Call Rate PM': r.call_rate_pm, 'Call Rate Pharmacy': r.call_rate_pharmacy,
-    ...(withVisits ? { 'AM Visits': r.visits_am, 'PM Visits': r.visits_pm, 'Pharmacy Visits': r.visits_pharmacy } : {}),
+    ...(rates.includes('am') ? { 'Call Rate AM': r.call_rate_am } : {}),
+    ...(rates.includes('pm') ? { 'Call Rate PM': r.call_rate_pm } : {}),
+    ...(rates.includes('pharmacy') ? { 'Call Rate Pharmacy': r.call_rate_pharmacy } : {}),
+    ...(withVisits
+      ? {
+          ...(rates.includes('am') ? { 'AM Visits': r.visits_am } : {}),
+          ...(rates.includes('pm') ? { 'PM Visits': r.visits_pm } : {}),
+          ...(rates.includes('pharmacy') ? { 'Pharmacy Visits': r.visits_pharmacy } : {}),
+        }
+      : {}),
   })
   return [
     ...rows.map((r) => ({ Line: r.line, Manager: r.name, Code: r.code, Role: r.role_type, 'Hire Date': hireDateValue(r.hire_date), ...cells(r) })),

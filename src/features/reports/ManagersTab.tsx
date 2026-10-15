@@ -10,7 +10,8 @@ import { useAsync } from '../dashboard/useAsync'
 import { ReportToolbar } from './ReportToolbar'
 import { DASH, fmtHire, rangeLabel } from './absenceMath'
 import {
-  MANAGER_ROLES, exportManagers, filterManagers, fmtMCount, fmtMDays, fmtRate, lineManagerOrder, totalManagers, type ManagerRow, type ManagerSums,
+  MANAGER_ROLES, SHIFT_LABEL, applyShift, exportManagers, filterManagers, fmtMCount, fmtMDays, fmtRate, lineManagerOrder, shiftRates, shiftUnit, totalManagers,
+  type ManagerRow, type ManagerShift, type ManagerSums,
 } from './managerMath'
 import type { ReportFilters } from './reportMath'
 
@@ -21,6 +22,8 @@ interface Col {
   numeric?: boolean
   /** Sub-column of the Call Rate group. */
   group?: 'rate'
+  /** Header tooltip (units). */
+  title?: string
   value: (r: ManagerRow) => string | number | null
   render: (r: ManagerRow) => ReactNode
   foot?: ReactNode
@@ -38,18 +41,21 @@ const VISIT_COLS = [{ id: 'visits', label: 'AM / PM / Pharmacy visits' }]
 export function ManagersTab({ month, lines, filters, onFilters }: Props) {
   const data = useAsync(`report:managers:${month}`, () => fetchManagerReport(month))
   const [role, setRole] = useState('DM')
+  const [shift, setShift] = useState<ManagerShift>('ALL')
   const [sort, setSort] = useState<{ id: string; dir: Dir } | null>(null) // null = Line, then Manager name
   const [hidden, setHidden] = useState<Set<string>>(new Set(['visits']))
   const showVisits = !hidden.has('visits')
 
   const visible = useMemo(
-    () => filterManagers(data.data ?? [], { lineId: filters.lineId, role, search: filters.search }),
-    [data.data, filters.lineId, role, filters.search],
+    () => applyShift(filterManagers(data.data ?? [], { lineId: filters.lineId, role, search: filters.search }), shift),
+    [data.data, filters.lineId, role, filters.search, shift],
   )
   const total = useMemo(() => totalManagers(visible), [visible])
+  const unit = shiftUnit(shift)
+  const rateKeys = shiftRates(shift)
 
   const days = (id: string, header: string, key: keyof ManagerSums): Col => ({
-    id, header, numeric: true, value: (r) => r[key], render: (r) => fmtMDays(r[key]), foot: fmtMDays(total[key]),
+    id, header, title: unit, numeric: true, value: (r) => r[key], render: (r) => fmtMDays(r[key]), foot: fmtMDays(total[key]),
   })
   const count = (id: string, header: string, key: keyof ManagerSums): Col => ({
     id, header, numeric: true, value: (r) => r[key], render: (r) => fmtMCount(r[key]), foot: fmtMCount(total[key]),
@@ -85,11 +91,11 @@ export function ManagersTab({ month, lines, filters, onFilters }: Props) {
     days('missing', 'Missing Days', 'missing_days'),
     count('single', 'Single Visits', 'single_visits'),
     count('double', 'Double Visits', 'double_visits'),
-    rate('rateAm', 'AM', 'call_rate_am', 'visits_am'),
-    rate('ratePm', 'PM', 'call_rate_pm', 'visits_pm'),
-    rate('ratePh', 'Pharmacy', 'call_rate_pharmacy', 'visits_pharmacy'),
+    ...(rateKeys.includes('am') ? [rate('rateAm', 'AM', 'call_rate_am', 'visits_am')] : []),
+    ...(rateKeys.includes('pm') ? [rate('ratePm', 'PM', 'call_rate_pm', 'visits_pm')] : []),
+    ...(rateKeys.includes('pharmacy') ? [rate('ratePh', 'Pharmacy', 'call_rate_pharmacy', 'visits_pharmacy')] : []),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [total, visible.length, showVisits])
+  ], [total, visible.length, showVisits, unit, shift])
 
   const rows = useMemo(() => {
     if (!sort) return lineManagerOrder(visible)
@@ -110,7 +116,7 @@ export function ManagersTab({ month, lines, filters, onFilters }: Props) {
     setSort((s) => (s?.id === id ? { id, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { id, dir: ['line', 'name', 'role'].includes(id) ? 'asc' : 'desc' }))
   const th = 'sticky z-20 whitespace-nowrap bg-muted px-3 text-xs font-medium text-muted-foreground'
   const sortHead = (c: Col) => (
-    <button onClick={() => onSort(c.id)} className={cn('inline-flex items-center gap-1 hover:text-foreground', c.numeric && 'flex-row-reverse')}>
+    <button title={c.title} onClick={() => onSort(c.id)} className={cn('inline-flex items-center gap-1 hover:text-foreground', c.numeric && 'flex-row-reverse')}>
       {c.header}
       {sort?.id === c.id ? (sort.dir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
     </button>
@@ -119,8 +125,8 @@ export function ManagersTab({ month, lines, filters, onFilters }: Props) {
   const plain = cols.filter((c) => !c.group)
   const rates = cols.filter((c) => c.group === 'rate')
 
-  const fileName = `managers-${month.slice(0, 7)}-${role || 'all'}`
-  const records = () => exportManagers(rows, total, showVisits)
+  const fileName = `managers-${month.slice(0, 7)}-${role || 'all'}-${SHIFT_LABEL[shift].toLowerCase()}`
+  const records = () => exportManagers(rows, total, showVisits, shift)
   const empty = { title: `No managers for ${rangeLabel(month, month)}`, description: (data.data ?? []).length === 0 ? 'The report has no rows for this month.' : 'No managers match the filters.' }
 
   const roleSelect = (
@@ -130,11 +136,26 @@ export function ManagersTab({ month, lines, filters, onFilters }: Props) {
     </select>
   )
 
+  const shiftToggle = (
+    <div role="group" aria-label="Shift" className="inline-flex rounded-control border bg-card p-0.5">
+      {(Object.keys(SHIFT_LABEL) as ManagerShift[]).map((s) => (
+        <button
+          key={s}
+          aria-pressed={shift === s}
+          onClick={() => setShift(s)}
+          className={cn('rounded-md px-2.5 py-1 text-sm text-muted-foreground transition-colors', shift === s && 'bg-accent font-medium text-accent-foreground')}
+        >
+          {SHIFT_LABEL[s]}
+        </button>
+      ))}
+    </div>
+  )
+
   return (
     <div className="space-y-3">
       <ReportToolbar
         lines={lines} filters={filters} onFilters={onFilters} managers={[]}
-        roleSelect={roleSelect} searchLabel="Search manager or code" searchPlaceholder="Manager or code…"
+        roleSelect={<>{roleSelect}{shiftToggle}</>} searchLabel="Search manager or code" searchPlaceholder="Manager or code…"
         columns={VISIT_COLS} hidden={hidden}
         onToggleColumn={(id) => setHidden((h) => { const n = new Set(h); if (n.has(id)) n.delete(id); else n.add(id); return n })}
         canExport={rows.length > 0}
@@ -143,7 +164,7 @@ export function ManagersTab({ month, lines, filters, onFilters }: Props) {
       />
       <h3 className="text-sm font-semibold">Managers · {rangeLabel(month, month)}</h3>
       <p className="text-xs text-muted-foreground">
-        Values are in days (0.5 steps). Double = visited with a rep, Single = visited alone. Call rate AM / PM = visits ÷ field slots of that shift; Pharmacy = visits ÷ field days. Days after the last uploaded visit date are not counted. The Total row leaves call rates blank.
+        Values are in days (0.5 steps); with the AM / PM shift they are shift days (1 per working shift of that shift), and Pharmacy shows the All day columns with the pharmacy visits and call rate. Double = visited with a rep, Single = visited alone. Call rate AM / PM = visits ÷ field slots of that shift; Pharmacy = visits ÷ field days. Days after the last uploaded visit date are not counted. The Total row leaves call rates blank.
       </p>
       {data.error ? (
         <div className="rounded-card border bg-card"><ErrorState message={data.error} onRetry={data.reload} /></div>
@@ -158,7 +179,7 @@ export function ManagersTab({ month, lines, filters, onFilters }: Props) {
                   {plain.map((c) => (
                     <th key={c.id} rowSpan={2} aria-sort={aria(c)} className={cn(th, 'top-0 border-b', c.numeric ? 'text-right' : 'text-left')}>{sortHead(c)}</th>
                   ))}
-                  <th colSpan={rates.length} className={cn(th, 'top-0 h-8 border-b text-center')}>Call Rate</th>
+                  <th colSpan={rates.length || 1} className={cn(th, 'top-0 h-8 border-b text-center')}>Call Rate</th>
                 </tr>
                 <tr>
                   {rates.map((c) => (

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import * as m from '../src/features/reports/reportMath.ts'
 import * as a from '../src/features/reports/absenceMath.ts'
 import * as k from '../src/features/reports/kpiRepMath.ts'
+import * as mg from '../src/features/reports/managerMath.ts'
 
 let n = 0
 const t = (name, fn) => { fn(); n++; console.log('ok -', name) }
@@ -139,5 +140,37 @@ t('month range: rep summed across months, AM / PM dates joined in month order, s
   assert.equal(lv.total_days, 2); assert.equal(lv.vacation_am, 0.5); assert.equal(lv.vacation_pm, 0.5)
   assert.deepEqual(a.orderRange('2026-11-01', '2026-09-01'), { from: '2026-09-01', to: '2026-11-01' })
   assert.equal(a.rangeSlug('2026-09-01', '2026-09-01'), '2026-09'); assert.equal(a.rangeSlug('2026-09-01', '2026-11-01'), '2026-09_to_2026-11'); assert.equal(a.rangeLabel('2026-09-01', '2026-11-01'), 'Sep 2026 – Nov 2026')
+})
+const mrow = (o) => mg.toManagerRow({
+  month: '2026-09-01', manager_id: 1, name: 'M', role_type: 'DM', working_days: 10, field_days: 8, leave_days: 1, office_work_days: 0.5, activity_days: 0.5, missing_days: 0,
+  working_am: 12, working_pm: 8, field_am: 10, field_pm: 6, leave_am: 1, leave_pm: 1, ow_am: 1, ow_pm: 0, act_am: 0, act_pm: 1, missing_am: 0, missing_pm: 0,
+  single_am: 3, single_pm: 2, single_pharmacy: 1, double_am: 4, double_pm: 1, double_pharmacy: 0, single_visits: 6, double_visits: 5,
+  visits_am: 7, visits_pm: 3, visits_pharmacy: 1, call_rate_am: 0.7, call_rate_pm: 0.5, call_rate_pharmacy: null, ...o,
+})
+t('manager shift filter: All keeps day columns, AM / PM use shift days, Pharmacy keeps days with pharmacy visits', () => {
+  const r = [mrow({})]
+  assert.equal(mg.applyShift(r, 'ALL')[0].working_days, 10)
+  const am = mg.applyShift(r, 'AM')[0]
+  assert.deepEqual([am.working_days, am.field_days, am.leave_days, am.office_work_days, am.activity_days, am.single_visits, am.double_visits], [12, 10, 1, 1, 0, 3, 4])
+  const pm = mg.applyShift(r, 'PM')[0]
+  assert.deepEqual([pm.working_days, pm.activity_days, pm.single_visits, pm.double_visits], [8, 1, 2, 1])
+  const ph = mg.applyShift(r, 'PHARMACY')[0]
+  assert.deepEqual([ph.working_days, ph.field_days, ph.single_visits, ph.double_visits], [10, 8, 1, 0])
+  assert.deepEqual(mg.shiftRates('ALL'), ['am', 'pm', 'pharmacy'])
+  assert.deepEqual(mg.shiftRates('PM'), ['pm'])
+  assert.equal(mg.shiftUnit('AM'), 'shift days')
+  assert.equal(mg.shiftUnit('PHARMACY'), 'days')
+})
+t('manager totals follow the shift; null rates are dashes; export columns follow the shift', () => {
+  const rows = mg.applyShift([mrow({ manager_id: 1 }), mrow({ manager_id: 2, call_rate_am: null })], 'AM')
+  const tot = mg.totalManagers(rows)
+  assert.equal(tot.working_days, 24)
+  assert.equal(tot.single_visits, 6)
+  assert.equal(mg.fmtRate(null), a.DASH)
+  assert.equal(mg.fmtRate(0.5), '0.50')
+  const ex = mg.exportManagers(rows, tot, false, 'AM')
+  assert.ok('Call Rate AM' in ex[0])
+  assert.ok(!('Call Rate PM' in ex[0]) && !('Call Rate Pharmacy' in ex[0]))
+  assert.equal(ex[ex.length - 1]['Working Days'], 24)
 })
 console.log(`\n${n} tests passed`)
