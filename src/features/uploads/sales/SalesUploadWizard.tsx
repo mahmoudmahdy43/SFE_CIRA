@@ -28,7 +28,7 @@ function readText(file: File): Promise<string> {
 const tick = () => new Promise<void>((r) => setTimeout(r, 0))
 
 export const SALES_LABEL = 'Sales'
-export const SALES_DESCRIPTION = 'Monthly sales and targets by line, territory and product: three files per month (CIRA 1, 2, 3, named N_M.xls). Feeds the Sales report.'
+export const SALES_DESCRIPTION = 'Monthly sales and targets by line, territory and product: three files per month (CIRA 1, 2, 3). Feeds the Sales report.'
 
 export default function SalesUploadWizard({ onExit }: { onExit: () => void }) {
   const [stage, setStage] = useState<Stage>('files')
@@ -55,8 +55,6 @@ export default function SalesUploadWizard({ onExit }: { onExit: () => void }) {
   const onFiles = async (list: FileList | File[] | null) => {
     const picked = list ? [...list] : []
     if (picked.length === 0) return
-    const bad = picked.filter((f) => !/\.xls$/i.test(f.name))
-    if (bad.length > 0) { setError(`Only .xls files are accepted. Not accepted: ${bad.map((f) => f.name).join(', ')}.`); return }
     setError(null)
     setStage('parsing')
     try {
@@ -152,9 +150,9 @@ export default function SalesUploadWizard({ onExit }: { onExit: () => void }) {
             className="mt-5 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed px-6 py-10 text-center hover:bg-muted"
           >
             <FileUp className="h-6 w-6 text-muted-foreground" aria-hidden />
-            <span className="text-sm font-medium">Drop the .xls files here (3 per month), or click to choose</span>
-            <span className="text-xs text-muted-foreground">Select all files of one or more months at once. File name N_M.xls: N = month (1-12), M = line (1-3). Read in your browser; only parsed rows are sent.</span>
-            <input ref={inputRef} id="sales-files" type="file" multiple accept=".xls" className="sr-only" onChange={(e) => void onFiles(e.target.files)} />
+            <span className="text-sm font-medium">Drop the sales files here (3 per month), or click to choose</span>
+            <span className="text-xs text-muted-foreground">Select all files of one or more months at once. Month and line are read from the file content. Read in your browser; only parsed rows are sent.</span>
+            <input ref={inputRef} id="sales-files" type="file" multiple className="sr-only" onChange={(e) => void onFiles(e.target.files)} />
           </label>
         </Card>
       )}
@@ -184,7 +182,7 @@ export default function SalesUploadWizard({ onExit }: { onExit: () => void }) {
                     const ok = !bad && valueMatches(f) && targetMatches(f)
                     return (
                       <tr key={f.name} className="border-t align-top">
-                        <td className="whitespace-nowrap px-3 py-1.5 font-medium">{f.name}{bad && <ul className="mt-1 space-y-0.5 text-xs font-normal text-danger">{f.errors.map((e) => <li key={e} className="max-w-xs whitespace-normal">{e}</li>)}</ul>}</td>
+                        <td className="whitespace-nowrap px-3 py-1.5 font-medium">{f.name}{(bad || f.warnings.length > 0) && <ul className="mt-1 space-y-0.5 text-xs font-normal text-danger">{f.errors.map((e) => <li key={e} className="max-w-xs whitespace-normal">{e}</li>)}{f.warnings.map((e) => <li key={e} className="max-w-xs whitespace-normal text-warning">{e}</li>)}</ul>}</td>
                         <td className="px-3 py-1.5">{f.line ?? '—'}</td>
                         <td className="tnum px-3 py-1.5">{f.month ?? '—'}</td>
                         <td className="tnum px-3 py-1.5 text-right">{f.territories.toLocaleString()}</td>
@@ -233,7 +231,7 @@ export default function SalesUploadWizard({ onExit }: { onExit: () => void }) {
               <ul className="list-disc space-y-1 pl-5 text-sm">
                 {files.some((f) => f.errors.length > 0) && <li>Files with an error are left out of the upload.</li>}
                 {incomplete.map((g) => <li key={g.month}>{g.month}: {g.missing.map((n) => `CIRA ${n}`).join(', ')} {g.missing.length > 1 ? 'are' : 'is'} missing — each month needs 3 files.</li>)}
-                {mismatched.map((f) => <li key={f.name}>{f.name}: the company row total differs from the sum of the parsed rows by more than 5 EGP.</li>)}
+                {mismatched.map((f) => <li key={f.name}>{f.name}: the company row total differs from the sum of the parsed rows by more than the tolerance (the larger of 5 EGP and 0.05% of the file total).</li>)}
                 {duplicates.map((d) => <li key={d}>{d}</li>)}
               </ul>
               {incomplete.length > 0 && (

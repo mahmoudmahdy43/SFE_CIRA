@@ -21,6 +21,8 @@ export interface SalesCheck { line: string; month: string; s_value: number | nul
 export interface SalesFile {
   name: string
   errors: string[]
+  /** Non-blocking notes (e.g. the file name disagrees with the content). */
+  warnings: string[]
   /** CIRA 1..3 (from the company row) */
   line: string | null
   /** YYYY-MM */
@@ -35,7 +37,7 @@ export interface SalesFile {
 
 export const MONTH_ABBR = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
 export const LINE_COUNT = 3
-/** File total vs parsed rows must agree within this many EGP. */
+/** Minimum allowed gap (EGP) between a file total and the sum of its parsed rows. */
 export const MATCH_TOLERANCE = 5
 
 const strip = (s: string): string => s.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/\s+/g, ' ').trim()
@@ -52,7 +54,7 @@ const CELLS = /<t[hd][^>]*>(.*?)(?=<t[hd]|<\/tr>|$)/gs
 const REP_NAME = /<td[^>]*>\s*(?:<nobr>)?([^<]*?)(?:<\/nobr>)?\s*<th[^>]*width=.5.>\|/gs
 
 export function parseFileName(name: string): { month: number; line: number } | null {
-  const m = /^(\d{1,2})_(\d)\.xls$/i.exec(name.trim())
+  const m = /(\d{1,2})\D+(\d)/.exec(name.trim())
   if (!m) return null
   const month = Number(m[1])
   const line = Number(m[2])
@@ -63,9 +65,8 @@ const ym = (year: number, month: number) => `${year}-${String(month).padStart(2,
 
 /** Parses one file's text. Problems are reported in `errors`; the file must not be loaded when any exist. */
 export function parseSalesFile(name: string, text: string): SalesFile {
-  const out: SalesFile = { name, errors: [], line: null, month: null, rows: [], territories: 0, products: 0, check: null, sumValue: 0, sumTarget: 0 }
+  const out: SalesFile = { name, errors: [], warnings: [], line: null, month: null, rows: [], territories: 0, products: 0, check: null, sumValue: 0, sumTarget: 0 }
   const fromName = parseFileName(name)
-  if (!fromName) out.errors.push('File name must be N_M.xls: N = month number (1-12), M = line number (1-3).')
 
   const yearM = /(\d{4})\s+Sales\s+Analysis\s+Report/i.exec(text)
   const year = yearM ? Number(yearM[1]) : null
@@ -120,10 +121,10 @@ export function parseSalesFile(name: string, text: string): SalesFile {
   out.line = lineNum ? `CIRA ${Number(lineNum)}` : null
 
   if (fromName && labelMonth !== null && fromName.month !== labelMonth) {
-    out.errors.push(`File name says month ${fromName.month} but the report says ${label}.`)
+    out.warnings.push(`File name suggests month ${fromName.month} but the report says ${label}; the report is used.`)
   }
   if (fromName && out.line && fromName.line !== Number(lineNum)) {
-    out.errors.push(`File name says line ${fromName.line} but the report says ${out.line}.`)
+    out.warnings.push(`File name suggests line ${fromName.line} but the report says ${out.line}; the report is used.`)
   }
   if (year !== null && labelMonth !== null) out.month = ym(year, labelMonth)
   for (const r of out.rows) {
@@ -139,11 +140,14 @@ export function parseSalesFile(name: string, text: string): SalesFile {
   return out
 }
 
+/** The file rounds every row, so the allowed gap is max(5 EGP, 0.05% of the file total). */
+export const tolerance = (fileTotal: number): number => Math.max(MATCH_TOLERANCE, Math.abs(fileTotal) * 0.0005)
+
 export const valueMatches = (file: SalesFile): boolean =>
-  !!file.check && Math.abs((file.check.s_value ?? 0) - file.sumValue) <= MATCH_TOLERANCE
+  !!file.check && Math.abs((file.check.s_value ?? 0) - file.sumValue) <= tolerance(file.check.s_value ?? 0)
 
 export const targetMatches = (file: SalesFile): boolean =>
-  !!file.check && Math.abs((file.check.t_value ?? 0) - file.sumTarget) <= MATCH_TOLERANCE
+  !!file.check && Math.abs((file.check.t_value ?? 0) - file.sumTarget) <= tolerance(file.check.t_value ?? 0)
 
 export interface MonthGroup {
   /** YYYY-MM */
