@@ -44,6 +44,7 @@ function buildPreview(p: ParsedVisits, ref: ReferenceData): Preview {
   let single = 0
   let withDoctorId = 0
   let withoutDoctorId = 0
+  let withVisitId = 0
   let double = 0
   let planned = 0
   let direct = 0
@@ -54,6 +55,7 @@ function buildPreview(p: ParsedVisits, ref: ReferenceData): Preview {
     if (!ref.repCodes.has(r.code)) unknown.set(r.code, (unknown.get(r.code) ?? 0) + 1)
     if (r.doctor_id && r.account_id) withDoctorId++
     else withoutDoctorId++
+    if (r.visit_id) withVisitId++
     if (r.visit_type === 'D') double++
     else single++
     if (r.visit_root === 'Planned') planned++
@@ -73,6 +75,8 @@ function buildPreview(p: ParsedVisits, ref: ReferenceData): Preview {
     .map((m) => `Target List for ${m.month.slice(0, 7)} is not loaded — visits will not match any list: load the list first. (You can still continue and use Re-match later.)`)
   const warnings: string[] = []
   if (withDoctorId + withoutDoctorId > 0) warnings.push(`${withDoctorId.toLocaleString()} rows with Doctor ID, ${withoutDoctorId.toLocaleString()} rows without (they will be stored as visits outside the list: counted in Total Visits / Call Rate, no Coverage / PCF).`)
+  if (!p.hasVisitId) warnings.push('Visit ID column not found - pairing falls back to the old rule')
+  else if (p.rows.length > withVisitId) warnings.push(`${(p.rows.length - withVisitId).toLocaleString()} row(s) have an empty Visit ID - they are sent without it.`)
   if (p.otherRoots > 0) warnings.push(`${p.otherRoots.toLocaleString()} row(s) have a Visit Root other than Planned / Direct — kept as written.`)
   if (p.undecidedDateOrder) warnings.push('Some dates are text like 07/10/2026 and the file does not show whether day or month comes first — day-first was assumed. Check the date range above.')
   if (p.errors.length > 0) warnings.push(`${p.errors.length.toLocaleString()} row(s) have a bad shift, visit type, date, or blank required value and will be excluded (listed below).`)
@@ -94,6 +98,7 @@ function buildPreview(p: ParsedVisits, ref: ReferenceData): Preview {
       { label: 'Direct', value: direct },
       { label: 'Rows with Doctor ID', value: withDoctorId },
       { label: 'Rows without Doctor ID', value: withoutDoctorId },
+      { label: 'Rows with Visit ID', value: withVisitId },
       { label: 'Rows excluded (invalid)', value: p.errors.length },
     ],
     alerts,
@@ -103,8 +108,8 @@ function buildPreview(p: ParsedVisits, ref: ReferenceData): Preview {
     unknownLabel: 'Unknown CODEs',
     unknownLines: [],
     sample: {
-      columns: ['Date', 'Shift', 'CODE', 'Territory', 'Type', 'Acc. Type', 'Account ID', 'Doctor ID', 'Doctor Name', 'Acc. Name', 'Root'],
-      rows: p.rows.slice(0, 20).map((r) => [r.visit_date, r.shift, r.code, r.territory, r.visit_type, r.acc_type, r.account_id, r.doctor_id, r.doctor_name, r.acc_name, r.visit_root]),
+      columns: ['Date', 'Shift', 'CODE', 'Territory', 'Type', 'Acc. Type', 'Account ID', 'Doctor ID', 'Visit ID', 'Doctor Name', 'Acc. Name', 'Root'],
+      rows: p.rows.slice(0, 20).map((r) => [r.visit_date, r.shift, r.code, r.territory, r.visit_type, r.acc_type, r.account_id, r.doctor_id, r.visit_id, r.doctor_name, r.acc_name, r.visit_root]),
     },
     extra: <RowsPerDay days={sortedDays.map((d) => ({ day: d, rows: days.get(d) as number }))} />,
   }
