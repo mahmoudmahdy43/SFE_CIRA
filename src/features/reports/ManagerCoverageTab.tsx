@@ -12,10 +12,10 @@ import { cn } from '../../lib/utils'
 import { useAsync } from '../dashboard/useAsync'
 import { CoverDoctorsModal } from './CoverDoctorsModal'
 import {
-  COVER_COLS, COVER_EMPTY_TEXT, COVER_EMPTY_TITLE, COVER_FOOTER, COVER_SUBTITLE, COVER_TITLE, CPAL, PERIODS,
-  buildCoverGrid, buildSpecGrid, coverCards, coverManagers, filterCover, fmtNum, fmtPct, flattenGroups, groupCover, groupSpec,
-  pairKey, periodRange, periodText, sumCover, topSpeciality,
-  type ColId, type CoverRow, type CoverTotal, type PeriodMode, type SortState, type TopSpec,
+  COVER_COLS, COVER_EMPTY_TEXT, SHIFT_OPTIONS, COVER_EMPTY_TITLE, COVER_FOOTER, COVER_SUBTITLE, COVER_TITLE, CPAL, PERIODS,
+  buildCoverGrid, buildSpecGrid, colTip, coverCards, coverManagers, filterCover, fmtNum, fmtPct, flattenGroups, groupCover, groupSpec,
+  pairKey, periodRange, periodText, shiftText, sumCover, topSpeciality,
+  type ColId, type CoverRow, type CoverShift, type CoverTotal, type PeriodMode, type SortState, type TopSpec,
 } from './coverageMath'
 import { ReportToolbar } from './ReportToolbar'
 import type { ReportFilters } from './reportMath'
@@ -52,7 +52,7 @@ function PctBar({ v, from = CPAL.barFrom, to = CPAL.barTo, width = 'w-28' }: { v
   )
 }
 
-function PeriodControls({ mode, onMode, to, onTo }: { mode: PeriodMode; onMode: (m: PeriodMode) => void; to: string | null; onTo: (m: string) => void }) {
+function PeriodControls({ mode, onMode, to, onTo, shift, onShift }: { mode: PeriodMode; onMode: (m: PeriodMode) => void; to: string | null; onTo: (m: string) => void; shift: CoverShift; onShift: (s: CoverShift) => void }) {
   return (
     <>
       <div role="group" aria-label="Period" className="inline-flex rounded-control border bg-card p-0.5">
@@ -73,6 +73,16 @@ function PeriodControls({ mode, onMode, to, onTo }: { mode: PeriodMode; onMode: 
           className="h-9 w-40 text-foreground"
         />
       </label>
+      <div role="group" aria-label="Shift" className="inline-flex rounded-control border bg-card p-0.5">
+        {SHIFT_OPTIONS.map((s) => (
+          <button
+            key={s.id} aria-pressed={shift === s.id} onClick={() => onShift(s.id)}
+            className={cn('rounded-md px-2.5 py-1 text-sm text-muted-foreground transition-colors', shift === s.id && 'bg-accent font-medium text-accent-foreground')}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
     </>
   )
 }
@@ -121,6 +131,7 @@ function SpecPanel({ r, spec, colSpan }: { r: CoverRow; spec: ReturnType<typeof 
 
 export function ManagerCoverageTab({ month, lines, filters, onFilters }: Props) {
   const [mode, setMode] = useState<PeriodMode>('month')
+  const [shift, setShift] = useState<CoverShift>('ALL')
   /** The "up to" month (YYYY-MM-01); null until the latest month with data has been looked up. */
   const [to, setTo] = useState<string | null>(null)
   const [sort, setSort] = useState<SortState>({ id: 'rep', desc: false })
@@ -148,8 +159,8 @@ export function ManagerCoverageTab({ month, lines, filters, onFilters }: Props) 
   const range = useMemo(() => periodRange(mode, to ?? month), [mode, to, month])
   const label = periodText(range.from, range.to)
   const pending = to === null
-  const cover = useAsync(pending ? 'report:cover:pending' : `report:cover:${range.from}:${range.to}`, () => (pending ? Promise.resolve([] as CoverRow[]) : fetchManagerCoverage(range.from, range.to)))
-  const specQ = useAsync(pending ? 'report:cover-spec:pending' : `report:cover-spec:${range.from}:${range.to}`, () => (pending ? Promise.resolve([]) : fetchManagerCoverageSpec(range.from, range.to)))
+  const cover = useAsync(pending ? 'report:cover:pending' : `report:cover:${range.from}:${range.to}:${shift}`, () => (pending ? Promise.resolve([] as CoverRow[]) : fetchManagerCoverage(range.from, range.to, shift)))
+  const specQ = useAsync(pending ? 'report:cover-spec:pending' : `report:cover-spec:${range.from}:${range.to}:${shift}`, () => (pending ? Promise.resolve([]) : fetchManagerCoverageSpec(range.from, range.to, shift)))
   const loading = pending || cover.loading
   const allRows = useMemo(() => cover.data ?? [], [cover.data])
   const spec = useMemo(() => groupSpec(specQ.data ?? []), [specQ.data])
@@ -166,12 +177,12 @@ export function ManagerCoverageTab({ month, lines, filters, onFilters }: Props) 
   const groups = useMemo(() => groupCover(rows, top, sort), [rows, top, sort])
   const total = useMemo(() => sumCover(rows), [rows])
   const cards = useMemo(() => coverCards(total), [total])
-  useEffect(() => setOpen(new Set()), [range.from, range.to])
+  useEffect(() => setOpen(new Set()), [range.from, range.to, shift])
 
   const toggleSort = (id: ColId) => setSort((s) => (s.id === id ? { id, desc: !s.desc } : { id, desc: id !== 'rep' && id !== 'box' }))
   const toggleOpen = (k: string) => setOpen((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n })
-  const periodLine = `PERIOD: ${label.toUpperCase()}   |   ${lineName ? `LINE: ${lineName.toUpperCase()}   |   ` : ''}MANAGER: ${manager === '' ? 'ALL MANAGERS' : manager.toUpperCase()}`
-  const fileName = `manager-coverage-${range.from.slice(0, 7)}_${range.to.slice(0, 7)}`
+  const periodLine = `PERIOD: ${label.toUpperCase()}   |   SHIFT: ${shiftText(shift).toUpperCase()}   |   ${lineName ? `LINE: ${lineName.toUpperCase()}   |   ` : ''}MANAGER: ${manager === '' ? 'ALL MANAGERS' : manager.toUpperCase()}`
+  const fileName = `manager-coverage-${range.from.slice(0, 7)}_${range.to.slice(0, 7)}-${shift.toLowerCase()}`
 
   const exportXlsx = () => {
     const ordered = flattenGroups(groups)
@@ -187,7 +198,7 @@ export function ManagerCoverageTab({ month, lines, filters, onFilters }: Props) 
         Line: r.line ?? '', Manager: r.manager ?? '', Rep: r.rep_name ?? '', 'Rep code': r.rep_code ?? '', Box: r.box ?? '',
         'List doctors': r.list_doctors, Covered: r.covered_doctors, 'Coverage %': r.coverage_pct === null ? '' : Number((r.coverage_pct * 100).toFixed(1)),
         'Repeat doctors': r.repeat_doctors, 'Joint visits': r.joint_visits, 'Off-list doctors': r.offlist_doctors, 'Off-list visits': r.offlist_visits,
-        'Top speciality': t?.speciality ?? '', 'Top speciality share %': t ? Number((t.share * 100).toFixed(1)) : '',
+        Shift: shiftText(shift), 'Top speciality': t?.speciality ?? '', 'Top speciality share %': t ? Number((t.share * 100).toFixed(1)) : '',
       }
     }))
 
@@ -220,7 +231,7 @@ export function ManagerCoverageTab({ month, lines, filters, onFilters }: Props) 
         </div>
         <div className="px-4 py-1.5 text-center text-xs font-bold uppercase tracking-wide text-white" style={{ backgroundColor: CPAL.green }}>
           {label}
-          <span className="ml-3 normal-case">·  Manager: {manager === '' ? 'All managers' : manager}</span>
+          <span className="ml-3 normal-case">·  {shiftText(shift)}  ·  Manager: {manager === '' ? 'All managers' : manager}</span>
         </div>
       </div>
 
@@ -232,7 +243,7 @@ export function ManagerCoverageTab({ month, lines, filters, onFilters }: Props) 
           canExport={rows.length > 0} onXlsx={exportXlsx} onCsv={exportCsv}
           searchLabel="Search rep name or code" searchPlaceholder="Rep name or code…"
         >
-          <PeriodControls mode={mode} onMode={setMode} to={to} onTo={setTo} />
+          <PeriodControls mode={mode} onMode={setMode} to={to} onTo={setTo} shift={shift} onShift={setShift} />
         </ReportToolbar>
       </div>
 
@@ -271,9 +282,9 @@ export function ManagerCoverageTab({ month, lines, filters, onFilters }: Props) 
                       style={{ backgroundColor: CPAL.slate }}
                     >
                       <button onClick={() => toggleSort(c.id)} className="inline-flex items-center gap-1 hover:opacity-80">
-                        {c.tip ? (
-                          <Tooltip content={<span className="block max-w-64">{c.tip}</span>} side="bottom">
-                            <span className="inline-flex items-center gap-1">{c.header}<Info className="h-3 w-3 opacity-60" aria-label={c.tip} /></span>
+                        {colTip(c, shift) ? (
+                          <Tooltip content={<span className="block max-w-64">{colTip(c, shift)}</span>} side="bottom">
+                            <span className="inline-flex items-center gap-1">{c.header}<Info className="h-3 w-3 opacity-60" aria-label={colTip(c, shift)} /></span>
                           </Tooltip>
                         ) : c.header}
                         {sortIcon(c.id)}
@@ -385,7 +396,7 @@ export function ManagerCoverageTab({ month, lines, filters, onFilters }: Props) 
 
       <p className="text-xs italic" style={{ color: CPAL.grey }}>{COVER_FOOTER}</p>
 
-      <CoverDoctorsModal target={modal} from={range.from} to={range.to} periodText={label} onClose={() => setModal(null)} />
+      <CoverDoctorsModal target={modal} from={range.from} to={range.to} periodText={label} shift={shift} onClose={() => setModal(null)} />
     </div>
   )
 }

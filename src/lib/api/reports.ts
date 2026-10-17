@@ -6,7 +6,7 @@ import { toLeaveRow, toMissingRow, type LeaveRow, type MissingRow } from '../../
 import { MANAGER_COLS, toManagerRow, type ManagerRow } from '../../features/reports/managerMath'
 import { toCapacityRow, type CapacityRow } from '../../features/reports/capacityMath'
 import { toJointRow, type JointRow } from '../../features/reports/jointMath'
-import { normalizeShares, toCoverRow, toDocRow, toSpecRow, type CoverRow, type DocRow, type SpecRow } from '../../features/reports/coverageMath'
+import { normalizeShares, toCoverRow, toDocRow, toSpecRow, type CoverRow, type CoverShift, type DocRow, type SpecRow } from '../../features/reports/coverageMath'
 import {
   numOrNull, toCallRateRow, toCoverageRow, type CallRateRow, type CoverageRow,
 } from '../../features/reports/reportMath'
@@ -163,21 +163,21 @@ async function rpcAll(fn: string, args: Record<string, unknown>, orderBy: string
 }
 
 /** One row per manager x rep for months from..to (manager_coverage). */
-export async function fetchManagerCoverage(from: string, to: string): Promise<CoverRow[]> {
-  return (await rpcAll('manager_coverage', { p_from: from, p_to: to }, ['manager_id', 'rep_id'])).map(toCoverRow)
+export async function fetchManagerCoverage(from: string, to: string, shift: CoverShift): Promise<CoverRow[]> {
+  return (await rpcAll('manager_coverage', { p_from: from, p_to: to, p_shift: shift }, ['manager_id', 'rep_id'])).map(toCoverRow)
 }
 
 /** True when manager_coverage has at least one row for the month (cheap probe used to pick the default month). */
 export async function hasManagerCoverage(month: string): Promise<boolean> {
-  return (await rpcAll('manager_coverage', { p_from: month, p_to: month }, ['manager_id', 'rep_id'], 1)).length > 0
+  return (await rpcAll('manager_coverage', { p_from: month, p_to: month, p_shift: 'ALL' }, ['manager_id', 'rep_id'], 1)).length > 0
 }
 
 /** One row per manager x rep x speciality (manager_coverage_spec). */
-export async function fetchManagerCoverageSpec(from: string, to: string): Promise<SpecRow[]> {
-  return normalizeShares((await rpcAll('manager_coverage_spec', { p_from: from, p_to: to }, ['manager_id', 'rep_id', 'speciality'])).map(toSpecRow))
+export async function fetchManagerCoverageSpec(from: string, to: string, shift: CoverShift): Promise<SpecRow[]> {
+  return normalizeShares((await rpcAll('manager_coverage_spec', { p_from: from, p_to: to, p_shift: shift }, ['manager_id', 'rep_id', 'speciality'])).map(toSpecRow))
 }
 
 /** Drill-down: every active-list doctor of one rep with whether the manager covered them (manager_coverage_doctors). */
-export async function fetchManagerCoverageDoctors(from: string, to: string, repId: number, managerId: number | null): Promise<DocRow[]> {
-  return (await rpcAll('manager_coverage_doctors', { p_from: from, p_to: to, p_rep: repId, p_manager: managerId }, ['doctor_id'])).map(toDocRow)
+export async function fetchManagerCoverageDoctors(from: string, to: string, repId: number, managerId: number | null, shift: CoverShift): Promise<DocRow[]> {
+  return (await rpcAll('manager_coverage_doctors', { p_from: from, p_to: to, p_rep: repId, p_manager: managerId, p_shift: shift }, ['doctor_id'])).map(toDocRow)
 }

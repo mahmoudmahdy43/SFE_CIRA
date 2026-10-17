@@ -8,7 +8,7 @@ import { downloadXlsx } from '../../lib/xlsxExport'
 import { fetchManagerCoverageDoctors } from '../../lib/api/reports'
 import { cn } from '../../lib/utils'
 import { useAsync } from '../dashboard/useAsync'
-import { CPAL, orderDoctors, type CoverRow } from './coverageMath'
+import { CPAL, orderDoctors, shiftText, type CoverRow, type CoverShift } from './coverageMath'
 
 interface Props {
   /** The manager x rep pair to drill into; null = closed. */
@@ -16,12 +16,13 @@ interface Props {
   from: string
   to: string
   periodText: string
+  shift: CoverShift
   onClose: () => void
 }
 
-function Body({ target, from, to, periodText }: { target: CoverRow; from: string; to: string; periodText: string }) {
-  const data = useAsync(`report:cover:docs:${from}:${to}:${target.manager_id ?? ''}:${target.rep_id}`, () =>
-    fetchManagerCoverageDoctors(from, to, target.rep_id, target.manager_id),
+function Body({ target, from, to, periodText, shift }: { target: CoverRow; from: string; to: string; periodText: string; shift: CoverShift }) {
+  const data = useAsync(`report:cover:docs:${from}:${to}:${shift}:${target.manager_id ?? ''}:${target.rep_id}`, () =>
+    fetchManagerCoverageDoctors(from, to, target.rep_id, target.manager_id, shift),
   )
   const [view, setView] = useState<'missed' | 'all'>('missed')
   const all = useMemo(() => orderDoctors(data.data ?? []), [data.data])
@@ -30,10 +31,10 @@ function Body({ target, from, to, periodText }: { target: CoverRow; from: string
 
   const exportXlsx = () =>
     void downloadXlsx(
-      `manager-coverage-doctors-${(target.rep_name ?? 'rep').replace(/[^\w]+/g, '-')}-${from.slice(0, 7)}_${to.slice(0, 7)}.xlsx`,
+      `manager-coverage-doctors-${(target.rep_name ?? 'rep').replace(/[^\w]+/g, '-')}-${from.slice(0, 7)}_${to.slice(0, 7)}-${shift.toLowerCase()}.xlsx`,
       'Doctors',
       shown.map((d) => ({
-        Manager: target.manager ?? '', Rep: target.rep_name ?? '', Period: periodText,
+        Manager: target.manager ?? '', Rep: target.rep_name ?? '', Period: periodText, Shift: shiftText(shift),
         Doctor: d.doctor_name, Account: d.account_name ?? '', Speciality: d.speciality ?? '', Class: d.class ?? '', Frequency: d.freq,
         'Joint visits': d.joint_visits, Covered: d.covered ? 'Yes' : 'No',
       })),
@@ -90,16 +91,16 @@ function Body({ target, from, to, periodText }: { target: CoverRow; from: string
   )
 }
 
-export function CoverDoctorsModal({ target, from, to, periodText, onClose }: Props) {
+export function CoverDoctorsModal({ target, from, to, periodText, shift, onClose }: Props) {
   return (
     <Dialog open={target !== null} onOpenChange={(o) => { if (!o) onClose() }}>
       {target && (
         <DialogContent
           title={`Not visited doctors — ${target.rep_name ?? 'rep'}`}
-          description={`Manager: ${target.manager ?? '-'}  ·  ${periodText}  ·  ${target.list_doctors} list doctors, ${target.covered_doctors} covered`}
+          description={`Manager: ${target.manager ?? '-'}  ·  ${periodText}  ·  ${shiftText(shift)}  ·  ${target.list_doctors} list doctors, ${target.covered_doctors} covered`}
           className="max-w-4xl"
         >
-          <Body target={target} from={from} to={to} periodText={periodText} />
+          <Body target={target} from={from} to={to} periodText={periodText} shift={shift} />
         </DialogContent>
       )}
     </Dialog>

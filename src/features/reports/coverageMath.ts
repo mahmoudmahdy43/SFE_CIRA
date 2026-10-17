@@ -142,6 +142,12 @@ export function periodText(from: string, to: string): string {
   return fy === ty ? `${MON[fm - 1]} - ${MON[tm - 1]} ${ty}` : `${MON[fm - 1]} ${fy} - ${MON[tm - 1]} ${ty}`
 }
 
+/* ------------------------------------ shift ------------------------------------ */
+/** Passed to the database functions as p_shift. Pharmacies are excluded by the database in every case. */
+export type CoverShift = 'ALL' | 'AM' | 'PM'
+export const SHIFT_OPTIONS: { id: CoverShift; label: string }[] = [{ id: 'ALL', label: 'All' }, { id: 'AM', label: 'AM' }, { id: 'PM', label: 'PM' }]
+export const shiftText = (s: CoverShift): string => (s === 'ALL' ? 'All shifts' : `${s} shift`)
+
 /* ------------------------------------ filters ------------------------------------ */
 export interface CoverFilters { line: string | null; manager: string; search: string }
 
@@ -234,6 +240,15 @@ export const COVER_COLS: CoverColDef[] = [
   { id: 'offlist', header: 'Off-list doctors', numeric: true, tip: 'Doctors visited with the rep that are not on the active list' },
   { id: 'top', header: 'Top speciality', numeric: true, tip: 'Speciality with the largest share of the doctors the manager covered with this rep' },
 ]
+
+/** Header tooltip; under AM / PM the list size (denominator) stays the whole active list, so say what the % means. */
+export function colTip(c: CoverColDef, shift: CoverShift): string | undefined {
+  if (shift === 'ALL') return c.tip
+  if (c.id === 'pct') return `% of the whole active list that the manager visited with the rep in the ${shift} shift. The list size does not change with the shift.`
+  if (c.id === 'list') return 'Doctors on the rep\'s active list (the same under every shift)'
+  if (c.id === 'covered') return `List doctors the manager visited with the rep in the ${shift} shift`
+  return c.tip
+}
 
 export function colValue(id: ColId, r: CoverRow, top: TopSpec | null): string | number | null {
   switch (id) {

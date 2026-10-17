@@ -474,6 +474,12 @@ t('manager coverage: groups Line -> Manager, sorts reps, null values last; top s
   assert.equal(cv.topSpeciality(spec.get('1|1')).speciality, 'Y')
 })
 
+t('manager coverage: shift tooltip explains the whole-list denominator under AM / PM only', () => {
+  const pct = cv.COVER_COLS.find((c) => c.id === 'pct')
+  assert.equal(cv.colTip(pct, 'ALL'), pct.tip)
+  assert.match(cv.colTip(pct, 'AM'), /whole active list.*AM shift/); assert.equal(cv.shiftText('PM'), 'PM shift')
+})
+
 t('manager coverage: doctors order = not covered first, then class A/B/C; shares given as 0..100 are normalised', () => {
   const d = (o) => cv.toDocRow({ doctor_id: 1, doctor_name: 'N', covered: false, ...o })
   const o = cv.orderDoctors([d({ doctor_id: 1, covered: true, class: 'A' }), d({ doctor_id: 2, class: 'C' }), d({ doctor_id: 3, class: 'A' }), d({ doctor_id: 4, class: 'B' })])
