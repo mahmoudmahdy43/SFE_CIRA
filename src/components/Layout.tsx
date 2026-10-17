@@ -35,7 +35,7 @@ export default function Layout() {
 
   return (
     <div className="flex min-h-screen">
-      <div className="contents print:hidden"><Sidebar collapsed={collapsed} onToggle={toggle} /></div>
+      <Sidebar collapsed={collapsed} onToggle={toggle} />
       <Dialog open={drawerOpen} onOpenChange={setDrawerOpen}>
         <DialogContent title="Navigation" side="left">
           <div className="flex h-full flex-col">
@@ -49,7 +49,7 @@ export default function Layout() {
         </DialogContent>
       </Dialog>
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="contents print:hidden"><Topbar onOpenPalette={() => setPaletteOpen(true)} onOpenMenu={() => setDrawerOpen(true)} /></div>
+        <Topbar onOpenPalette={() => setPaletteOpen(true)} onOpenMenu={() => setDrawerOpen(true)} />
         <main className="flex-1 p-4 md:p-6">
           <div key={pathname} className="mx-auto max-w-7xl animate-fade-in">
             <Outlet />

@@ -4,7 +4,6 @@ import { toKpiRepRow, type KpiRepRow } from '../../features/reports/kpiRepMath'
 import { toLeaveRow, toMissingRow, type LeaveRow, type MissingRow } from '../../features/reports/absenceMath'
 import { MANAGER_COLS, toManagerRow, type ManagerRow } from '../../features/reports/managerMath'
 import { toCapacityRow, type CapacityRow } from '../../features/reports/capacityMath'
-import { toJointRow, type JointRow } from '../../features/reports/jointMath'
 import {
   numOrNull, toCallRateRow, toCoverageRow, type CallRateRow, type CoverageRow,
 } from '../../features/reports/reportMath'
@@ -106,21 +105,6 @@ const CAPACITY_COLS =
 export async function fetchVisitsCapacity(month: string): Promise<CapacityRow[]> {
   const rows = await fetchAll<Raw>('v_visits_capacity', CAPACITY_COLS, ['rep_id'], (q) => q.eq('month', month))
   return rows.map(toCapacityRow)
-}
-
-const JOINT_COLS =
-  'month,manager,manager_id,rep_name,rep_code,rep_id,line,box,rep_am,rep_pm,rep_pharmacy,rep_total,joint_am,joint_pm,joint_pharmacy,joint_total,cover_am,cover_pm,cover_pharmacy,cover_total'
-
-/** One row per day x manager x rep for the month (v_manager_joint_days: every number and ratio comes from the view). */
-export async function fetchJointDays(month: string): Promise<JointRow[]> {
-  const rows = await fetchAll<Raw>('v_manager_joint_days', `day,${JOINT_COLS}`, ['day', 'manager_id', 'rep_id'], (q) => q.eq('month', month))
-  return rows.map(toJointRow)
-}
-
-/** One row per manager x rep for the month (v_manager_joint_month). */
-export async function fetchJointMonth(month: string): Promise<JointRow[]> {
-  const rows = await fetchAll<Raw>('v_manager_joint_month', `joint_days,${JOINT_COLS}`, ['manager_id', 'rep_id'], (q) => q.eq('month', month))
-  return rows.map(toJointRow)
 }
 
 const ABS_IDENT = 'month,line,line_id,manager_id,direct_manager,rep_code,rep_name,box,rep_id,hire_date'

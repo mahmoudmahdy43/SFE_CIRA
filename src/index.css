@@ -75,6 +75,3 @@
   background: linear-gradient(90deg, transparent, hsl(var(--foreground) / .06), transparent);
   animation: shimmer 1.4s infinite;
 }
-
-/* Printing / "Save as PDF": landscape pages (the wide report tables need it); colours are kept per report with print-color-adjust. */
-@page { size: A4 landscape; margin: 8mm; }
