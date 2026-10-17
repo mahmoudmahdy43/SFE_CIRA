@@ -20,8 +20,9 @@ import Calendar from './pages/Calendar'
 import Uploads from './pages/Uploads'
 import DataQuality from './pages/DataQuality'
 import Reports from './pages/Reports'
+import ListStrategy from './pages/ListStrategy'
 
-const BUILT = new Set(['/', '/settings', '/org', '/personnel', '/targets', '/calendar', '/uploads', '/data-quality', '/reports'])
+const BUILT = new Set(['/', '/settings', '/org', '/personnel', '/targets', '/calendar', '/uploads', '/data-quality', '/reports', '/list-strategy'])
 
 const Design = lazy(() => import('./pages/Design'))
 
@@ -122,6 +123,7 @@ export default function App() {
             <Route path="uploads" element={<Uploads />} />
             <Route path="data-quality" element={<DataQuality />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="list-strategy" element={<ListStrategy />} />
             <Route
               path="design"
               element={

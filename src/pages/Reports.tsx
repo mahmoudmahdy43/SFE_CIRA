@@ -10,6 +10,7 @@ import { LeavesTab, MissingTab } from '../features/reports/AbsenceTab'
 import { ManagersTab } from '../features/reports/ManagersTab'
 import { KpiRepTab } from '../features/reports/KpiRepTab'
 import { CapacityTab } from '../features/reports/CapacityTab'
+import { SpecialityMixTab } from '../features/reports/SpecialityMixTab'
 import type { ReportFilters } from '../features/reports/reportMath'
 
 export default function Reports() {
@@ -22,7 +23,7 @@ export default function Reports() {
     <div>
       <PageHeader
         title="Reports"
-        description={`Coverage, call-rate, KPI, leave, missing-day and visits-capacity reports for ${month.slice(0, 7)} — read straight from the database views; change the month in the top bar (Leaves and Missing Days also have their own From / To months).`}
+        description={`Coverage, call-rate, KPI, leave, missing-day, visits-capacity and speciality-mix reports for ${month.slice(0, 7)} — read straight from the database views; change the month in the top bar (Leaves and Missing Days also have their own From / To months).`}
       />
       <Tabs defaultValue="coverage">
         <TabsList className="mb-4">
@@ -33,6 +34,7 @@ export default function Reports() {
           <TabsTrigger value="missing">Missing Days</TabsTrigger>
           <TabsTrigger value="managers">Managers</TabsTrigger>
           <TabsTrigger value="capacity">Visits Capacity</TabsTrigger>
+          <TabsTrigger value="speciality-mix">Speciality Mix</TabsTrigger>
         </TabsList>
         <TabsContent value="coverage"><CoverageTab {...shared} /></TabsContent>
         <TabsContent value="call-rate"><CallRateTab {...shared} /></TabsContent>
@@ -41,6 +43,7 @@ export default function Reports() {
         <TabsContent value="missing"><MissingTab {...shared} /></TabsContent>
         <TabsContent value="managers"><ManagersTab {...shared} /></TabsContent>
         <TabsContent value="capacity"><CapacityTab {...shared} /></TabsContent>
+        <TabsContent value="speciality-mix"><SpecialityMixTab {...shared} /></TabsContent>
       </Tabs>
     </div>
   )

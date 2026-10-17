@@ -20,6 +20,10 @@ export function cached<T>(key: string, fn: () => Promise<T>): Promise<T> {
   return p
 }
 export const dropCached = (key: string) => void cache.delete(key)
+/** Drop every cached entry whose key starts with `prefix` (e.g. all months of one report). */
+export const dropCachedPrefix = (prefix: string) => {
+  for (const k of [...cache.keys()]) if (k.startsWith(prefix)) cache.delete(k)
+}
 export const clearKpiCache = () => cache.clear()
 
 type Raw = Record<string, unknown>

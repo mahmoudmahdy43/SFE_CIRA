@@ -5,6 +5,8 @@ import * as a from '../src/features/reports/absenceMath.ts'
 import * as k from '../src/features/reports/kpiRepMath.ts'
 import * as mg from '../src/features/reports/managerMath.ts'
 import * as c from '../src/features/reports/capacityMath.ts'
+import * as sp from '../src/features/reports/specialityMath.ts'
+import * as st from '../src/features/strategy/strategyMath.ts'
 
 let n = 0
 const t = (name, fn) => { fn(); n++; console.log('ok -', name) }
@@ -238,5 +240,109 @@ t('capacity: formatting, remove label + tooltip text, export columns', () => {
   assert.equal(ex.length, 4)
   assert.deepEqual(Object.keys(ex[0]), ['Medical Rep', 'Rep code', 'Line', 'Direct Manager', 'Box', 'Target PM', 'Working days', 'Capacity', 'List doctors', 'List visits', 'Excess', 'Utilization %', 'Remove (if Freq 2)', 'Remove (if Freq 1)'])
   assert.equal(ex[0]['Utilization %'], 104.5); assert.equal(ex[0]['Remove (if Freq 1)'], 10)
+})
+
+const mixRaw = (o) => ({ month: '2026-10-01', rep_id: 1, rep_code: 'R1', rep_name: 'Rep 1', line: 'CIRA 1', manager: 'M1', speciality: 'Gyn', doctors: 50, total_docs: 100, share_pct: 50, strategy_pct: 50, diff_points: 0, is_off: false, threshold_points: 15, ...o })
+const mixRaws = [
+  mixRaw({ speciality: 'Gyn', doctors: 42, share_pct: 42, strategy_pct: 50, diff_points: -8 }),
+  mixRaw({ speciality: 'Dentist', doctors: 28, share_pct: 28, strategy_pct: 30, diff_points: -2 }),
+  mixRaw({ speciality: 'Peds', doctors: 30, share_pct: 30, strategy_pct: 5, diff_points: 25, is_off: true }),
+  mixRaw({ rep_id: 2, rep_code: 'R2', rep_name: 'Rep 2', manager: 'M2', line: 'CIRA 2', total_docs: 50, speciality: 'Gyn', doctors: 10, share_pct: 20, strategy_pct: 50, diff_points: -30, is_off: true }),
+  mixRaw({ rep_id: 2, rep_code: 'R2', rep_name: 'Rep 2', manager: 'M2', line: 'CIRA 2', total_docs: 50, speciality: 'Dentist', doctors: 40, share_pct: 80, strategy_pct: 30, diff_points: 50, is_off: true }),
+  mixRaw({ rep_id: 2, rep_code: 'R2', rep_name: 'Rep 2', manager: 'M2', line: 'CIRA 2', total_docs: 50, speciality: 'Derma', doctors: 0, share_pct: 0, strategy_pct: 20, diff_points: -20, is_off: true }),
+  mixRaw({ rep_id: 2, rep_code: 'R2', rep_name: 'Rep 2', manager: 'M2', line: 'CIRA 2', total_docs: 50, speciality: 'Ortho', doctors: 0, share_pct: 0, strategy_pct: 0, diff_points: 0 }),
+]
+t('speciality mix: view rows grouped per rep; is_off and numbers pass through untouched', () => {
+  const rows = sp.buildRepRows(mixRaws)
+  assert.equal(rows.length, 2); assert.equal(rows[0].total_docs, 100); assert.equal(rows[1].total_docs, 50)
+  assert.equal(rows[0].cells.get('Peds').is_off, true); assert.equal(rows[0].cells.get('Gyn').is_off, false)
+  assert.equal(rows[0].cells.get('Gyn').doctors, 42); assert.equal(rows[0].cells.get('Gyn').diff_points, -8)
+  assert.equal(sp.isOffRow(rows[0]), true)
+})
+t('speciality mix: columns ordered by doctors desc; no doctors + no strategy hidden; 0 doctors with strategy kept', () => {
+  const rows = sp.buildRepRows(mixRaws)
+  assert.deepEqual(sp.specialityColumns(rows), ['Dentist', 'Gyn', 'Peds', 'Derma'])
+  assert.deepEqual(sp.specialityColumns([rows[0]]), ['Gyn', 'Peds', 'Dentist'])
+})
+t('speciality mix: filters (line, manager, search, only red) and manager list', () => {
+  const rows = sp.buildRepRows(mixRaws)
+  const f = { line: null, manager: '', search: '', onlyRed: false }
+  assert.equal(sp.filterMixRows(rows, f).length, 2)
+  assert.deepEqual(sp.filterMixRows(rows, { ...f, line: 'CIRA 2' }).map((r) => r.rep_id), [2])
+  assert.deepEqual(sp.filterMixRows(rows, { ...f, manager: 'M1' }).map((r) => r.rep_id), [1])
+  assert.deepEqual(sp.filterMixRows(rows, { ...f, search: 'r2' }).map((r) => r.rep_id), [2])
+  const calm = sp.buildRepRows([mixRaw({ rep_id: 3, rep_name: 'Calm' })])
+  assert.equal(sp.filterMixRows([...rows, ...calm], { ...f, onlyRed: true }).length, 2)
+  assert.deepEqual(sp.mixManagers(rows, null), ['M1', 'M2']); assert.deepEqual(sp.mixManagers(rows, 'CIRA 1'), ['M1'])
+})
+t('speciality mix: strategy banner + threshold come from the data', () => {
+  assert.equal(sp.hasStrategy(sp.buildRepRows(mixRaws)), true)
+  assert.equal(sp.hasStrategy(sp.buildRepRows(mixRaws.map((r) => ({ ...r, strategy_pct: 0 })))), false)
+  assert.equal(sp.mixThreshold(sp.buildRepRows(mixRaws)), 15)
+  assert.equal(sp.thresholdText(15), 'Red when the share differs from the strategy by more than 15 points')
+  assert.equal(sp.NO_STRATEGY_TEXT, 'No List Strategy entered yet - enter it in Settings > List Strategy')
+})
+t('speciality mix: tooltip text and formatting match the spec', () => {
+  const rows = sp.buildRepRows([mixRaw({ speciality: 'Gyn', doctors: 50, share_pct: 42, strategy_pct: 50, diff_points: -8 })])
+  assert.equal(sp.cellTip(rows[0].cells.get('Gyn')), 'Gyn: 50 doctors = 42% of the list, strategy 50%, -8 pts (threshold 15 pts)')
+  assert.equal(sp.fmtMixPct(41.67), '41.7%'); assert.equal(sp.fmtMixPct(50), '50%'); assert.equal(sp.fmtMixPct(null), '—')
+  assert.equal(sp.fmtMixPts(8), '+8 pts'); assert.equal(sp.fmtMixPts(0), '0 pts')
+})
+t('speciality mix: Total row sums doctors, share over all list doctors, strategy weighted by list size, red by the view threshold', () => {
+  const rows = sp.buildRepRows(mixRaws)
+  const specs = sp.specialityColumns(rows)
+  const tot = sp.totalMixRow(rows, specs, 15, 'Total')
+  assert.equal(tot.total_docs, 150)
+  const gyn = tot.cells.get('Gyn')
+  assert.equal(gyn.doctors, 52); assert.ok(Math.abs(gyn.share_pct - (52 / 150) * 100) < 1e-9); assert.equal(gyn.strategy_pct, 50); assert.equal(gyn.is_off, true) // 34.67% vs 50% = -15.33 pts > 15
+  assert.equal(sp.totalMixRow(rows, specs, 20, 'T').cells.get('Gyn').is_off, false) // within a looser threshold
+  const peds = tot.cells.get('Peds'); assert.equal(peds.doctors, 30); assert.ok(Math.abs(peds.strategy_pct - (5 * 100) / 150) < 1e-9); assert.equal(peds.is_off, true)
+  assert.equal(tot.cells.get('Derma').doctors, 0)
+  assert.equal(sp.totalMixRow(rows, specs, null, 'T').cells.get('Peds').is_off, false)
+  assert.equal(sp.isMixTotal(tot), true); assert.equal(sp.isMixTotal(rows[0]), false)
+})
+t('speciality mix: line rows are one per line; export has two sheets with red cells from is_off', () => {
+  const lineRaw = [
+    { month: '2026-10-01', line: 'CIRA 2', speciality: 'Gyn', doctors: 10, total_docs: 50, share_pct: 20, strategy_pct: 50, diff_points: -30, is_off: true, threshold_points: 15 },
+    { month: '2026-10-01', line: 'CIRA 1', speciality: 'Gyn', doctors: 42, total_docs: 100, share_pct: 42, strategy_pct: 50, diff_points: -8, is_off: false, threshold_points: 15 },
+  ]
+  const lr = sp.buildLineRows(lineRaw)
+  assert.deepEqual(lr.map((r) => r.rep_name), ['CIRA 1', 'CIRA 2']); assert.deepEqual(lr.map((r) => r.rep_id), [1, 2])
+  const ex = sp.exportMix(lr, ['Gyn'], sp.totalMixRow(lr, ['Gyn'], 15, 'Total'), 'line')
+  assert.deepEqual(Object.keys(ex.doctors[0]), ['Line', 'Total doctors', 'Gyn'])
+  assert.deepEqual(Object.keys(ex.shares[0]), ['Line', 'Total doctors', 'Gyn share %', 'Gyn strategy %'])
+  assert.equal(ex.doctors[1].Gyn, 10); assert.equal(ex.shares[1]['Gyn share %'], 20)
+  // row 1 (CIRA 2) is flagged by the view; row 2 is the Total row (52 of 150 = 34.7% vs 50%, over the 15-point threshold)
+  assert.deepEqual([...ex.doctorsRed], ['1|Gyn', '2|Gyn']); assert.deepEqual([...ex.sharesRed].sort(), ['1|Gyn share %', '1|Gyn strategy %', '2|Gyn share %', '2|Gyn strategy %'])
+  assert.ok(!ex.doctorsRed.has('0|Gyn'))
+  const exRep = sp.exportMix(sp.buildRepRows(mixRaws), ['Gyn'], sp.totalMixRow(sp.buildRepRows(mixRaws), ['Gyn'], 15, 'T'), 'rep')
+  assert.deepEqual(Object.keys(exRep.doctors[0]), ['Rep', 'Code', 'Line', 'Manager', 'Total doctors', 'Gyn'])
+  assert.equal(exRep.doctors.length, 3)
+})
+t('list strategy: percentages parse to 0-100 with one decimal; empty is 0; running total + message', () => {
+  assert.equal(st.parseShare(''), 0); assert.equal(st.parseShare('33.33'), 33.3); assert.equal(st.parseShare('100'), 100)
+  assert.equal(st.parseShare('-1'), null); assert.equal(st.parseShare('100.1'), null); assert.equal(st.parseShare('abc'), null)
+  const form = { 1: '50', 2: '30', 3: '', 4: '16' }
+  assert.equal(st.formTotal(form), 96); assert.equal(st.isFullTotal(96), false); assert.equal(st.isFullTotal(100), true); assert.equal(st.isFullTotal(99.96), true)
+  assert.equal(st.totalMessage(96), 'total 96% - the strategy should add up to 100%')
+  assert.deepEqual(st.invalidIds({ 1: '50', 2: 'x', 3: '120' }), [2, 3])
+})
+t('list strategy: versions per line, exact form, previous version, upserts keep zeros', () => {
+  const rows = [
+    { line_id: 1, speciality_id: 10, effective_from: '2026-03-01', share_pct: 60 }, { line_id: 1, speciality_id: 11, effective_from: '2026-03-01', share_pct: 40 },
+    { line_id: 1, speciality_id: 10, effective_from: '2026-07-01', share_pct: 50 }, { line_id: 2, speciality_id: 10, effective_from: '2026-05-01', share_pct: 100 },
+  ]
+  assert.deepEqual(st.versionsOf(rows, 1), ['2026-07-01', '2026-03-01']); assert.deepEqual(st.versionsOf(rows, 3), [])
+  assert.deepEqual(st.formAt(rows, 1, '2026-03-01'), { 10: '60', 11: '40' }); assert.deepEqual(st.formAt(rows, 1, '2026-04-01'), {})
+  assert.equal(st.previousVersion(rows, 1, '2026-10-01').effective_from, '2026-07-01'); assert.equal(st.previousVersion(rows, 1, '2026-03-01'), null)
+  const up = st.buildUpserts(1, '2026-10-01', [10, 11, 12], { 10: '55', 11: '' })
+  assert.deepEqual(up.map((r) => [r.speciality_id, r.share_pct]), [[10, 55], [11, 0], [12, 0]]); assert.equal(up[0].effective_from, '2026-10-01')
+  assert.throws(() => st.buildUpserts(1, '2026-10-01', [10], { 10: '101' }))
+})
+t('list strategy: threshold 0-100 in steps of 0.5; month choices include history', () => {
+  assert.equal(st.parseThreshold('15'), 15); assert.equal(st.parseThreshold('12.5'), 12.5); assert.equal(st.parseThreshold('12.3'), null)
+  assert.equal(st.parseThreshold('101'), null); assert.equal(st.parseThreshold(''), null); assert.equal(st.parseThreshold('0'), 0)
+  const m = st.monthChoices('2026-10-01', ['2020-01-01'])
+  assert.ok(m.includes('2026-10-01') && m.includes('2020-01-01') && m.includes('2027-10-01')); assert.equal(m[0], '2020-01-01')
 })
 console.log(`\n${n} tests passed`)

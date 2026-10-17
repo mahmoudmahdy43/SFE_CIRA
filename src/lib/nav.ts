@@ -5,6 +5,7 @@ import {
   FileBarChart,
   LayoutDashboard,
   Palette,
+  PieChart,
   ScanSearch,
   Settings,
   ShieldCheck,
@@ -52,7 +53,10 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: 'System',
-    items: [{ to: '/settings', label: 'Settings', description: 'Application settings and design preview.', icon: Settings }],
+    items: [
+      { to: '/settings', label: 'Settings', description: 'Application settings and design preview.', icon: Settings },
+      { to: '/list-strategy', label: 'List Strategy', description: 'Target speciality mix per line and the red threshold.', icon: PieChart },
+    ],
   },
 ]
 

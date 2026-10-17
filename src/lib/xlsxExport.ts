@@ -1,5 +1,43 @@
 type Cell = string | number | Date | null
 
+export interface StyledSheet {
+  name: string
+  rows: Record<string, Cell>[]
+  /** Cells to fill red, keyed `${dataRowIndex}|${header}` (dataRowIndex is 0-based, the header row excluded). */
+  redCells?: Set<string>
+}
+
+/**
+ * Like downloadXlsx, but several sheets with per-cell styling: header row bold + grey, flagged cells filled red.
+ * Plain SheetJS cannot write cell styles, so this loads the `xlsx-js-style` fork (same API), on demand.
+ */
+export async function downloadXlsxStyled(filename: string, sheets: StyledSheet[]): Promise<void> {
+  const used = sheets.filter((s) => s.rows.length > 0)
+  if (used.length === 0) return
+  const mod = await import('xlsx-js-style')
+  const XLSX = mod.default ?? (mod as unknown as typeof mod.default)
+  const wb = XLSX.utils.book_new()
+  const RED = { fill: { patternType: 'solid', fgColor: { rgb: 'FECACA' } }, font: { color: { rgb: '991B1B' }, bold: true } }
+  const HEAD = { fill: { patternType: 'solid', fgColor: { rgb: 'E5E7EB' } }, font: { bold: true } }
+  const style = (ws: Record<string, unknown>, addr: string, s: object) => {
+    const cell = ws[addr] as { s?: object } | undefined
+    if (cell) cell.s = s
+  }
+  for (const sheet of used) {
+    const headers = Object.keys(sheet.rows[0])
+    const ws = XLSX.utils.json_to_sheet(sheet.rows, { header: headers }) as unknown as Record<string, unknown>
+    headers.forEach((h, c) => {
+      style(ws, XLSX.utils.encode_cell({ r: 0, c }), HEAD)
+      sheet.rows.forEach((_, r) => {
+        if (sheet.redCells?.has(`${r}|${h}`)) style(ws, XLSX.utils.encode_cell({ r: r + 1, c }), RED)
+      })
+    })
+    ws['!cols'] = headers.map((h) => ({ wch: Math.max(h.length, 10) + 2 }))
+    XLSX.utils.book_append_sheet(wb, ws as never, sheet.name.slice(0, 31))
+  }
+  XLSX.writeFile(wb, filename)
+}
+
 /** Download flat records as an .xlsx (xlsx is loaded on demand). Null cells stay empty; Date cells show as dd-mmm. Extra sheets are optional. */
 export async function downloadXlsx(
   filename: string,
