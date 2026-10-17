@@ -75,14 +75,9 @@ export interface GridSheet {
   heights?: (number | undefined)[]
 }
 
-/**
- * One sheet laid out cell by cell (bands, merged groups, per-cell fill / font / number format), for reports whose
- * Excel file should look like the screen. Uses the `xlsx-js-style` fork (plain SheetJS cannot write cell styles).
- */
-export async function downloadXlsxGrid(filename: string, sheet: GridSheet): Promise<void> {
-  if (sheet.cells.length === 0) return
-  const mod = await import('xlsx-js-style')
-  const XLSX = mod.default ?? (mod as unknown as typeof mod.default)
+type XlsxLib = Pick<typeof import('xlsx-js-style'), 'utils'>
+
+function gridToWorksheet(XLSX: XlsxLib, sheet: GridSheet): Record<string, unknown> {
   const ws: Record<string, unknown> = {}
   let maxC = 0
   sheet.cells.forEach((row, r) => {
@@ -100,7 +95,25 @@ export async function downloadXlsxGrid(filename: string, sheet: GridSheet): Prom
   if (sheet.merges?.length) ws['!merges'] = sheet.merges
   if (sheet.widths) ws['!cols'] = sheet.widths.map((wch) => ({ wch }))
   if (sheet.heights) ws['!rows'] = sheet.heights.map((h) => (h ? { hpt: h } : {}))
+  return ws
+}
+
+
+/**
+ * One sheet laid out cell by cell (bands, merged groups, per-cell fill / font / number format), for reports whose
+ * Excel file should look like the screen. Uses the `xlsx-js-style` fork (plain SheetJS cannot write cell styles).
+ */
+export async function downloadXlsxGrid(filename: string, sheet: GridSheet): Promise<void> {
+  await downloadXlsxGrids(filename, [sheet])
+}
+
+/** Several cell-by-cell sheets in one workbook (same styling as downloadXlsxGrid). Empty sheets are skipped. */
+export async function downloadXlsxGrids(filename: string, sheets: GridSheet[]): Promise<void> {
+  const used = sheets.filter((s) => s.cells.length > 0)
+  if (used.length === 0) return
+  const mod = await import('xlsx-js-style')
+  const XLSX = mod.default ?? (mod as unknown as typeof mod.default)
   const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws as never, sheet.name.slice(0, 31))
+  for (const sheet of used) XLSX.utils.book_append_sheet(wb, gridToWorksheet(XLSX, sheet) as never, sheet.name.slice(0, 31))
   XLSX.writeFile(wb, filename)
 }

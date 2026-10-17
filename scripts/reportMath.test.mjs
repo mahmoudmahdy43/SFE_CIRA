@@ -8,6 +8,7 @@ import * as c from '../src/features/reports/capacityMath.ts'
 import * as sp from '../src/features/reports/specialityMath.ts'
 import * as st from '../src/features/strategy/strategyMath.ts'
 import * as jt from '../src/features/reports/jointMath.ts'
+import * as cv from '../src/features/reports/coverageMath.ts'
 
 let n = 0
 const t = (name, fn) => { fn(); n++; console.log('ok -', name) }
@@ -442,5 +443,42 @@ t('joint days: flat CSV rows follow the table columns, coverage as a percentage 
   const flat = jt.jointFlatRows(cols, rows, jt.totalJointRow(rows, 1))
   assert.equal(flat.length, 2); assert.deepEqual(Object.keys(flat[0]).slice(0, 5), ['Rep Name', 'Line', 'Territory (Box)', 'Visit Date', 'Rep Total'])
   assert.equal(flat[0]['Visit Date'], '01-Sep-2026'); assert.equal(flat[0]['Coverage %'], 58.8); assert.equal(flat[1]['Rep Name'], 'TOTAL  (1 Day)')
+})
+
+const crow = (o) => cv.toCoverRow({ manager_id: 1, manager: 'M1', rep_id: 1, rep_name: 'Rep 1', rep_code: 'R1', line: 'L1', box: 'B1', list_doctors: 0, covered_doctors: 0, coverage_pct: null, repeat_doctors: 0, joint_visits: 0, offlist_doctors: 0, offlist_visits: 0, ...o })
+
+t('manager coverage: period range (month / quarter / semester / YTD) and label', () => {
+  assert.deepEqual(cv.periodRange('month', '2026-09-01'), { from: '2026-09-01', to: '2026-09-01' })
+  assert.deepEqual(cv.periodRange('quarter', '2026-09-01'), { from: '2026-07-01', to: '2026-09-01' })
+  assert.deepEqual(cv.periodRange('quarter', '2026-10-01'), { from: '2026-10-01', to: '2026-10-01' })
+  assert.deepEqual(cv.periodRange('semester', '2026-06-01'), { from: '2026-01-01', to: '2026-06-01' })
+  assert.deepEqual(cv.periodRange('semester', '2026-09-01'), { from: '2026-07-01', to: '2026-09-01' })
+  assert.deepEqual(cv.periodRange('ytd', '2026-09-01'), { from: '2026-01-01', to: '2026-09-01' })
+  assert.equal(cv.periodText('2026-07-01', '2026-09-01'), 'Jul - Sep 2026'); assert.equal(cv.periodText('2026-09-01', '2026-09-01'), 'Sep 2026')
+})
+
+t('manager coverage: totals are SUM(covered)/SUM(list), null list shows "-", zero pairs counted', () => {
+  const rows = [crow({ rep_id: 1, list_doctors: 100, covered_doctors: 50, coverage_pct: 0.5 }), crow({ rep_id: 2, list_doctors: 10, covered_doctors: 0, coverage_pct: 0 }), crow({ rep_id: 3 })]
+  const tot = cv.sumCover(rows)
+  assert.equal(tot.list_doctors, 110); assert.equal(tot.covered_doctors, 50); assert.ok(Math.abs(tot.coverage_pct - 50 / 110) < 1e-12)
+  assert.equal(tot.zero_pairs, 1); assert.equal(cv.sumCover([crow({})]).coverage_pct, null)
+  assert.equal(cv.fmtPct(null), '-'); assert.equal(cv.fmtPct(0.5), '50.0%')
+})
+
+t('manager coverage: groups Line -> Manager, sorts reps, null values last; top speciality = highest share', () => {
+  const rows = [crow({ rep_id: 1, rep_name: 'B', list_doctors: 5 }), crow({ rep_id: 2, rep_name: 'A', list_doctors: 9 }), crow({ rep_id: 3, rep_name: 'C', list_doctors: 1, line: 'L0', manager: 'M0', manager_id: 0 })]
+  const g = cv.groupCover(rows, new Map(), { id: 'list', desc: true })
+  assert.deepEqual(g.map((l) => l.line), ['L0', 'L1']); assert.deepEqual(g[1].managers[0].reps.map((r) => r.rep_name), ['A', 'B'])
+  assert.equal(g[1].total.list_doctors, 14)
+  const spec = cv.groupSpec([{ manager_id: 1, rep_id: 1, speciality: 'X', covered_doctors: 1, share_pct: 0.2 }, { manager_id: 1, rep_id: 1, speciality: 'Y', covered_doctors: 2, share_pct: 0.8 }].map(cv.toSpecRow))
+  assert.equal(cv.topSpeciality(spec.get('1|1')).speciality, 'Y')
+})
+
+t('manager coverage: doctors order = not covered first, then class A/B/C; shares given as 0..100 are normalised', () => {
+  const d = (o) => cv.toDocRow({ doctor_id: 1, doctor_name: 'N', covered: false, ...o })
+  const o = cv.orderDoctors([d({ doctor_id: 1, covered: true, class: 'A' }), d({ doctor_id: 2, class: 'C' }), d({ doctor_id: 3, class: 'A' }), d({ doctor_id: 4, class: 'B' })])
+  assert.deepEqual(o.map((x) => x.doctor_id), [3, 4, 2, 1])
+  assert.equal(cv.normalizeShares([cv.toSpecRow({ share_pct: 40 }), cv.toSpecRow({ share_pct: 60 })])[0].share_pct, 0.4)
+  assert.equal(cv.normalizeShares([cv.toSpecRow({ share_pct: 0.4 })])[0].share_pct, 0.4)
 })
 console.log(`\n${n} tests passed`)

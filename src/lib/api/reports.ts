@@ -1,10 +1,12 @@
 import { fetchAll } from './core'
+import { supabase } from '../supabase'
 import type { MonthDetail } from './kpi'
 import { toKpiRepRow, type KpiRepRow } from '../../features/reports/kpiRepMath'
 import { toLeaveRow, toMissingRow, type LeaveRow, type MissingRow } from '../../features/reports/absenceMath'
 import { MANAGER_COLS, toManagerRow, type ManagerRow } from '../../features/reports/managerMath'
 import { toCapacityRow, type CapacityRow } from '../../features/reports/capacityMath'
 import { toJointRow, type JointRow } from '../../features/reports/jointMath'
+import { normalizeShares, toCoverRow, toDocRow, toSpecRow, type CoverRow, type DocRow, type SpecRow } from '../../features/reports/coverageMath'
 import {
   numOrNull, toCallRateRow, toCoverageRow, type CallRateRow, type CoverageRow,
 } from '../../features/reports/reportMath'
@@ -140,4 +142,42 @@ export async function fetchMissingReport(from: string, to: string): Promise<Miss
     (q) => q.gte('month', from).lte('month', to),
   )
   return rows.map(toMissingRow)
+}
+
+/* ------------------------------------ Manager Coverage (admin-only database functions) ------------------------------------ */
+interface RpcPage { order: (column: string) => RpcPage; range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }> }
+
+/** Call a set-returning function and page past PostgREST's 1000-row cap. `orderBy` must give a stable order. */
+async function rpcAll(fn: string, args: Record<string, unknown>, orderBy: string[], max = Infinity): Promise<Raw[]> {
+  const out: Raw[] = []
+  for (let from = 0; out.length < max; from += 1000) {
+    let q = supabase.rpc(fn, args) as unknown as RpcPage
+    for (const o of orderBy) q = q.order(o)
+    const { data, error } = await q.range(from, Math.min(from + 999, from + max - out.length - 1))
+    if (error) throw new Error(error.message)
+    const rows = (data ?? []) as Raw[]
+    out.push(...rows)
+    if (rows.length < 1000) break
+  }
+  return out
+}
+
+/** One row per manager x rep for months from..to (manager_coverage). */
+export async function fetchManagerCoverage(from: string, to: string): Promise<CoverRow[]> {
+  return (await rpcAll('manager_coverage', { p_from: from, p_to: to }, ['manager_id', 'rep_id'])).map(toCoverRow)
+}
+
+/** True when manager_coverage has at least one row for the month (cheap probe used to pick the default month). */
+export async function hasManagerCoverage(month: string): Promise<boolean> {
+  return (await rpcAll('manager_coverage', { p_from: month, p_to: month }, ['manager_id', 'rep_id'], 1)).length > 0
+}
+
+/** One row per manager x rep x speciality (manager_coverage_spec). */
+export async function fetchManagerCoverageSpec(from: string, to: string): Promise<SpecRow[]> {
+  return normalizeShares((await rpcAll('manager_coverage_spec', { p_from: from, p_to: to }, ['manager_id', 'rep_id', 'speciality'])).map(toSpecRow))
+}
+
+/** Drill-down: every active-list doctor of one rep with whether the manager covered them (manager_coverage_doctors). */
+export async function fetchManagerCoverageDoctors(from: string, to: string, repId: number, managerId: number | null): Promise<DocRow[]> {
+  return (await rpcAll('manager_coverage_doctors', { p_from: from, p_to: to, p_rep: repId, p_manager: managerId }, ['doctor_id'])).map(toDocRow)
 }
