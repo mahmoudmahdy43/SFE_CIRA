@@ -13,6 +13,7 @@ import { CapacityTab } from '../features/reports/CapacityTab'
 import { SpecialityMixTab } from '../features/reports/SpecialityMixTab'
 import { JointDaysTab } from '../features/reports/JointDaysTab'
 import { ManagerCoverageTab } from '../features/reports/ManagerCoverageTab'
+import { CoachingTab } from '../features/reports/CoachingTab'
 import type { ReportFilters } from '../features/reports/reportMath'
 
 export default function Reports() {
@@ -26,7 +27,7 @@ export default function Reports() {
       <div className="print:hidden">
         <PageHeader
           title="Reports"
-          description={`Coverage, call-rate, KPI, leave, missing-day, visits-capacity, speciality-mix, manager-joint-days and manager-coverage reports for ${month.slice(0, 7)} — read straight from the database views; change the month in the top bar (Leaves and Missing Days also have their own From / To months).`}
+          description={`Coverage, call-rate, KPI, leave, missing-day, visits-capacity, speciality-mix, manager-joint-days, manager-coverage and coaching reports for ${month.slice(0, 7)} — read straight from the database views; change the month in the top bar (Leaves and Missing Days also have their own From / To months).`}
         />
       </div>
       <Tabs defaultValue="coverage">
@@ -41,6 +42,7 @@ export default function Reports() {
           <TabsTrigger value="speciality-mix">Speciality Mix</TabsTrigger>
           <TabsTrigger value="joint-days">Manager Joint Days</TabsTrigger>
           <TabsTrigger value="manager-coverage">Manager Coverage</TabsTrigger>
+          <TabsTrigger value="coaching">Coaching</TabsTrigger>
         </TabsList>
         <TabsContent value="coverage"><CoverageTab {...shared} /></TabsContent>
         <TabsContent value="call-rate"><CallRateTab {...shared} /></TabsContent>
@@ -52,6 +54,7 @@ export default function Reports() {
         <TabsContent value="speciality-mix"><SpecialityMixTab {...shared} /></TabsContent>
         <TabsContent value="joint-days"><JointDaysTab {...shared} /></TabsContent>
         <TabsContent value="manager-coverage"><ManagerCoverageTab {...shared} /></TabsContent>
+        <TabsContent value="coaching"><CoachingTab {...shared} /></TabsContent>
       </Tabs>
     </div>
   )

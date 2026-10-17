@@ -14,6 +14,7 @@ import { kpiTone } from '../lib/kpi'
 import { cn } from '../lib/utils'
 import { KpiTreeTable } from '../features/dashboard/KpiTreeTable'
 import { RepDrawer } from '../features/dashboard/RepDrawer'
+import { CompanySkillsCard } from '../features/dashboard/CompanySkillsCard'
 import SystemStatus from '../features/dashboard/SystemStatus'
 import { useAsync } from '../features/dashboard/useAsync'
 import {
@@ -162,6 +163,7 @@ export default function Dashboard() {
             <KpiCard loading={loadingCards} label="Planned share" tooltip={TIPS.planned} value={naPct(planned)} hint={cur ? `Planned ${fmtInt(cur.planned_visits)} · Direct ${fmtInt(cur.direct_visits)}` : undefined} />
             <KpiCard loading={loadingCards} label="Missing days (AM+PM)" tooltip={TIPS.missing} value={fmtInt(missing)} tone={missing === null ? 'neutral' : missing > 0 ? 'warning' : 'success'} hint={<Link to="/data-quality?section=missing" className="font-medium text-accent-foreground underline underline-offset-2">Review in Data Quality</Link>} />
             <KpiCard loading={loadingCards} label="Leave / OW / Activity days" tooltip={TIPS.absence} value={cur ? `${fmtInt(cur.leave_days)} / ${fmtInt(cur.ow_days)} / ${fmtInt(cur.activity_days)}` : 'n/a'} />
+            <CompanySkillsCard />
           </StatGrid>
 
           <Suspense fallback={<div className="grid gap-4 lg:grid-cols-3"><Skeleton className="h-72 lg:col-span-2" /><Skeleton className="h-72" /></div>}>

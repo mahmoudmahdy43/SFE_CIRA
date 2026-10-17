@@ -29,6 +29,8 @@ export interface KpiCardProps {
   /** Change vs previous month, in percentage points or percent (already formatted number, e.g. 2.4). */
   delta?: number
   deltaSuffix?: string
+  /** Decimals of the change shown next to the arrow (default 1). */
+  deltaDecimals?: number
   tone?: Tone
   spark?: number[]
   loading?: boolean
@@ -43,6 +45,7 @@ export function KpiCard({
   value,
   delta,
   deltaSuffix = ' pts',
+  deltaDecimals = 1,
   tone = 'neutral',
   spark,
   loading,
@@ -89,7 +92,7 @@ export function KpiCard({
               ) : (
                 <span className="tnum">
                   {delta > 0 ? '+' : ''}
-                  {delta.toFixed(1)}
+                  {delta.toFixed(deltaDecimals)}
                   {deltaSuffix}
                   <span className="ml-1 text-muted-foreground">vs prev.</span>
                 </span>

@@ -321,7 +321,7 @@ const style = (bg: string | null, color: string, x: { bold?: boolean; italic?: b
 })
 
 /** Title band, period band, KPI strip and a body builder shared by both sheets; returns the next free row. */
-function bands(n: number, periodLine: string, cards: CoverCard[] | null) {
+function bands(n: number, periodLine: string, cards: CoverCard[] | null, title: string = COVER_TITLE, subtitle: string = COVER_SUBTITLE) {
   const cells: GridCell[][] = []
   const merges: Grid['merges'] = []
   const heights: (number | undefined)[] = []
@@ -336,8 +336,8 @@ function bands(n: number, periodLine: string, cards: CoverCard[] | null) {
     cells.push(row)
     heights.push(h)
   }
-  push([{ c0: 0, c1: n - 1, v: COVER_TITLE, st: style(CPAL.navy, CPAL.white, { bold: true, sz: 16 }) }], 30)
-  push([{ c0: 0, c1: n - 1, v: COVER_SUBTITLE, st: style(null, CPAL.grey, { italic: true }) }], 18)
+  push([{ c0: 0, c1: n - 1, v: title, st: style(CPAL.navy, CPAL.white, { bold: true, sz: 16 }) }], 30)
+  push([{ c0: 0, c1: n - 1, v: subtitle, st: style(null, CPAL.grey, { italic: true }) }], 18)
   push([{ c0: 0, c1: n - 1, v: periodLine, st: style(CPAL.green, CPAL.white, { bold: true }) }], 20)
   cells.push(blank()); heights.push(6)
   if (cards) {
@@ -430,3 +430,6 @@ export function buildSpecGrid(a: { rows: CoverRow[]; spec: Map<string, SpecRow[]
   }
   return { name: 'Speciality detail', cells: b.cells, merges: b.merges, heights: b.heights, widths: [14, 24, 26, 26, 12, 11, 12, 11, 11, 13] }
 }
+
+/** Shared by the other report exports that use the same look (title band, period band, header, zebra body). */
+export { style as gridStyle, bands as gridBands, HEAD as gridHead }

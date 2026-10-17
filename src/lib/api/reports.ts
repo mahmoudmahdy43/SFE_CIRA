@@ -11,7 +11,7 @@ import {
   numOrNull, toCallRateRow, toCoverageRow, type CallRateRow, type CoverageRow,
 } from '../../features/reports/reportMath'
 
-type Raw = Record<string, unknown>
+export type Raw = Record<string, unknown>
 
 const IDENT = 'month,line_id,manager_id,box,rep_code,rep_name,manager,hire_date,rep_id'
 
@@ -148,7 +148,7 @@ export async function fetchMissingReport(from: string, to: string): Promise<Miss
 interface RpcPage { order: (column: string) => RpcPage; range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }> }
 
 /** Call a set-returning function and page past PostgREST's 1000-row cap. `orderBy` must give a stable order. */
-async function rpcAll(fn: string, args: Record<string, unknown>, orderBy: string[], max = Infinity): Promise<Raw[]> {
+export async function rpcAll(fn: string, args: Record<string, unknown>, orderBy: string[], max = Infinity): Promise<Raw[]> {
   const out: Raw[] = []
   for (let from = 0; out.length < max; from += 1000) {
     let q = supabase.rpc(fn, args) as unknown as RpcPage

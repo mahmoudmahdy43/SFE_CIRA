@@ -102,8 +102,8 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
 
   const onFile = async (file: File | undefined) => {
     if (!file) return
-    if (!/\.xlsx?$/i.test(file.name)) {
-      setError('Please choose an Excel file (.xlsx or .xls).')
+    if (!/\.(xlsx?|csv)$/i.test(file.name)) {
+      setError('Please choose an Excel or CSV file (.xlsx, .xls or .csv).')
       return
     }
     reset()
@@ -194,9 +194,9 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
             className="mt-5 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed px-6 py-10 text-center hover:bg-muted"
           >
             <FileUp className="h-6 w-6 text-muted-foreground" aria-hidden />
-            <span className="text-sm font-medium">Drop an Excel file here, or click to choose</span>
-            <span className="text-xs text-muted-foreground">.xlsx or .xls — parsed in your browser; only cleaned rows are sent to the database</span>
-            <input ref={inputRef} id="upload-file" type="file" accept=".xlsx,.xls" className="sr-only" onChange={(e) => void onFile(e.target.files?.[0])} />
+            <span className="text-sm font-medium">Drop an Excel or CSV file here, or click to choose</span>
+            <span className="text-xs text-muted-foreground">.xlsx, .xls or .csv — parsed in your browser; only cleaned rows are sent to the database</span>
+            <input ref={inputRef} id="upload-file" type="file" accept=".xlsx,.xls,.csv" className="sr-only" onChange={(e) => void onFile(e.target.files?.[0])} />
           </label>
           {stage === 'sheet' && (
             <div className="mt-5 flex flex-wrap items-end gap-3">

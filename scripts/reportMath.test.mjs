@@ -9,6 +9,8 @@ import * as sp from '../src/features/reports/specialityMath.ts'
 import * as st from '../src/features/strategy/strategyMath.ts'
 import * as jt from '../src/features/reports/jointMath.ts'
 import * as cv from '../src/features/reports/coverageMath.ts'
+import * as ch from '../src/features/reports/coachingMath.ts'
+import * as cr from '../src/features/uploads/coaching/coachingResult.ts'
 
 let n = 0
 const t = (name, fn) => { fn(); n++; console.log('ok -', name) }
@@ -486,5 +488,56 @@ t('manager coverage: doctors order = not covered first, then class A/B/C; shares
   assert.deepEqual(o.map((x) => x.doctor_id), [3, 4, 2, 1])
   assert.equal(cv.normalizeShares([cv.toSpecRow({ share_pct: 40 }), cv.toSpecRow({ share_pct: 60 })])[0].share_pct, 0.4)
   assert.equal(cv.normalizeShares([cv.toSpecRow({ share_pct: 0.4 })])[0].share_pct, 0.4)
+})
+
+const rep = (o) => ch.toRepSummary({ rep_key: 'k1', rep_name: 'Rep', visits: 0, ...o })
+
+t('coaching: KPIs weight by visits; % improving counts reps with >= 2 visits only; weakest company skill', () => {
+  const reps = [rep({ rep_key: 'a', visits: 3, avg_score: 4, change: 0.5 }), rep({ rep_key: 'b', visits: 1, avg_score: 2, change: 1 }), rep({ rep_key: 'c', visits: 2, avg_score: 3, change: -0.2 }), rep({ rep_key: 'd', visits: 0 })]
+  const k = ch.coachKpis(reps)
+  assert.equal(k.visits, 6); assert.equal(k.repsCoached, 3); assert.ok(Math.abs(k.avg - (4 * 3 + 2 * 1 + 3 * 2) / 6) < 1e-12)
+  assert.equal(k.eligible, 2); assert.equal(k.improving, 1); assert.equal(k.pctImproving, 0.5)
+  const sk = [ch.toSkillRow({ scope_type: 'COMPANY', skill_code: 'Q1', skill_name: 'A', sort: 1, avg_score: 4 }), ch.toSkillRow({ scope_type: 'COMPANY', skill_code: 'Q2', skill_name: 'B', sort: 2, avg_score: 3.1 }), ch.toSkillRow({ scope_type: 'REP', scope_key: 'x', skill_code: 'Q3', avg_score: 1 })]
+  assert.deepEqual(ch.weakestCompanySkill(sk), { name: 'B', score: 3.1 })
+})
+
+t('coaching: totals row is weighted by visits; reps without coaching sort last and show no values', () => {
+  const reps = [rep({ rep_key: 'a', rep_name: 'A', visits: 3, avg_score: 4, training_visits: 3, training_avg: 4, manager_visits: 0 }), rep({ rep_key: 'b', rep_name: 'B', visits: 1, avg_score: 2, training_visits: 0, manager_visits: 1, manager_avg: 2 }), rep({ rep_key: 'z', rep_name: 'Z', visits: 0 })]
+  const tot = ch.totalReps(reps)
+  assert.equal(tot.visits, 4); assert.equal(tot.avg_score, 3.5); assert.equal(tot.training_avg, 4); assert.equal(tot.manager_avg, 2); assert.equal(tot.gap, 2)
+  assert.deepEqual(ch.sortReps(reps, { id: 'visits', desc: false }).map((r) => r.rep_key), ['b', 'a', 'z'])
+  assert.deepEqual(ch.sortReps(reps, { id: 'visits', desc: true }).map((r) => r.rep_key), ['a', 'b', 'z'])
+})
+
+t('coaching: weakest 5 per scope, bars ascending with bottom 5 flagged and company marker', () => {
+  const rows = []
+  for (let i = 1; i <= 7; i++) rows.push(ch.toSkillRow({ scope_type: 'COMPANY', scope_key: 'all', scope_name: 'Company', skill_code: `Q${i}`, skill_name: `S${i}`, sort: i, avg_score: i }))
+  for (let i = 1; i <= 7; i++) rows.push(ch.toSkillRow({ scope_type: 'LINE', scope_key: 'L1', scope_name: 'Line 1', skill_code: `Q${i}`, skill_name: `S${i}`, sort: i, avg_score: 8 - i }))
+  const w = ch.weakestByScope(rows, ['COMPANY', 'LINE'])
+  assert.deepEqual(w[0].skills.map((s) => s.name), ['S1', 'S2', 'S3', 'S4', 'S5']); assert.deepEqual(w[1].skills.map((s) => s.name), ['S7', 'S6', 'S5', 'S4', 'S3'])
+  const bars = ch.skillBars(rows, 'LINE', 'L1')
+  assert.equal(bars[0].name, 'S7'); assert.equal(bars.filter((b) => b.weak).length, 5); assert.equal(bars[0].company, 7)
+})
+
+t('coaching: sparkline breaks at months without an evaluation; month grid marks them; periods', () => {
+  const months = ch.monthsBetween('2026-01-01', '2026-05-01')
+  assert.equal(months.length, 5)
+  const by = new Map([['2026-01-01', 3], ['2026-02-01', 4], ['2026-04-01', 5]])
+  const { runs, points } = ch.sparkRuns(months, by, 100, 20)
+  assert.equal(points, 3); assert.deepEqual(runs.map((r) => r.length), [2, 1])
+  const g = ch.monthGrid(months, [ch.toRepMonth({ rep_key: 'k', month: '2026-02-01', avg_score: 4, visits: 2 })])
+  assert.deepEqual(g.map((x) => x.score), [null, 4, null, null, null])
+  assert.deepEqual(ch.defaultPeriod([ch.toTrendRow({ month: '2026-03-01', visits: 5 }), ch.toTrendRow({ month: '2026-08-01', visits: 7 }), ch.toTrendRow({ month: '2026-09-01', visits: 0 })]), { from: '2026-01-01', to: '2026-08-01' })
+})
+
+t('coaching: conflict summary, scores json, effect shares and finalize result shapes', () => {
+  const reps = [rep({ rep_key: 'a', training_visits: 1, manager_visits: 1, training_avg: 4, manager_avg: 3, gap: 1, conflict: true }), rep({ rep_key: 'b', training_visits: 2, manager_visits: 1, conflict: false }), rep({ rep_key: 'c', training_visits: 1, manager_visits: 0 })]
+  assert.deepEqual(ch.conflictSummary(reps), { conflicts: 1, comparable: 2, pct: 0.5 }); assert.equal(ch.higherSide(reps[0]), 'Training')
+  assert.deepEqual(ch.parseScores('{"Q1": 3, "Q2": "4"}'), { Q1: 3, Q2: 4 }); assert.deepEqual(ch.parseScores(null), {})
+  assert.equal(ch.normalizeEffect([ch.toEffectRow({ band: 'a', pct_improved: 60 }), ch.toEffectRow({ band: 'b', pct_improved: 45 })])[0].pct_improved, 0.6)
+  const f = cr.readFinalize({ visits: 120, unmatched_reps: ['Ali', { name: 'Sara', count: 4 }], unmatched_evaluators: [{ evaluator: 'X' }], incomplete_visits: [{ visit_id: 77 }, 78] })
+  assert.equal(f.visits, 120); assert.deepEqual(f.unmatchedReps.map((x) => x.name), ['Ali', 'Sara']); assert.equal(f.unmatchedEvaluators[0].name, 'X'); assert.equal(f.incompleteCount, 2)
+  const g = cr.readFinalize([{ visits: 5, incomplete_visits: 1 }, { visits: 7, incomplete_visits: 2 }])
+  assert.equal(g.visits, 12); assert.equal(g.incompleteCount, 3)
 })
 console.log(`\n${n} tests passed`)

@@ -6,11 +6,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/overl
 import UploadWizard from '../features/uploads/UploadWizard'
 import { listConfig } from '../features/uploads/list/listConfig'
 import { visitsConfig } from '../features/uploads/visits/visitsConfig'
+import { coachingConfig } from '../features/uploads/coaching/coachingConfig'
 import { activitiesConfig, leavesConfig, officeWorkConfig } from '../features/uploads/absence/absenceConfigs'
 import HistoryTab from './uploads/HistoryTab'
 import MonthsTab from './uploads/MonthsTab'
 
-type Key = 'list' | 'visits' | 'leaves' | 'office_work' | 'activities'
+type Key = 'list' | 'visits' | 'leaves' | 'office_work' | 'activities' | 'coaching'
 
 const AVAILABLE: { key: Key; label: string; description: string; icon: typeof DollarSign }[] = [
   { key: 'list', ...listConfig },
@@ -18,6 +19,7 @@ const AVAILABLE: { key: Key; label: string; description: string; icon: typeof Do
   { key: 'leaves', ...leavesConfig },
   { key: 'office_work', ...officeWorkConfig },
   { key: 'activities', ...activitiesConfig },
+  { key: 'coaching', ...coachingConfig },
 ]
 
 const SOON = [{ label: 'Sales', description: 'Territory-level actual vs target units and value, rolled up through the org.', icon: DollarSign }]
@@ -50,6 +52,8 @@ export default function Uploads() {
               <UploadWizard config={officeWorkConfig} onExit={exit} onViewChanges={noop} />
             ) : wizard === 'activities' ? (
               <UploadWizard config={activitiesConfig} onExit={exit} onViewChanges={noop} />
+            ) : wizard === 'coaching' ? (
+              <UploadWizard config={coachingConfig} onExit={exit} onViewChanges={noop} />
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {AVAILABLE.map((c) => (
