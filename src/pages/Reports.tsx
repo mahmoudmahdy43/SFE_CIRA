@@ -11,6 +11,7 @@ import { ManagersTab } from '../features/reports/ManagersTab'
 import { KpiRepTab } from '../features/reports/KpiRepTab'
 import { CapacityTab } from '../features/reports/CapacityTab'
 import { SpecialityMixTab } from '../features/reports/SpecialityMixTab'
+import { JointDaysTab } from '../features/reports/JointDaysTab'
 import type { ReportFilters } from '../features/reports/reportMath'
 
 export default function Reports() {
@@ -21,12 +22,14 @@ export default function Reports() {
 
   return (
     <div>
-      <PageHeader
-        title="Reports"
-        description={`Coverage, call-rate, KPI, leave, missing-day, visits-capacity and speciality-mix reports for ${month.slice(0, 7)} — read straight from the database views; change the month in the top bar (Leaves and Missing Days also have their own From / To months).`}
-      />
+      <div className="print:hidden">
+        <PageHeader
+          title="Reports"
+          description={`Coverage, call-rate, KPI, leave, missing-day, visits-capacity, speciality-mix and manager-joint-days reports for ${month.slice(0, 7)} — read straight from the database views; change the month in the top bar (Leaves and Missing Days also have their own From / To months).`}
+        />
+      </div>
       <Tabs defaultValue="coverage">
-        <TabsList className="mb-4">
+        <TabsList className="mb-4 print:hidden">
           <TabsTrigger value="coverage">Coverage</TabsTrigger>
           <TabsTrigger value="call-rate">Call Rate</TabsTrigger>
           <TabsTrigger value="kpi-rep">KPI by Rep</TabsTrigger>
@@ -35,6 +38,7 @@ export default function Reports() {
           <TabsTrigger value="managers">Managers</TabsTrigger>
           <TabsTrigger value="capacity">Visits Capacity</TabsTrigger>
           <TabsTrigger value="speciality-mix">Speciality Mix</TabsTrigger>
+          <TabsTrigger value="joint-days">Manager Joint Days</TabsTrigger>
         </TabsList>
         <TabsContent value="coverage"><CoverageTab {...shared} /></TabsContent>
         <TabsContent value="call-rate"><CallRateTab {...shared} /></TabsContent>
@@ -44,6 +48,7 @@ export default function Reports() {
         <TabsContent value="managers"><ManagersTab {...shared} /></TabsContent>
         <TabsContent value="capacity"><CapacityTab {...shared} /></TabsContent>
         <TabsContent value="speciality-mix"><SpecialityMixTab {...shared} /></TabsContent>
+        <TabsContent value="joint-days"><JointDaysTab {...shared} /></TabsContent>
       </Tabs>
     </div>
   )
