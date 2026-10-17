@@ -35,10 +35,10 @@ export function KpiCards({ kpi, metric, hasCmp, loading, action, watch, actionsL
         : [unit],
     },
     { id: 'target', title: 'TARGET', head: CPAL.slate, body: CPAL.totalBody, num: CPAL.slate, value: fmtNum(kpi.target), lines: [unit] },
-    { id: 'ach', title: 'ACHIEVEMENT', head: CPAL.teal, body: CPAL.tealBody, num: CPAL.teal, value: fmtPct(kpi.ach), lines: ['targeted rows only'] },
+    { id: 'ach', title: 'ACHIEVEMENT', head: CPAL.teal, body: CPAL.tealBody, num: CPAL.teal, value: fmtPct(kpi.ach), lines: ['sales ÷ target'] },
     {
       id: 'gap', title: 'GAP', head: kpi.gap < 0 ? CPAL.red : CPAL.green, body: kpi.gap < 0 ? CPAL.redBody : CPAL.greenBody, num: kpi.gap < 0 ? CPAL.red : CPAL.green,
-      value: fmtSigned(kpi.gap), lines: ['targeted sales − target'],
+      value: fmtSigned(kpi.gap), lines: ['sales − target'],
     },
     {
       id: 'growth', title: 'GROWTH VS COMPARISON', head: CPAL.slate, body: CPAL.totalBody,
@@ -103,7 +103,7 @@ export function TrendSection({ monthly, lineId, lineLabel, metric, loading }: { 
   const year = points.length > 0 ? points[points.length - 1].month.slice(0, 4) : ''
   const unit = metric === 'value' ? CURRENCY : 'units'
   return (
-    <Section title={`Trend — ${lineLabel}`} caption={`Monthly sales (bars) vs target (line); the label on each bar is Ach % of targeted rows. Projection = YTD + average of the last 3 loaded months × months left${projection ? ` → about ${fmtNum(projection.total)} ${unit} for ${year}` : ''}.`}>
+    <Section title={`Trend — ${lineLabel}`} caption={`Monthly sales (bars) vs target (line); the label on each bar is Ach %. Projection = YTD + average of the last 3 loaded months × months left${projection ? ` → about ${fmtNum(projection.total)} ${unit} for ${year}` : ''}.`}>
       {loading ? <Skeleton className="h-80" /> : points.length === 0 ? <FieldlessNote text="No monthly data for this selection." /> : (
         <div className="rounded-card border bg-card p-3">
           <TrendChart points={points} projection={projection} unit={unit} year={year} />
@@ -132,8 +132,8 @@ export function TrendSection({ monthly, lineId, lineLabel, metric, loading }: { 
 const PCOLS: { id: ProductCol; header: string; numeric: boolean; tip?: string }[] = [
   { id: 'name', header: 'Product', numeric: false }, { id: 'line', header: 'Line', numeric: false }, { id: 'sales', header: 'Sales', numeric: true },
   { id: 'share', header: 'Share %', numeric: true }, { id: 'target', header: 'Target', numeric: true },
-  { id: 'ach', header: 'Ach %', numeric: true, tip: 'Sales of targeted rows ÷ target. Products without a target are excluded.' },
-  { id: 'gap', header: 'Gap', numeric: true, tip: 'Targeted sales − target.' }, { id: 'cmp', header: 'Comparison', numeric: true }, { id: 'growth', header: 'Growth %', numeric: true },
+  { id: 'ach', header: 'Ach %', numeric: true, tip: 'Sales ÷ target.' },
+  { id: 'gap', header: 'Gap', numeric: true, tip: 'Sales − target.' }, { id: 'cmp', header: 'Comparison', numeric: true }, { id: 'growth', header: 'Growth %', numeric: true },
   { id: 'avgPrice', header: 'Avg price', numeric: true, tip: 'Value ÷ units.' },
   { id: 'abc', header: 'ABC', numeric: false, tip: 'A = the first 70% of cumulative sales, B = the next 20%, C = the rest.' },
 ]
@@ -147,7 +147,7 @@ export function ProductsSection({ rows, metric, threshold, hasCmp, loading }: { 
   const icon = (id: ProductCol) => (sort.id !== id ? <ArrowUpDown className="h-3 w-3 opacity-40" /> : sort.dir === 'desc' ? <ArrowDown className="h-3 w-3" /> : <ArrowUp className="h-3 w-3" />)
   const maxShare = Math.max(0.0001, ...views.map((v) => v.share ?? 0))
   return (
-    <Section title="Product analysis" caption="Sales, share, achievement and growth by product. Products without a target are in total sales but out of Ach % and Gap.">
+    <Section title="Product analysis" caption="Sales, share, achievement and growth by product. Products without a target are tagged “No target”.">
       <div className="max-h-[70vh] overflow-auto rounded-card border bg-card">
         <table className="w-full border-separate border-spacing-0 text-sm">
           <thead>

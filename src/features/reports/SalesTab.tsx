@@ -236,7 +236,7 @@ export function SalesTab({ lines }: Props) {
           />
           <FieldSection rows={views} fieldEmpty={!fieldQ.loading && (fieldQ.data ?? []).length === 0} loading={!ready || fieldQ.loading || actionsQ.loading} />
           <VacantSection rows={vacantQ.data ?? []} share={vacantShare} total={vacantTotal} loading={!ready || vacantQ.loading} error={vacantQ.error} />
-          <p className="text-xs italic" style={{ color: CPAL.grey }}>Achievement = sales of targeted rows ÷ target. Gap = targeted sales − target. Growth = (selected − comparison) ÷ comparison. Comparison is inside the loaded months only.</p>
+          <p className="text-xs italic" style={{ color: CPAL.grey }}>Achievement = sales ÷ target. Gap = sales − target. Growth = (selected − comparison) ÷ comparison. Comparison is inside the loaded months only.</p>
         </>
       )}
     </div>

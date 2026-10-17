@@ -174,7 +174,7 @@ export function VacantSection({ rows, share, total, loading, error }: { rows: Va
   const sorted = useMemo(() => sortVacant(rows), [rows])
   const heads = ['Territory', 'Line', 'Months vacant', 'Currently', 'Last rep', 'Sales', 'Target', 'Gap (lost)']
   return (
-    <Section title="Vacant boxes" caption={`Sales in vacant boxes: ${fmtNum(total)} ${CURRENCY}${share === null ? '' : ` (${fmtPct(share)} of total)`}. Gap = targeted sales − target.`}>
+    <Section title="Vacant boxes" caption={`Sales in vacant boxes: ${fmtNum(total)} ${CURRENCY}${share === null ? '' : ` (${fmtPct(share)} of total)`}. Gap = sales − target.`}>
       <div className="max-h-[60vh] overflow-auto rounded-card border bg-card">
         <table className="w-full border-separate border-spacing-0 text-sm">
           <thead><tr>{heads.map((h, i) => <th key={h} className={cn(TH, i < 2 || i === 4 ? 'text-left' : 'text-right')} style={thStyle}>{h}</th>)}</tr></thead>

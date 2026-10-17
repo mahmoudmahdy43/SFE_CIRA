@@ -380,7 +380,7 @@ export function sortProducts(rows: ProductView[], col: ProductCol, dir: SortDir)
 }
 
 export interface ProductTotal { sales: number; target: number; ach: number | null; gap: number; cmp: number; growth: number | null; avgPrice: number | null }
-/** Totals row: achievement and gap use targeted rows only; growth uses all sales. */
+/** Totals row: achievement and gap come from the database's s_value_tgt (now all sales). */
 export function productTotal(rows: ProductRow[], m: Metric): ProductTotal {
   const sum = (f: (r: ProductRow) => number) => rows.reduce((a, r) => a + f(r), 0)
   const sales = sum((r) => metricPick(m, r.s_value, r.s_units))
