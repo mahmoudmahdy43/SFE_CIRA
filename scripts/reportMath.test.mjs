@@ -7,6 +7,7 @@ import * as mg from '../src/features/reports/managerMath.ts'
 import * as c from '../src/features/reports/capacityMath.ts'
 import * as sp from '../src/features/reports/specialityMath.ts'
 import * as st from '../src/features/strategy/strategyMath.ts'
+import * as jt from '../src/features/reports/jointMath.ts'
 
 let n = 0
 const t = (name, fn) => { fn(); n++; console.log('ok -', name) }
@@ -344,5 +345,102 @@ t('list strategy: threshold 0-100 in steps of 0.5; month choices include history
   assert.equal(st.parseThreshold('101'), null); assert.equal(st.parseThreshold(''), null); assert.equal(st.parseThreshold('0'), 0)
   const m = st.monthChoices('2026-10-01', ['2020-01-01'])
   assert.ok(m.includes('2026-10-01') && m.includes('2020-01-01') && m.includes('2027-10-01')); assert.equal(m[0], '2020-01-01')
+})
+
+const jrow = (o) => jt.toJointRow({
+  month: '2026-09-01', day: '2026-09-20', manager: 'Tarek', manager_id: 1, rep_name: 'Rep A', rep_code: 'A1', rep_id: 1, line: 'CIRA 1', box: 'Box 1',
+  rep_am: 2, rep_pm: 10, rep_pharmacy: 5, rep_total: 17, joint_am: 1, joint_pm: 6, joint_pharmacy: 3, joint_total: 10,
+  cover_am: 0.5, cover_pm: 0.6, cover_pharmacy: 0.6, cover_total: 10 / 17, ...o,
+})
+t('joint days: the spec example reads 1/2 AM, 6/10 PM, 3/5 pharmacy, 10/17 = 58.8% total', () => {
+  const r = jrow({})
+  const cols = jt.jointColumns('day', false)
+  assert.deepEqual(cols.map((c) => c.id), ['rep', 'line', 'box', 'day', 'rep_am', 'with_am', 'rep_pm', 'with_pm', 'rep_pharmacy', 'with_pharmacy', 'total_rep', 'total_with', 'cover'])
+  const txt = (id) => jt.jointText(cols.find((c) => c.id === id), r)
+  assert.equal(txt('rep_am'), '2'); assert.equal(txt('with_am'), '1'); assert.equal(txt('rep_pm'), '10'); assert.equal(txt('with_pm'), '6')
+  assert.equal(txt('rep_pharmacy'), '5'); assert.equal(txt('with_pharmacy'), '3'); assert.equal(txt('total_rep'), '17'); assert.equal(txt('total_with'), '10')
+  assert.equal(txt('cover'), '58.8%'); assert.equal(txt('day'), '20-Sep-2026')
+})
+t('joint days: "-" only where the cover is null; a 0 stays 0; manager column added for All managers; Summary swaps the date', () => {
+  const cols = jt.jointColumns('day', false)
+  const r = jrow({ rep_am: 0, joint_am: 0, cover_am: null, rep_pm: 4, joint_pm: 0, cover_pm: 0 })
+  const txt = (id) => jt.jointText(cols.find((c) => c.id === id), r)
+  assert.equal(txt('rep_am'), '-'); assert.equal(txt('with_am'), '-')
+  assert.equal(txt('rep_pm'), '4'); assert.equal(txt('with_pm'), '0')
+  assert.equal(jt.jointText(cols.find((c) => c.id === 'cover'), jrow({ cover_total: null })), '-')
+  assert.equal(jt.jointColumns('day', true)[0].id, 'manager')
+  const sum = jt.jointColumns('month', false); assert.ok(sum.some((c) => c.id === 'days') && !sum.some((c) => c.id === 'day'))
+  assert.equal(jt.jointText(sum.find((c) => c.id === 'days'), jrow({ joint_days: 3 })), '3')
+})
+t('joint days: Total row sums every column and coverage = SUM(joint) / SUM(rep), never an average of percentages', () => {
+  const rows = [
+    jrow({ rep_id: 1, day: '2026-09-01', rep_total: 2, joint_total: 2, cover_total: 1, rep_am: 2, joint_am: 2, cover_am: 1, rep_pm: 0, joint_pm: 0, cover_pm: null, rep_pharmacy: 0, joint_pharmacy: 0, cover_pharmacy: null }),
+    jrow({ rep_id: 2, day: '2026-09-01', rep_total: 30, joint_total: 3, cover_total: 0.1, rep_am: 10, joint_am: 0, cover_am: 0, rep_pm: 20, joint_pm: 3, cover_pm: 0.15, rep_pharmacy: 0, joint_pharmacy: 0, cover_pharmacy: null }),
+    jrow({ rep_id: 1, day: '2026-09-02' }),
+  ]
+  const tot = jt.totalJointRow(rows, jt.distinctDays(rows))
+  assert.equal(tot.rep_total, 49); assert.equal(tot.joint_total, 15); assert.equal(tot.cover_total, 15 / 49); assert.notEqual(tot.cover_total, (1 + 0.1 + 10 / 17) / 3)
+  assert.equal(tot.rep_name, 'TOTAL  (2 Days)'); assert.equal(jt.totalJointRow(rows.slice(0, 1), 1).rep_name, 'TOTAL  (1 Day)')
+  assert.equal(tot.cover_am, (2 + 0 + 1) / (2 + 10 + 2)); assert.equal(jt.totalJointRow([], 0).cover_total, null)
+  const cards = jt.jointCards(tot)
+  assert.deepEqual(cards.map((c) => c.title), ['AM VISITS COVERAGE', 'PM VISITS COVERAGE', 'PHARMACY COVERAGE', 'TOTAL FIELD COVERAGE'])
+  assert.equal(cards[3].value, '30.6%'); assert.equal(cards[3].caption, '15 of 49 visits joint-covered'); assert.equal(cards[0].head, '#1B7A45'); assert.equal(cards[1].body, '#FDEDED')
+  assert.equal(jt.jointCards(jt.totalJointRow([], 0))[0].value, '—')
+})
+t('joint days: filters (line, manager, search, date range), order, default manager', () => {
+  const rows = [
+    jrow({ rep_id: 1, day: '2026-09-05', rep_name: 'Zed' }), jrow({ rep_id: 2, day: '2026-09-01', rep_name: 'Amr', manager: 'Basma', manager_id: 2, line: 'CIRA 2', joint_total: 0 }),
+    jrow({ rep_id: 3, day: '2026-09-01', rep_name: 'Bahaa', rep_code: 'B7' }),
+  ]
+  const f = { line: null, manager: '', search: '', from: '', to: '' }
+  assert.equal(jt.filterJoint(rows, f).length, 3)
+  assert.deepEqual(jt.filterJoint(rows, { ...f, manager: 'Tarek' }).map((r) => r.rep_id), [1, 3])
+  assert.deepEqual(jt.filterJoint(rows, { ...f, line: 'CIRA 2' }).map((r) => r.rep_id), [2])
+  assert.deepEqual(jt.filterJoint(rows, { ...f, search: 'b7' }).map((r) => r.rep_id), [3])
+  assert.deepEqual(jt.filterJoint(rows, { ...f, from: '2026-09-02' }).map((r) => r.rep_id), [1])
+  assert.deepEqual(jt.filterJoint(rows, { ...f, to: '2026-09-01' }).map((r) => r.rep_id), [2, 3])
+  assert.deepEqual(jt.orderJoint(rows, 'day').map((r) => r.rep_name), ['Amr', 'Bahaa', 'Zed'])
+  assert.deepEqual(jt.jointManagers(rows), ['Basma', 'Tarek'])
+  assert.equal(jt.defaultManager(rows), 'Tarek') // Basma only has a row with no joint visits
+  assert.equal(jt.defaultManager([]), '')
+  const monthRow = jt.toJointRow({ month: '2026-09-01', manager: 'M', rep_id: 1, joint_days: 4, joint_total: 1 })
+  assert.equal(monthRow.day, null); assert.equal(jt.filterJoint([monthRow], { ...f, from: '2026-09-09' }).length, 1) // dates only apply to the day view
+})
+t('joint days: period label, date format and month bounds', () => {
+  assert.equal(jt.periodLabel('2026-09-01'), 'PERIOD: 1 SEPTEMBER 2026 – 30 SEPTEMBER 2026')
+  assert.equal(jt.periodLabel('2028-02-01'), 'PERIOD: 1 FEBRUARY 2028 – 29 FEBRUARY 2028')
+  assert.equal(jt.fmtDate('2026-09-01'), '01-Sep-2026'); assert.equal(jt.fmtDate(null), '-')
+  assert.deepEqual(jt.monthBounds('2026-02-01'), { first: '2026-02-01', last: '2026-02-28' })
+})
+t('joint days: Excel grid has the title band, KPI strip, grouped header in the group colours, zebra body and Total row', () => {
+  const rows = [jrow({ day: '2026-09-01', rep_name: 'Amr' }), jrow({ day: '2026-09-02', rep_name: 'Bahaa', cover_am: null, rep_am: 0, joint_am: 0 }), jrow({ day: '2026-09-03', rep_name: 'Cairo' })]
+  const cols = jt.jointColumns('day', false)
+  const tot = jt.totalJointRow(rows, 3)
+  const g = jt.buildJointGrid({ cols, rows, total: tot, month: '2026-09-01', managerLabel: 'Tarek Yousry' })
+  const n = cols.length
+  assert.ok(g.cells.every((r) => r.length === n))
+  assert.equal(g.cells[0][0].v, 'MANAGER JOINT DAYS REPORT'); assert.equal(g.cells[0][0].s.fill.fgColor.rgb, '20293A')
+  assert.equal(g.cells[2][0].v, 'PERIOD: 1 SEPTEMBER 2026 – 30 SEPTEMBER 2026   |   MANAGER: TAREK YOUSRY'); assert.equal(g.cells[2][0].s.fill.fgColor.rgb, '1B7A45')
+  assert.ok(g.merges.some((m) => m.s.r === 0 && m.s.c === 0 && m.e.c === n - 1))
+  const kpi = g.cells[4].filter((c) => c.v !== null).map((c) => c.v); assert.deepEqual(kpi, ['AM VISITS COVERAGE', 'PM VISITS COVERAGE', 'PHARMACY COVERAGE', 'TOTAL FIELD COVERAGE'])
+  const gi = g.cells.findIndex((r) => r[0].v === 'REP / VISIT INFO')
+  assert.ok(gi > 0); assert.deepEqual(g.cells[gi].filter((c) => c.v !== null).map((c) => c.v), ['REP / VISIT INFO', 'AM VISITS', 'PM VISITS', 'PHARMACY VISITS', 'DAY TOTALS'])
+  assert.equal(g.cells[gi][4].s.fill.fgColor.rgb, '1B7A45'); assert.equal(g.cells[gi + 1][4].s.fill.fgColor.rgb, '229A57'); assert.equal(g.cells[gi + 1][6].s.fill.fgColor.rgb, 'DB3A3F'); assert.equal(g.cells[gi + 1][8].s.fill.fgColor.rgb, '39A088')
+  assert.equal(g.cells[gi + 1][4].v, 'Rep\nTotal')
+  const b0 = g.cells[gi + 2], b1 = g.cells[gi + 3]
+  assert.equal(b0[0].v, 'Amr'); assert.equal(b0[0].s.fill, undefined); assert.equal(b1[0].s.fill.fgColor.rgb, 'F4F6F8') // zebra on every second row
+  assert.equal(b1[4].v, '-'); assert.equal(b1[5].v, '-') // null AM cover
+  assert.equal(b0[3].v, '01-Sep-2026'); assert.equal(b0[12].z, '0.0%'); assert.equal(b0[12].v, 10 / 17)
+  const tr = g.cells[gi + 5]
+  assert.equal(tr[0].v, 'TOTAL  (3 Days)'); assert.equal(tr[0].s.fill.fgColor.rgb, '20293A'); assert.equal(tr[4].s.fill.fgColor.rgb, '1B7A45'); assert.equal(tr[6].s.fill.fgColor.rgb, 'B81F27')
+  assert.equal(tr[8].s.fill.fgColor.rgb, '2C7E6E'); assert.equal(tr[12].s.fill.fgColor.rgb, '39465C'); assert.equal(tr[12].v, tot.cover_total)
+  assert.equal(g.widths.length, n); assert.equal(g.heights.length, g.cells.length)
+})
+t('joint days: flat CSV rows follow the table columns, coverage as a percentage number', () => {
+  const rows = [jrow({ day: '2026-09-01' })]
+  const cols = jt.jointColumns('day', false)
+  const flat = jt.jointFlatRows(cols, rows, jt.totalJointRow(rows, 1))
+  assert.equal(flat.length, 2); assert.deepEqual(Object.keys(flat[0]).slice(0, 5), ['Rep Name', 'Line', 'Territory (Box)', 'Visit Date', 'Rep Total'])
+  assert.equal(flat[0]['Visit Date'], '01-Sep-2026'); assert.equal(flat[0]['Coverage %'], 58.8); assert.equal(flat[1]['Rep Name'], 'TOTAL  (1 Day)')
 })
 console.log(`\n${n} tests passed`)

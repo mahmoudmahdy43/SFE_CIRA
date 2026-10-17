@@ -64,3 +64,43 @@ export async function downloadXlsx(
   }
   XLSX.writeFile(wb, filename)
 }
+
+export interface GridSheetCell { v: string | number | null; s?: Record<string, unknown>; z?: string }
+export interface GridSheet {
+  name: string
+  cells: GridSheetCell[][]
+  merges?: { s: { r: number; c: number }; e: { r: number; c: number } }[]
+  widths?: number[]
+  /** Row heights in points (undefined = default). */
+  heights?: (number | undefined)[]
+}
+
+/**
+ * One sheet laid out cell by cell (bands, merged groups, per-cell fill / font / number format), for reports whose
+ * Excel file should look like the screen. Uses the `xlsx-js-style` fork (plain SheetJS cannot write cell styles).
+ */
+export async function downloadXlsxGrid(filename: string, sheet: GridSheet): Promise<void> {
+  if (sheet.cells.length === 0) return
+  const mod = await import('xlsx-js-style')
+  const XLSX = mod.default ?? (mod as unknown as typeof mod.default)
+  const ws: Record<string, unknown> = {}
+  let maxC = 0
+  sheet.cells.forEach((row, r) => {
+    row.forEach((cell, c) => {
+      maxC = Math.max(maxC, c)
+      if (cell.v === null && !cell.s) return
+      const out: Record<string, unknown> =
+        typeof cell.v === 'number' ? { t: 'n', v: cell.v } : { t: 's', v: cell.v ?? '' }
+      if (cell.z) out.z = cell.z
+      if (cell.s) out.s = cell.s
+      ws[XLSX.utils.encode_cell({ r, c })] = out
+    })
+  })
+  ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: sheet.cells.length - 1, c: maxC } })
+  if (sheet.merges?.length) ws['!merges'] = sheet.merges
+  if (sheet.widths) ws['!cols'] = sheet.widths.map((wch) => ({ wch }))
+  if (sheet.heights) ws['!rows'] = sheet.heights.map((h) => (h ? { hpt: h } : {}))
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws as never, sheet.name.slice(0, 31))
+  XLSX.writeFile(wb, filename)
+}
