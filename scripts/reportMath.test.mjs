@@ -4,6 +4,7 @@ import * as m from '../src/features/reports/reportMath.ts'
 import * as a from '../src/features/reports/absenceMath.ts'
 import * as k from '../src/features/reports/kpiRepMath.ts'
 import * as mg from '../src/features/reports/managerMath.ts'
+import * as c from '../src/features/reports/capacityMath.ts'
 
 let n = 0
 const t = (name, fn) => { fn(); n++; console.log('ok -', name) }
@@ -191,5 +192,51 @@ t('manager missing dates: shift columns, export text, detail sheet with real dat
   assert.equal(mg.exportMissingDetail(rows, 'PM', '2026-09-01').length, 1)
   assert.equal(mg.exportMissingDetail(rows, 'PHARMACY', '2026-09-01').length, 0)
   assert.deepEqual(mg.parseMissingDates('', 2026), [])
+})
+const cap = (o) => c.toCapacityRow({
+  month: '2026-10-01', rep_id: 1, rep_code: 'R1', rep_name: 'Rep 1', line: 'CIRA 1', manager: 'M1', box: 'B1', call_rate_target_pm: 10, pm_working_days: 22,
+  capacity_visits: 220, list_doctors: 120, list_visits: 230, excess_visits: 10, utilization: 230 / 220, status: 'Over capacity', remove_if_freq2: 5, remove_if_freq1: 10, spare_visits: 0, ...o,
+})
+const capRows = [
+  cap({ rep_id: 1, rep_name: 'Over A', excess_visits: 10 }),
+  cap({ rep_id: 2, rep_name: 'Over B', line: 'CIRA 2', manager: 'M2', excess_visits: 30, list_visits: 250, remove_if_freq2: 15, remove_if_freq1: 30 }),
+  cap({ rep_id: 3, rep_name: 'Spare C', excess_visits: -20, list_visits: 200, status: 'Spare capacity', remove_if_freq2: 0, remove_if_freq1: 0, spare_visits: 20, utilization: 200 / 220 }),
+  cap({ rep_id: 4, rep_name: 'Even D', excess_visits: 0, list_visits: 220, status: 'Balanced', remove_if_freq2: 0, remove_if_freq1: 0, utilization: 1 }),
+]
+t('capacity: view values pass through untouched; missing numbers -> 0 / null', () => {
+  assert.equal(capRows[0].capacity_visits, 220); assert.equal(capRows[0].remove_if_freq2, 5); assert.equal(capRows[0].remove_if_freq1, 10)
+  const blank = c.toCapacityRow({ rep_id: 9, rep_name: 'X', status: 'Balanced' })
+  assert.equal(blank.capacity_visits, 0); assert.equal(blank.utilization, null); assert.equal(blank.call_rate_target_pm, null)
+})
+t('capacity: status filter defaults to Over capacity; line / manager / search narrow; cards ignore the status filter', () => {
+  assert.equal(c.DEFAULT_STATUS_FILTER, 'Over capacity')
+  const f = { line: null, manager: '', search: '', status: c.DEFAULT_STATUS_FILTER }
+  assert.deepEqual(c.filterCapacity(capRows, f).map((r) => r.rep_id), [1, 2])
+  assert.equal(c.filterCapacity(capRows, { ...f, status: 'all' }).length, 4)
+  assert.deepEqual(c.filterCapacity(capRows, { ...f, line: 'CIRA 2' }).map((r) => r.rep_id), [2])
+  assert.deepEqual(c.filterCapacity(capRows, { ...f, status: 'all', manager: 'M2' }).map((r) => r.rep_id), [2])
+  assert.deepEqual(c.filterCapacity(capRows, { ...f, status: 'all', search: 'spare' }).map((r) => r.rep_id), [3])
+  assert.equal(c.filterCapacityScope(capRows, { line: null, manager: '', search: '' }).length, 4)
+  assert.deepEqual(c.capacityManagers(capRows, 'CIRA 1'), ['M1'])
+})
+t('capacity: summary cards sum the view columns by status', () => {
+  const sm = c.summarizeCapacity(capRows)
+  assert.equal(sm.overReps, 2); assert.equal(sm.excessVisits, 40); assert.equal(sm.removeDoctors, 20)
+  assert.equal(sm.spareReps, 1); assert.equal(sm.spareVisits, 20); assert.equal(sm.reps, 4)
+})
+t('capacity: default order is excess desc; Total row sums only additive columns', () => {
+  assert.deepEqual(c.capacityOrder(capRows).map((r) => r.rep_id), [2, 1, 4, 3])
+  const tot = c.totalCapacity(capRows)
+  assert.equal(tot.capacity_visits, 880); assert.equal(tot.list_visits, 900); assert.equal(tot.remove_if_freq2, 20)
+  assert.equal(tot.utilization, null); assert.equal(tot.pm_working_days, null); assert.ok(c.isCapacityTotal(tot)); assert.ok(!c.isCapacityTotal(capRows[0]))
+})
+t('capacity: formatting, remove label + tooltip text, export columns', () => {
+  assert.equal(c.fmtExcess(10), '+10'); assert.equal(c.fmtExcess(-20), '-20'); assert.equal(c.fmtExcess(0), '0')
+  assert.equal(c.fmtUtilization(230 / 220), '104.5%'); assert.equal(c.fmtUtilization(null), '—')
+  assert.equal(c.removeLabel(5), 'Remove ~5 doctors'); assert.equal(c.removeTip(10), 'if they have Freq 2; if Freq 1 remove 10')
+  const ex = c.exportCapacity(capRows)
+  assert.equal(ex.length, 4)
+  assert.deepEqual(Object.keys(ex[0]), ['Medical Rep', 'Rep code', 'Line', 'Direct Manager', 'Box', 'Target PM', 'Working days', 'Capacity', 'List doctors', 'List visits', 'Excess', 'Utilization %', 'Remove (if Freq 2)', 'Remove (if Freq 1)'])
+  assert.equal(ex[0]['Utilization %'], 104.5); assert.equal(ex[0]['Remove (if Freq 1)'], 10)
 })
 console.log(`\n${n} tests passed`)

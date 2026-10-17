@@ -34,6 +34,8 @@ interface Props<T extends { rep_id: number }> {
   onRowsChange?: (rows: T[]) => void
   emptyTitle: string
   emptyDescription: string
+  /** Sort applied on first render (default: the order of `rows`). */
+  initialSorting?: SortingState
 }
 
 function HeadLabel({ text, tip }: { text: string; tip?: string }) {
@@ -49,9 +51,9 @@ function HeadLabel({ text, tip }: { text: string; tip?: string }) {
 }
 
 export function ReportTable<T extends { rep_id: number }>({
-  cols, rows, total, loading, error, onRetry, onRowClick, onRowsChange, emptyTitle, emptyDescription,
+  cols, rows, total, loading, error, onRetry, onRowClick, onRowsChange, emptyTitle, emptyDescription, initialSorting,
 }: Props<T>) {
-  const [sorting, setSorting] = useState<SortingState>([])
+  const [sorting, setSorting] = useState<SortingState>(initialSorting ?? [])
   const columns = useMemo<ColumnDef<T>[]>(
     () => cols.map((c) => ({ id: c.id, header: c.header, accessorFn: (r) => c.value(r) ?? undefined, sortUndefined: 'last' as const })),
     [cols],

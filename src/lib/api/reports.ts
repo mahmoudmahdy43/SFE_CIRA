@@ -3,6 +3,7 @@ import type { MonthDetail } from './kpi'
 import { toKpiRepRow, type KpiRepRow } from '../../features/reports/kpiRepMath'
 import { toLeaveRow, toMissingRow, type LeaveRow, type MissingRow } from '../../features/reports/absenceMath'
 import { MANAGER_COLS, toManagerRow, type ManagerRow } from '../../features/reports/managerMath'
+import { toCapacityRow, type CapacityRow } from '../../features/reports/capacityMath'
 import {
   numOrNull, toCallRateRow, toCoverageRow, type CallRateRow, type CoverageRow,
 } from '../../features/reports/reportMath'
@@ -95,6 +96,15 @@ export function kpiRepRows(detail: MonthDetail, month: string): KpiRepRow[] {
 export async function fetchManagerReport(month: string): Promise<ManagerRow[]> {
   const rows = await fetchAll<Raw>('v_manager_report', MANAGER_COLS, ['manager_id'], (q) => q.eq('month', month))
   return rows.map(toManagerRow)
+}
+
+const CAPACITY_COLS =
+  'month,rep_id,rep_code,rep_name,line,manager,box,call_rate_target_pm,pm_working_days,capacity_visits,list_doctors,list_visits,excess_visits,utilization,status,remove_if_freq2,remove_if_freq1,spare_visits'
+
+/** One row per rep for the month (v_visits_capacity: every number is computed by the view; RLS scopes DMs to their own reps). */
+export async function fetchVisitsCapacity(month: string): Promise<CapacityRow[]> {
+  const rows = await fetchAll<Raw>('v_visits_capacity', CAPACITY_COLS, ['rep_id'], (q) => q.eq('month', month))
+  return rows.map(toCapacityRow)
 }
 
 const ABS_IDENT = 'month,line,line_id,manager_id,direct_manager,rep_code,rep_name,box,rep_id,hire_date'
