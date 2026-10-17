@@ -19,8 +19,6 @@ export interface ParsedVisits {
   dateOrder: DateOrder
   headers: string[]
   missing: string[]
-  /** True when the file has a "Visit ID" column. */
-  hasVisitId: boolean
 }
 
 export function parseVisitsSheet(ws: Sheet, onProgress?: (done: number, total: number) => void): ParsedVisits {
@@ -38,7 +36,6 @@ export function parseVisitsSheet(ws: Sheet, onProgress?: (done: number, total: n
   const base: ParsedVisits = {
     rows: [], excelRows: [], errors: [], totalRows: 0, duplicates: 0, otherRoots: 0,
     undecidedDateOrder: false, dateOrder: 'dmy', headers: headers.filter((h) => h.trim() !== ''), missing,
-    hasVisitId: index.visit_id !== undefined,
   }
   if (missing.length) return base
 
@@ -95,7 +92,6 @@ export function parseVisitsSheet(ws: Sheet, onProgress?: (done: number, total: n
       acc_type: keepText(get(r, 'acc_type')),
       account_id: idText(get(r, 'account_id')),
       doctor_id: idText(get(r, 'doctor_id')),
-      visit_id: idText(get(r, 'visit_id')),
       code: code as string,
       shift: shift as 'AM' | 'PM',
       visit_type: type as 'S' | 'D',

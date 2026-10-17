@@ -7,8 +7,6 @@ export interface VisitRow {
   acc_type: string | null
   account_id: string | null
   doctor_id: string | null
-  /** CRM Visit ID (visits.visit_ext_id): pairs a manager's row with the rep's row. Optional. */
-  visit_id: string | null
   code: string
   shift: 'AM' | 'PM'
   visit_type: 'S' | 'D'
@@ -39,14 +37,13 @@ export const VISIT_COLUMNS: VisitColumn[] = [
   { key: 'acc_type', label: 'Acc. Type', required: false },
   { key: 'account_id', label: 'Account ID', required: false },
   { key: 'doctor_id', label: 'Doctor ID', required: false },
-  { key: 'visit_id', label: 'Visit ID', required: false },
   { key: 'members', label: 'Members', required: false },
   { key: 'notes', label: 'Notes', required: false },
   { key: 'source', label: 'Source', required: false },
 ]
 
 /** Present in the company export but deliberately never read. */
-export const VISIT_IGNORED = ['Link status', 'Time', 'Spec.', 'Class', 'No. of Docs', 'Brick', 'Owner Name']
+export const VISIT_IGNORED = ['Link status', 'Time', 'Spec.', 'Class', 'No. of Docs', 'Visit ID', 'Brick', 'Owner Name']
 
 export function matchVisitHeaders(headers: string[]): { index: Partial<Record<VisitColumn['key'], number>>; missing: string[] } {
   const byNorm = new Map<string, number>()
