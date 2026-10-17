@@ -75,7 +75,7 @@ function RepDetail({ row, from, to, lineIds, manager, cols }: { row: ActionView;
   )
 }
 
-const HEADS = ['', 'Status', 'Rep', 'Line', 'Manager', 'Boxes', 'Sales', 'Target', 'Ach %', 'Gap', 'Last month', 'Down (months)', 'Top 3 gap products', 'Monthly sales', 'Visits', 'Sales / visit', 'Coaching avg']
+const HEADS = ['', 'Status', 'Rep', 'Line', 'Manager', 'Boxes', 'Sales', 'Target', 'Ach %', 'Gap', 'Last month', 'Down (months)', 'Top 3 gap products', 'Monthly sales', 'Avg visits / month', 'Sales / visit', 'Coaching avg']
 
 export function ActionSection({
   rows, all, showAll, onShowAll, threshold, loading, error, onExport, from, to, lineIds, manager,
@@ -128,7 +128,7 @@ export function ActionSection({
                         </div>
                       </td>
                       <td className="border-b px-3" style={{ borderBottomColor: CPAL.rowLine }}><SalesSpark months={r.months} /></td>
-                      <td className="tnum border-b px-3 text-right" style={tdBase}>{r.visits === null ? '-' : fmtNum(r.visits)}</td>
+                      <td className="tnum border-b px-3 text-right" style={tdBase}>{r.avgVisits === null ? '-' : r.avgVisits.toFixed(1)}</td>
                       <td className="tnum border-b px-3 text-right" style={tdBase}>{r.perVisit === null ? '-' : fmtNum(r.perVisit)}</td>
                       <td className="tnum border-b px-3 text-right" style={tdBase}>{r.coachAvg === null ? '-' : r.coachAvg.toFixed(2)}</td>
                     </tr>
@@ -155,7 +155,7 @@ export function FieldSection({ rows, fieldEmpty, loading }: { rows: ActionView[]
     return c
   }, [pts, mx, my])
   return (
-    <Section title="Field vs Sales" caption="Each dot is a rep: visits in the period (x) vs Ach % (y); dashed lines are the medians. High activity / low result = quality or targeting issue. Low activity / low result = activity issue.">
+    <Section title="Field vs Sales" caption="Each dot is a rep: average visits per month (x) vs Ach % (y); dashed lines are the medians. High activity / low result = quality or targeting issue. Low activity / low result = activity issue.">
       {loading ? <Skeleton className="h-96" /> : fieldEmpty || pts.length === 0 ? <FieldlessNote text="Field activity not available for this period" /> : (
         <div className="rounded-card border bg-card p-3">
           <FieldScatter points={pts} medianX={mx} medianY={my} />

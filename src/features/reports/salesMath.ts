@@ -110,8 +110,24 @@ export const toVacantRow = (r: Raw): VacantRow => ({
   s_value: n0(r.s_value), t_value: n0(r.t_value), s_value_tgt: n0(r.s_value_tgt), gap: n0(r.gap),
 })
 
-export interface FieldRow { rep_id: number; visits: number; coaching_visits: number; coaching_avg: number | null }
-export const toFieldRow = (r: Raw): FieldRow => ({ rep_id: n0(r.rep_id), visits: n0(r.visits), coaching_visits: n0(r.coaching_visits), coaching_avg: numOrNull(r.coaching_avg) })
+export interface FieldRow { rep_id: number; visits: number; coaching_visits: number; coaching_avg: number | null; /** months of the period in which the rep has visits */ months: number }
+export const toFieldRow = (r: Raw): FieldRow => ({ rep_id: n0(r.rep_id), visits: n0(r.visits), coaching_visits: n0(r.coaching_visits), coaching_avg: numOrNull(r.coaching_avg), months: n0(r.visits) > 0 ? 1 : 0 })
+
+/** Adds up one sales_field answer per month: total visits, months with visits > 0, visit-weighted coaching average. */
+export function mergeField(perMonth: FieldRow[][]): FieldRow[] {
+  const by = new Map<number, { visits: number; cv: number; months: number; w: number; sum: number }>()
+  for (const rows of perMonth) {
+    for (const r of rows) {
+      const x = by.get(r.rep_id) ?? { visits: 0, cv: 0, months: 0, w: 0, sum: 0 }
+      x.visits += r.visits
+      x.cv += r.coaching_visits
+      if (r.visits > 0) x.months += 1
+      if (r.coaching_avg !== null) { const w = r.coaching_visits > 0 ? r.coaching_visits : 1; x.w += w; x.sum += r.coaching_avg * w }
+      by.set(r.rep_id, x)
+    }
+  }
+  return [...by].map(([rep_id, x]) => ({ rep_id, visits: x.visits, coaching_visits: x.cv, coaching_avg: x.w > 0 ? x.sum / x.w : null, months: x.months }))
+}
 
 /* ------------------------------------ ratios and formats ------------------------------------ */
 /** a / b, null when b is missing or zero. */
@@ -512,7 +528,7 @@ export function achScale(rows: ActionRow[]): 1 | 100 {
 
 export interface ActionView extends ActionRow {
   achF: number | null; lastAchF: number | null
-  visits: number | null; perVisit: number | null; coachAvg: number | null; reason: string
+  visits: number | null; avgVisits: number | null; perVisit: number | null; coachAvg: number | null; reason: string
 }
 
 export function reasonOf(r: { achF: number | null; below: boolean; declining: boolean; decline_run: number; status: ActionStatus }, threshold: number): string {
@@ -532,7 +548,7 @@ export function actionViews(rows: ActionRow[], field: Map<number, FieldRow>, thr
     const visits = f && f.visits > 0 ? f.visits : null
     return {
       ...r, achF, lastAchF: r.last_ach === null ? null : r.last_ach / scale,
-      visits, perVisit: visits === null ? null : r.s_value / visits, coachAvg: f?.coaching_avg ?? null,
+      visits, avgVisits: visits === null || !f || f.months <= 0 ? null : visits / f.months, perVisit: visits === null ? null : r.s_value / visits, coachAvg: f?.coaching_avg ?? null,
       reason: reasonOf({ achF, below: r.below, declining: r.declining, decline_run: r.decline_run, status: r.status }, threshold),
     }
   })
@@ -553,9 +569,9 @@ export function median(v: number[]): number | null {
   return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2
 }
 export interface ScatterPoint { name: string; x: number; y: number; status: ActionStatus; manager: string | null }
-/** Reps with visits data and a target: x = visits, y = Ach %. */
+/** Reps with visits data and a target: x = average visits per month (total visits / months with visits), y = Ach %. */
 export function scatterPoints(rows: ActionView[]): ScatterPoint[] {
-  return rows.filter((r) => r.visits !== null && r.achF !== null).map((r) => ({ name: r.rep_name, x: r.visits as number, y: (r.achF as number) * 100, status: r.status, manager: r.manager_name }))
+  return rows.filter((r) => r.avgVisits !== null && r.achF !== null).map((r) => ({ name: r.rep_name, x: r.avgVisits as number, y: (r.achF as number) * 100, status: r.status, manager: r.manager_name }))
 }
 export type Quadrant = 'High activity / high result' | 'High activity / low result' | 'Low activity / high result' | 'Low activity / low result'
 export function quadrantOf(p: { x: number; y: number }, mx: number, my: number): Quadrant {

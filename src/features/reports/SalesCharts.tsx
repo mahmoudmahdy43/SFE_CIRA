@@ -71,14 +71,14 @@ export function WaterfallChart({ bars, unit, label, rotate = false }: { bars: Wa
 
 const STATUSES: ActionStatus[] = ['ACTION', 'WATCH', 'OK']
 
-/** Reps: visits (x) vs Ach % (y), colour = status, dashed lines at the medians. */
+/** Reps: average visits per month (x) vs Ach % (y), colour = status, dashed lines at the medians. */
 export function FieldScatter({ points, medianX, medianY }: { points: ScatterPoint[]; medianX: number | null; medianY: number | null }) {
   return (
     <div role="img" aria-label="Reps by field visits and achievement" className="h-96">
       <ResponsiveContainer>
         <ScatterChart margin={{ top: 12, right: 24, left: 4, bottom: 18 }}>
           <CartesianGrid stroke="hsl(var(--border))" />
-          <XAxis type="number" dataKey="x" name="Visits" {...AXIS} label={{ value: 'Visits in the period', position: 'insideBottom', offset: -8, fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
+          <XAxis type="number" dataKey="x" name="Avg visits per month" {...AXIS} label={{ value: 'Avg visits per month', position: 'insideBottom', offset: -8, fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
           <YAxis type="number" dataKey="y" name="Ach %" {...AXIS} unit="%" width={48} />
           <ZAxis range={[60, 60]} />
           <Tooltip
@@ -90,7 +90,7 @@ export function FieldScatter({ points, medianX, medianY }: { points: ScatterPoin
                 <div className="rounded-md border bg-card px-3 py-2 text-xs shadow">
                   <div className="font-bold" style={{ color: CPAL.navy }}>{p.name}</div>
                   {p.manager && <div className="text-muted-foreground">{p.manager}</div>}
-                  <div className="tnum mt-1">Visits {fmtNum(p.x)} · Ach {p.y.toFixed(1)}%</div>
+                  <div className="tnum mt-1">Avg visits/month {p.x.toFixed(1)} · Ach {p.y.toFixed(1)}%</div>
                 </div>
               )
             }}

@@ -66,11 +66,11 @@ export function buildActionsGrid(a: { rows: ActionView[]; periodLine: string }):
   const cols: Col[] = [
     { h: 'Status', w: 10, kind: 'text' }, { h: 'Rep', w: 26, kind: 'text' }, { h: 'Line', w: 14, kind: 'text' }, { h: 'Manager', w: 24, kind: 'text' }, { h: 'Territories', w: 11, kind: 'int' },
     { h: 'Sales (EGP)', w: 15, kind: 'int' }, { h: 'Target', w: 15, kind: 'int' }, { h: 'Ach %', w: 10, kind: 'pct' }, { h: 'Gap', w: 14, kind: 'signed' }, { h: 'Last-month Ach %', w: 12, kind: 'pct' },
-    { h: 'Declining months', w: 11, kind: 'int' }, { h: 'Top gap products', w: 50, kind: 'text' }, { h: 'Visits', w: 9, kind: 'int' }, { h: 'Sales per visit', w: 13, kind: 'int' },
+    { h: 'Declining months', w: 11, kind: 'int' }, { h: 'Top gap products', w: 50, kind: 'text' }, { h: 'Avg visits per month', w: 12, kind: 'price' }, { h: 'Sales per visit', w: 13, kind: 'int' },
     { h: 'Coaching avg', w: 11, kind: 'price' }, { h: 'Reason', w: 46, kind: 'text' },
   ]
   return table('Action list', a.periodLine, cols, a.rows.map((r): V[] => [
     r.status, r.rep_name, r.line_names ?? '', r.manager_name ?? '', r.territories, r.s_value, r.t_value, r.achF, r.gap, r.lastAchF, r.decline_run,
-    r.top_gap_products.map((p) => `${p.product} (-${Math.round(p.shortfall).toLocaleString('en-US')})`).join('; '), r.visits, r.perVisit, r.coachAvg, r.reason,
+    r.top_gap_products.map((p) => `${p.product} (-${Math.round(p.shortfall).toLocaleString('en-US')})`).join('; '), r.avgVisits, r.perVisit, r.coachAvg, r.reason,
   ]))
 }

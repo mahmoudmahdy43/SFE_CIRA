@@ -1,7 +1,7 @@
 import { rpcAll } from './reports'
 import { fetchAll } from './core'
 import {
-  toActionRow, toFieldRow, toGapRow, toMonthRow, toMonthlyRow, toProductRow, toRepProductRow, toSummaryRow, toVacantRow,
+  mergeField, toActionRow, toFieldRow, toGapRow, toMonthRow, toMonthlyRow, toProductRow, toRepProductRow, toSummaryRow, toVacantRow,
   type ActionRow, type FieldRow, type GapGroup, type GapRow, type MonthRow, type MonthlyRow, type ProductRow, type RepProductRow, type SummaryRow, type VacantRow,
 } from '../../features/reports/salesMath'
 
@@ -42,9 +42,10 @@ export async function fetchSalesVacant(from: string, to: string, line: number | 
   return (await rpcAll('sales_vacant', { p_from: from, p_to: to, p_line: line }, ['territory_id'])).map(toVacantRow)
 }
 
-/** Visits and coaching per rep in the period (empty when field activity is not available). */
-export async function fetchSalesField(from: string, to: string): Promise<FieldRow[]> {
-  return (await rpcAll('sales_field', { p_from: from, p_to: to }, ['rep_id'])).map(toFieldRow)
+/** Visits and coaching per rep: sales_field is called once per month so the months with visits can be counted. */
+export async function fetchSalesField(months: string[]): Promise<FieldRow[]> {
+  const per = await Promise.all(months.map(async (m) => (await rpcAll('sales_field', { p_from: m, p_to: m }, ['rep_id'])).map(toFieldRow)))
+  return mergeField(per)
 }
 
 /** Direct managers for the filter. */

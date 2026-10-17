@@ -93,7 +93,8 @@ export function SalesTab({ lines }: Props) {
   const heatLines = line !== null ? lines.filter((l) => l.id === line) : lines
   const heatQ = useAsync(ready && heatLineId !== null ? `sales:heat:${from}:${to}:${heatLineId}:${manager ?? ''}` : 'sales:heat:pending', () => (ready && heatLineId !== null ? fetchSalesRepProduct(from, to, { line: heatLineId, manager }) : Promise.resolve([])))
   const actionsQ = useAsync(ready ? `sales:actions:${from}:${to}:${threshold}:${down}:${sk}` : 'sales:actions:pending', () => (ready ? fetchSalesActions(from, to, threshold, down, scope) : Promise.resolve([])))
-  const fieldQ = useAsync(ready ? `sales:field:${from}:${to}` : 'sales:field:pending', () => (ready ? fetchSalesField(from, to) : Promise.resolve([])))
+  const periodMonths = useMemo(() => loaded.filter((m) => m >= from && m <= to), [loaded, from, to])
+  const fieldQ = useAsync(ready ? `sales:field:${periodMonths.join(',')}` : 'sales:field:pending', () => (ready ? fetchSalesField(periodMonths) : Promise.resolve([])))
   const vacantQ = useAsync(ready ? `sales:vacant:${from}:${to}:${line ?? ''}` : 'sales:vacant:pending', () => (ready ? fetchSalesVacant(from, to, line) : Promise.resolve([])))
 
   const unit = metric === 'value' ? 'EGP' : 'units'
