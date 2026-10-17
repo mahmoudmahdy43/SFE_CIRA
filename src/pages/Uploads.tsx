@@ -7,11 +7,12 @@ import UploadWizard from '../features/uploads/UploadWizard'
 import { listConfig } from '../features/uploads/list/listConfig'
 import { visitsConfig } from '../features/uploads/visits/visitsConfig'
 import { coachingConfig } from '../features/uploads/coaching/coachingConfig'
+import SalesUploadWizard, { SALES_DESCRIPTION, SALES_LABEL } from '../features/uploads/sales/SalesUploadWizard'
 import { activitiesConfig, leavesConfig, officeWorkConfig } from '../features/uploads/absence/absenceConfigs'
 import HistoryTab from './uploads/HistoryTab'
 import MonthsTab from './uploads/MonthsTab'
 
-type Key = 'list' | 'visits' | 'leaves' | 'office_work' | 'activities' | 'coaching'
+type Key = 'list' | 'visits' | 'leaves' | 'office_work' | 'activities' | 'coaching' | 'sales'
 
 const AVAILABLE: { key: Key; label: string; description: string; icon: typeof DollarSign }[] = [
   { key: 'list', ...listConfig },
@@ -20,9 +21,10 @@ const AVAILABLE: { key: Key; label: string; description: string; icon: typeof Do
   { key: 'office_work', ...officeWorkConfig },
   { key: 'activities', ...activitiesConfig },
   { key: 'coaching', ...coachingConfig },
+  { key: 'sales', label: SALES_LABEL, description: SALES_DESCRIPTION, icon: DollarSign },
 ]
 
-const SOON = [{ label: 'Sales', description: 'Territory-level actual vs target units and value, rolled up through the org.', icon: DollarSign }]
+const SOON: { label: string; description: string; icon: typeof DollarSign }[] = []
 
 export default function Uploads() {
   const [tab, setTab] = useState('upload')
@@ -54,6 +56,8 @@ export default function Uploads() {
               <UploadWizard config={activitiesConfig} onExit={exit} onViewChanges={noop} />
             ) : wizard === 'coaching' ? (
               <UploadWizard config={coachingConfig} onExit={exit} onViewChanges={noop} />
+            ) : wizard === 'sales' ? (
+              <SalesUploadWizard onExit={exit} />
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {AVAILABLE.map((c) => (

@@ -11,6 +11,9 @@ import * as jt from '../src/features/reports/jointMath.ts'
 import * as cv from '../src/features/reports/coverageMath.ts'
 import * as ch from '../src/features/reports/coachingMath.ts'
 import * as cr from '../src/features/uploads/coaching/coachingResult.ts'
+import * as sm from '../src/features/reports/salesMath.ts'
+import * as sp2 from '../src/features/uploads/sales/salesParse.ts'
+import * as sr from '../src/features/uploads/sales/salesResult.ts'
 
 let n = 0
 const t = (name, fn) => { fn(); n++; console.log('ok -', name) }
@@ -539,5 +542,160 @@ t('coaching: conflict summary, scores json, effect shares and finalize result sh
   assert.equal(f.visits, 120); assert.deepEqual(f.unmatchedReps.map((x) => x.name), ['Ali', 'Sara']); assert.equal(f.unmatchedEvaluators[0].name, 'X'); assert.equal(f.incompleteCount, 2)
   const g = cr.readFinalize([{ visits: 5, incomplete_visits: 1 }, { visits: 7, incomplete_visits: 2 }])
   assert.equal(g.visits, 12); assert.equal(g.incompleteCount, 3)
+})
+
+/* ------------------------------------ sales ------------------------------------ */
+const cells = (a, b, c, d, e, f) => `<table><tr><th>${a}<th>${b}<th>${c}<th>${d}<th>${e}<th>${f}</tr></table><table><tr><th>9<th>9<th>9<th>9<th>9<th>9</tr></table>`
+const seg = (type, name, rep, six) => `<tr align='center' class=x><td>${type}<td>${name}<th class=a>&nbsp;</th>${rep === null ? '' : `<td><nobr>${rep}</nobr><th width='5'>|`}${six}`
+const htmlFile = (year, mon, line, bodies) => `<html><caption>${year} Sales Analysis Report</caption><table><tr><th>${mon}<th>Units</tr></table>${bodies.join('\n')}</html>`
+const goodHtml = htmlFile(2026, 'SEP', 1, [
+  seg('C', 'CIRA 1', null, cells('30', '40', '75%', '1,500', '2,000', '75%')),
+  seg('T', 'Box A', 'Ali &amp; Co', cells('', '', '', '', '', '')),
+  seg('', 'Prod X', null, cells('10', '20', '50%', '1,000', '1,200', '83%')),
+  seg('', 'Prod Y', null, cells('', '5', '', '500', '', '')),
+  seg('T', 'Box B', 'Vacant', cells('', '', '', '', '', '')),
+  seg('', 'Prod X', null, cells('0', '0', '', '0', '800', '0%')),
+  seg('D', 'District 1', null, cells('1', '1', '', '9,999', '9,999', '')),
+  seg('', 'Prod X', null, cells('1', '1', '', '9,999', '9,999', '')),
+])
+t('sales parser: rows, rep name, check row, unit cells and totals', () => {
+  const f = sp2.parseSalesFile('9_1.xls', goodHtml)
+  assert.deepEqual(f.errors, []); assert.equal(f.line, 'CIRA 1'); assert.equal(f.month, '2026-09')
+  assert.equal(f.rows.length, 3); assert.equal(f.territories, 2); assert.equal(f.products, 2)
+  assert.equal(f.rows[0].md, 'Ali & Co'); assert.equal(f.rows[2].md, 'Vacant'); assert.equal(f.rows[0].s_value, 1000); assert.equal(f.rows[1].t_value, null)
+  assert.deepEqual(f.check, { line: 'CIRA 1', month: '2026-09', s_value: 1500, t_value: 2000 })
+  assert.equal(f.sumValue, 1500); assert.equal(f.sumTarget, 2000); assert.ok(sp2.valueMatches(f)); assert.ok(sp2.targetMatches(f))
+  assert.equal(f.rows.every((r) => r.line === 'CIRA 1' && r.month === '2026-09'), true)
+})
+t('sales parser: file name vs content errors and file name format', () => {
+  assert.equal(sp2.parseSalesFile('8_1.xls', goodHtml).errors.length, 1)
+  assert.equal(sp2.parseSalesFile('9_2.xls', goodHtml).errors.length, 1)
+  assert.equal(sp2.parseSalesFile('report.xls', goodHtml).errors.length, 1)
+  assert.equal(sp2.parseSalesFile('9_1.xls', goodHtml.replace('2026 Sales Analysis Report', 'Sales')).errors.length, 1)
+  assert.deepEqual(sp2.parseFileName('12_3.XLS'), { month: 12, line: 3 }); assert.equal(sp2.parseFileName('13_1.xls'), null); assert.equal(sp2.parseFileName('1_4.xls'), null)
+  const bad = sp2.parseSalesFile('9_1.xls', goodHtml.replace('1,000', '1,050'))
+  assert.equal(sp2.valueMatches(bad), false)
+})
+t('sales parser: months grouped, missing lines and duplicates', () => {
+  const a = sp2.parseSalesFile('9_1.xls', goodHtml)
+  const dup = sp2.parseSalesFile('9_1.xls', goodHtml)
+  const g = sp2.groupByMonth([a, dup, sp2.parseSalesFile('x.xls', goodHtml)])
+  assert.equal(g.groups.length, 1); assert.deepEqual(g.groups[0].missing, [2, 3]); assert.equal(g.duplicates.length, 1); assert.equal(g.groups[0].rows, 3)
+  assert.deepEqual(sp2.chunk([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]])
+})
+t('sales result: tolerant finalize reading', () => {
+  const f = sr.readSalesFinal([{ rows: 100, skipped_zero: 3, rejected: ['territory not found: Box Z', { reason: 'x', territory: 'Q' }], total_mismatch: [{ month: '2026-09', line: 'CIRA 1' }], rows_without_org: 4, territories_without_sales: [{ territory: 'T1' }], rep_name_differs: [{ month: 'm', territory: 't' }] }, { rows: 50 }])
+  assert.equal(f.rows, 150); assert.equal(f.skippedZero, 3); assert.equal(f.mismatch.length, 1); assert.equal(f.rowsWithoutOrg.count, 4); assert.equal(f.territoriesWithoutSales.count, 1); assert.equal(f.repDiffers.length, 1)
+  assert.deepEqual(sr.columnsOf([{ b: 1, a: 2 }], ['a']), ['a', 'b'])
+})
+
+const smrow = (month, line_id) => ({ month, line_id, line_name: `CIRA ${line_id}`, rows: 10, s_value: 1, t_value: 1 })
+t('sales periods: options only for loaded months, quarter / semester ids', () => {
+  const loaded = ['2026-01-01', '2026-02-01', '2026-03-01', '2026-04-01', '2026-07-01', '2026-08-01', '2026-09-01']
+  assert.deepEqual(sm.loadedMonths([smrow('2026-02-01', 1), smrow("2026-02-01", 2), smrow("2026-01-01", 1)]), ['2026-01-01', '2026-02-01'])
+  const q = sm.periodOptions('quarter', loaded)
+  assert.deepEqual(q.map((o) => o.id), ['2026-Q1', '2026-Q2', '2026-Q3']); assert.equal(q[1].months.length, 1); assert.equal(q[2].months.length, 3)
+  const s = sm.periodOptions('semester', loaded); assert.deepEqual(s.map((o) => o.id), ['2026-S1', '2026-S2']); assert.equal(s[0].months.length, 4)
+  assert.equal(sm.periodOptions('month', loaded).length, 7)
+  assert.deepEqual(sm.calendarMonths('2026-S2')[0], '2026-07-01'); assert.equal(sm.calendarMonths('2026-Q4').length, 3)
+  assert.deepEqual(sm.defaultPeriods(q), { sel: '2026-Q3', cmp: '2026-Q2' })
+})
+t('sales periods: like-for-like (Q3 of 3 months vs first 3 of S1), YTD without comparison', () => {
+  const loaded = ['2026-01-01', '2026-02-01', '2026-03-01', '2026-04-01', '2026-05-01', '2026-06-01', '2026-07-01', '2026-08-01', '2026-09-01']
+  const sem = sm.periodOptions('semester', loaded)
+  const r = sm.resolvePeriods('semester', sem, '2026-S2', '2026-S1')
+  assert.equal(r.from, '2026-07-01'); assert.equal(r.to, '2026-09-01'); assert.equal(r.cmpFrom, '2026-01-01'); assert.equal(r.cmpTo, '2026-03-01')
+  assert.equal(r.banner, 'Comparing 3 months vs 3 months (S2 vs first 3 months of S1)'); assert.equal(r.hasCmp, true)
+  const qs = sm.periodOptions('quarter', loaded)
+  const q = sm.resolvePeriods('quarter', qs, '2026-Q3', '2026-Q2')
+  assert.equal(q.banner, null); assert.equal(q.cmpFrom, '2026-04-01'); assert.equal(q.cmpTo, '2026-06-01')
+  const big = sm.resolvePeriods('semester', sem, '2026-S1', '2026-S2'); assert.match(big.banner, /not like-for-like/)
+  const y = sm.resolvePeriods('ytd', sm.periodOptions('ytd', loaded), null, null)
+  assert.equal(y.hasCmp, false); assert.equal(y.from, '2026-01-01'); assert.equal(y.to, '2026-09-01'); assert.equal(y.nSel, 9)
+  assert.equal(sm.resolvePeriods('month', sm.periodOptions('month', loaded), '2026-09-01', 'none').hasCmp, false)
+  assert.equal(sm.resolvePeriods('month', [], null, null), null)
+})
+t('sales: achievement, growth, tones and heat bands', () => {
+  assert.equal(sm.achOf(80, 100), 0.8); assert.equal(sm.achOf(80, 0), null); assert.equal(sm.growthOf(110, 100), 0.1); assert.equal(sm.growthOf(5, 0), null)
+  assert.equal(sm.achTone(0.79, 80), 'red'); assert.equal(sm.achTone(0.8, 80), 'amber'); assert.equal(sm.achTone(1, 80), 'green'); assert.equal(sm.achTone(null, 80), 'none')
+  assert.deepEqual([0.59, 0.6, 0.79, 0.8, 0.99, 1, null].map(sm.heatTone), ['red', 'orange', 'orange', 'yellow', 'yellow', 'green', 'gray'])
+  const k = sm.salesKpi(sm.toSummaryRow({ s_value: 1000, s_units: 10, t_value: 800, t_units: 8, s_value_tgt: 600, s_units_tgt: 6, c_value: 500, c_units: 5, vacant_value: 100, s_value_notgt: 40 }), 'value')
+  assert.equal(k.ach, 0.75); assert.equal(k.gap, -200); assert.equal(k.growth, 1); assert.equal(k.vacantShare, 0.1); assert.equal(sm.salesKpi(sm.toSummaryRow({ s_value: 1000, s_units: 10, t_units: 8, s_units_tgt: 6 }), 'units').ach, 0.75)
+})
+t('sales: ABC classes and product totals use targeted rows for achievement', () => {
+  assert.deepEqual(sm.abcClasses([50, 30, 10, 5, 5]), ['A', 'A', 'B', 'C', 'C'])
+  assert.deepEqual(sm.abcClasses([100]), ['A']); assert.deepEqual(sm.abcClasses([0, 0]), ['C', 'C'])
+  const rows = [
+    sm.toProductRow({ product_id: 1, product_name: 'A', s_value: 700, s_units: 7, t_value: 1000, s_value_tgt: 700, c_value: 600, c_units: 6 }),
+    sm.toProductRow({ product_id: 2, product_name: 'B', s_value: 300, s_units: 3, t_value: 0, s_value_tgt: 0, c_value: 300, c_units: 3 }),
+  ]
+  const v = sm.productViews(rows, 'value')
+  assert.equal(v[1].noTarget, true); assert.equal(v[1].ach, null); assert.equal(v[0].ach, 0.7); assert.equal(v[0].avgPrice, 100); assert.equal(v[0].share, 0.7)
+  const tot = sm.productTotal(rows, 'value'); assert.equal(tot.sales, 1000); assert.equal(tot.ach, 0.7); assert.equal(tot.gap, -300); assert.ok(Math.abs(tot.growth - 1 / 9) < 1e-12)
+  assert.deepEqual(sm.sortProducts(v, 'ach', 'asc').map((x) => x.name), ['A', 'B'])
+})
+t('sales: price / volume / mix adds up exactly, new and discontinued land in mix', () => {
+  const rows = [
+    sm.toProductRow({ product_id: 1, c_units: 10, c_value: 1000, s_units: 12, s_value: 1320 }), // P0 100 -> P1 110
+    sm.toProductRow({ product_id: 2, c_units: 5, c_value: 250, s_units: 4, s_value: 220 }), // P0 50 -> 55
+    sm.toProductRow({ product_id: 3, c_units: 0, c_value: 0, s_units: 2, s_value: 300 }), // new
+    sm.toProductRow({ product_id: 4, c_units: 3, c_value: 90, s_units: 0, s_value: 0 }), // discontinued
+  ]
+  const p = sm.pvmBridge(rows)
+  assert.equal(p.v0, 1340); assert.equal(p.v1, 1840)
+  assert.equal(p.price, (110 - 100) * 12 + (55 - 50) * 4)
+  assert.ok(Math.abs(p.volume - (18 - 18) * (1340 / 18)) < 1e-9)
+  assert.ok(Math.abs(p.volume + p.price + p.mix - (p.v1 - p.v0)) < 1e-9)
+  assert.equal(sm.pvmBridge([]).mix, 0)
+  const w = sm.waterfall([{ name: 'a', value: 100, total: true }, { name: 'x', value: -20 }, { name: 'y', value: 50 }, { name: 'b', value: 130, total: true }])
+  assert.deepEqual(w.map((b) => [b.base, b.up, b.down, b.total]), [[0, 0, 0, 100], [80, 0, 20, 0], [80, 50, 0, 0], [0, 0, 0, 130]])
+  assert.ok(sm.waterDomainMin(w) >= 0 && sm.waterDomainMin(w) <= 80)
+  const d = sm.productDeltas([sm.toProductRow({ product_name: 'u', s_value: 10, c_value: 4 }), sm.toProductRow({ product_name: 'd', s_value: 1, c_value: 9 }), sm.toProductRow({ product_name: 'z', s_value: 3, c_value: 3 })], 1)
+  assert.deepEqual(d.map((x) => x.name), ['u', 'd'])
+  const many = Array.from({ length: 20 }, (_, i) => sm.toProductRow({ product_name: `p${i}`, s_value: i % 2 ? 10 + i : 1, c_value: i % 2 ? 1 : 10 + i }))
+  assert.equal(sm.productDeltas(many, 3).length, 7)
+})
+t('sales: trend points, month-over-month and projection', () => {
+  const mo = (month, line_id, s, t, st) => sm.toMonthlyRow({ month, line_id, s_value: s, t_value: t, s_value_tgt: st, s_units: s / 10, t_units: t / 10, vacant_value: 1 })
+  const rows = [mo('2026-01-01', 1, 100, 200, 100), mo('2026-01-01', 2, 100, 0, 0), mo('2026-02-01', 1, 300, 200, 150), mo('2026-03-01', 1, 400, 400, 400)]
+  const p = sm.trendPoints(rows, null, 'value')
+  assert.deepEqual(p.map((x) => x.sales), [200, 300, 400]); assert.equal(p[0].ach, 0.5); assert.equal(p[1].mom, 0.5); assert.equal(p[0].mom, null); assert.equal(p[0].vacant, 2)
+  assert.deepEqual(sm.trendPoints(rows, 1, 'units').map((x) => x.sales), [10, 30, 40])
+  const pr = sm.projectYear(p)
+  assert.equal(pr.remaining, 9); assert.equal(pr.perMonth, 300); assert.equal(pr.ytd, 900); assert.equal(pr.total, 900 + 300 * 9); assert.equal(pr.months[0], '2026-04-01'); assert.equal(pr.months[8], '2026-12-01')
+  assert.equal(sm.projectYear([{ month: '2026-12-01', sales: 5, target: 0, ach: null, vacant: 0, mom: null }]), null); assert.equal(sm.projectYear([]), null)
+})
+t('sales: gap views, rep movers, heat map, company row fallback', () => {
+  const g = sm.gapViews([sm.toGapRow({ key_id: 1, key_name: 'A', s_value_tgt: 50, t_value: 100, gap: -50 }), sm.toGapRow({ key_id: 2, key_name: 'Vacant', s_value_tgt: 10, t_value: 100, gap: -90 }), sm.toGapRow({ key_id: 3, key_name: 'C', s_value_tgt: 120, t_value: 100, gap: 20 })])
+  assert.deepEqual(g.map((x) => x.key_name), ['Vacant', 'A', 'C']); assert.equal(g[0].isVacant, true); assert.equal(g[1].ach, 0.5)
+  const cur = [sm.toGapRow({ key_id: 1, key_name: 'A', s_value: 150 }), sm.toGapRow({ key_id: 2, key_name: 'B', s_value: 40 })]
+  const cmp = [sm.toGapRow({ key_id: 1, key_name: 'A', s_value: 100 }), sm.toGapRow({ key_id: 2, key_name: 'B', s_value: 90 }), sm.toGapRow({ key_id: 9, key_name: 'Gone', s_value: 30 })]
+  const d = sm.repDeltas(cur, cmp)
+  assert.deepEqual(sm.topMovers(d, 'up').map((x) => x.name), ['A']); assert.deepEqual(sm.topMovers(d, 'down').map((x) => x.name), ['B', 'Gone'])
+  const h = sm.heatMap([
+    sm.toRepProductRow({ rep_id: 1, rep_name: 'Good', product_id: 1, product_name: 'P1', s_value: 100, t_value: 100, s_value_tgt: 100 }),
+    sm.toRepProductRow({ rep_id: 2, rep_name: 'Weak', product_id: 1, product_name: 'P1', s_value: 50, t_value: 100, s_value_tgt: 50 }),
+    sm.toRepProductRow({ rep_id: 2, rep_name: 'Weak', product_id: 2, product_name: 'P2', s_value: 500, t_value: 0, s_value_tgt: 0 }),
+  ])
+  assert.deepEqual(h.reps.map((r) => r.rep), ['Weak', 'Good']); assert.equal(h.products[0].name, 'P2'); assert.equal(h.reps[0].cells.get(2).ach, null); assert.equal(h.reps[0].ach, 0.5)
+  const co = sm.companyRow([sm.toSummaryRow({ line_id: 1, s_value: 10, vacant_value: 1 }), sm.toSummaryRow({ line_id: 2, s_value: 5, vacant_value: 2 })])
+  assert.equal(co.s_value, 15); assert.equal(co.vacant_value, 3)
+  assert.equal(sm.companyRow([sm.toSummaryRow({ line_id: null, s_value: 99 }), sm.toSummaryRow({ line_id: 1, s_value: 10 })]).s_value, 99)
+})
+t('sales: action list - reason text, percent scale detection, field join, ordering, medians', () => {
+  const act = (o) => sm.toActionRow({ rep_id: 1, rep_name: 'R', s_value: 640, t_value: 1000, s_value_tgt: 640, ach: 64, last_ach: 50, decline_run: 4, below: true, declining: true, status: 'ACTION', shortfall: 360, top_gap_products: '[{"product":"P","shortfall":100,"ach":40}]', months: '[{"month":"2026-02-01","s":2,"t":3,"st":1},{"month":"2026-01-01","s":1,"t":3,"st":1}]', ...o })
+  const a = act({})
+  assert.equal(a.top_gap_products[0].shortfall, 100); assert.equal(a.months[0].month, '2026-01-01'); assert.equal(sm.achScale([a]), 100)
+  assert.equal(sm.achScale([act({ ach: 0.64 })]), 1)
+  const v = sm.actionViews([a, act({ rep_id: 2, rep_name: 'B', status: 'OK', below: false, declining: false, shortfall: 0 }), act({ rep_id: 3, rep_name: 'C', status: 'WATCH', below: true, declining: false, decline_run: 0, shortfall: 10, s_value_tgt: 900, ach: 90 })], new Map([[1, { rep_id: 1, visits: 20, coaching_visits: 1, coaching_avg: 3.5 }]]), 80)
+  assert.equal(v[0].reason, 'Ach 64% (< 80) and sales down 4 months in a row'); assert.equal(v[0].lastAchF, 0.5); assert.equal(v[0].visits, 20); assert.equal(v[0].perVisit, 32); assert.equal(v[0].coachAvg, 3.5)
+  assert.equal(v[1].reason, 'On track'); assert.equal(v[2].reason, 'Ach 90% (< 80)'); assert.equal(v[1].visits, null)
+  assert.deepEqual(sm.sortActions(v).map((x) => x.status), ['ACTION', 'WATCH', 'OK']); assert.deepEqual(sm.actionCounts([a, act({ status: 'WATCH' }), act({ status: 'OK' })]), { action: 1, watch: 1, ok: 1 })
+  assert.equal(sm.median([3, 1, 2]), 2); assert.equal(sm.median([4, 1, 2, 3]), 2.5); assert.equal(sm.median([]), null)
+  const pts = sm.scatterPoints(v); assert.equal(pts.length, 1); assert.equal(pts[0].y, 64)
+  assert.equal(sm.quadrantOf({ x: 30, y: 50 }, 20, 80), 'High activity / low result'); assert.equal(sm.quadrantOf({ x: 5, y: 50 }, 20, 80), 'Low activity / low result')
+  assert.equal(sm.rangeText('2026-07-01', '2026-09-01'), 'Jul - Sep 2026'); assert.equal(sm.rangeText('2026-09-01', '2026-09-01'), 'Sep 2026')
+  const x = sr.splitRejected(['territory not found: Box 1', 'territory not found: Box 1', 'bad month'])
+  assert.deepEqual(x.notFound, [{ name: 'Box 1', count: 2 }]); assert.deepEqual(x.other, ['bad month'])
 })
 console.log(`\n${n} tests passed`)
