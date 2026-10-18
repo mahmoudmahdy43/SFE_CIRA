@@ -6,6 +6,7 @@ import AliasesTab from './org/AliasesTab'
 import BoxesTab from './org/BoxesTab'
 import ImportTab from './org/ImportTab'
 import TerritoriesTab from './org/TerritoriesTab'
+import TerritoryBoxTab from './org/TerritoryBoxTab'
 
 export default function Org() {
   const { org, error, loading, reload } = useOrg()
@@ -19,6 +20,7 @@ export default function Org() {
           <TabsTrigger value="territories">Territories</TabsTrigger>
           <TabsTrigger value="aliases">Aliases</TabsTrigger>
           <TabsTrigger value="import">Import</TabsTrigger>
+          <TabsTrigger value="terrbox">Territory → Box</TabsTrigger>
         </TabsList>
         <div className="mt-4">
           {error ? (
@@ -34,6 +36,7 @@ export default function Org() {
               <TabsContent value="territories"><TerritoriesTab org={org} reload={refetch} /></TabsContent>
               <TabsContent value="aliases"><AliasesTab org={org} /></TabsContent>
               <TabsContent value="import" forceMount hidden={false} className="data-[state=inactive]:hidden"><ImportTab onImported={refetch} /></TabsContent>
+              <TabsContent value="terrbox"><TerritoryBoxTab /></TabsContent>
             </>
           )}
           {loading && org && <span className="sr-only" role="status">Refreshing…</span>}

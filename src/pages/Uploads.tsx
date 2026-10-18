@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/overl
 import UploadWizard from '../features/uploads/UploadWizard'
 import { listConfig } from '../features/uploads/list/listConfig'
 import { visitsConfig } from '../features/uploads/visits/visitsConfig'
+import VisitsUploadEntry from '../features/uploads/visits/VisitsUploadEntry'
 import { coachingConfig } from '../features/uploads/coaching/coachingConfig'
 import SalesUploadWizard, { SALES_DESCRIPTION, SALES_LABEL } from '../features/uploads/sales/SalesUploadWizard'
 import { activitiesConfig, leavesConfig, officeWorkConfig } from '../features/uploads/absence/absenceConfigs'
@@ -47,7 +48,7 @@ export default function Uploads() {
             {wizard === 'list' ? (
               <UploadWizard config={listConfig} onExit={exit} onViewChanges={(m) => { setMonth(m); setTab('months') }} />
             ) : wizard === 'visits' ? (
-              <UploadWizard config={visitsConfig} onExit={exit} onViewChanges={noop} />
+              <VisitsUploadEntry onExit={exit} onViewChanges={noop} />
             ) : wizard === 'leaves' ? (
               <UploadWizard config={leavesConfig} onExit={exit} onViewChanges={noop} />
             ) : wizard === 'office_work' ? (

@@ -10,6 +10,7 @@
     "test:reports": "node scripts/reportMath.test.mjs",
     "test:list": "node scripts/listUpload.test.mjs",
     "test:vacancies": "node scripts/vacantManagers.test.mjs",
+    "test:visits-raw": "node scripts/rawVisits.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
