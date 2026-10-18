@@ -32,7 +32,7 @@ function exportUnlinked(s: RawSummary): void {
 }
 
 /** Result screen of the raw CRM visits upload (after processing): per-month cards, rejected owners, link quality, unlinked samples. */
-export default function RawVisitsResult({ outcome, onViewChanges }: { outcome: LoadOutcome; onViewChanges: (m: string) => void }) {
+export default function RawVisitsResult({ outcome, onViewChanges, showLinks = true }: { outcome: LoadOutcome; onViewChanges: (m: string) => void; /** Link quality / unlinked samples are for clinic files: pharmacy visits have no list to link to. */ showLinks?: boolean }) {
   const [summary, setSummary] = useState<RawSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
   const load = useCallback(() => {
@@ -72,7 +72,7 @@ export default function RawVisitsResult({ outcome, onViewChanges }: { outcome: L
         </Card>
       )}
 
-      <Card className="p-5">
+      {showLinks && <Card className="p-5">
         <h3 className="mb-3 text-sm font-semibold">Link quality</h3>
         {error ? (
           <div role="alert" className="text-sm text-danger">Could not load the link summary: {error} <Button size="sm" className="ml-2" onClick={load}>Retry</Button></div>
@@ -93,9 +93,9 @@ export default function RawVisitsResult({ outcome, onViewChanges }: { outcome: L
             ))}
           </ul>
         )}
-      </Card>
+      </Card>}
 
-      {summary && summary.unlinked.length > 0 && (
+      {showLinks && summary && summary.unlinked.length > 0 && (
         <Card className="overflow-hidden">
           <div className="flex items-center justify-between border-b p-3">
             <h3 className="text-sm font-semibold">Unlinked samples ({summary.unlinked.length.toLocaleString()})</h3>

@@ -44,8 +44,10 @@ export interface RawVisitsFile {
   errors: { row: number; reason: string }[]
   /** Data rows found (before any exclusion). */
   totalRows: number
-  /** Rows with fewer than 17 cells (ignored, like the spec says). */
+  /** Rows that fit neither layout (clinic: 17+ cells; pharmacy: 16 cells under a `Last Order` header), ignored. */
   shortRows: number
+  /** Every row is Acc. Type P: a pharmacy file (its line is resolved per owner by default). */
+  pharmacy: boolean
   single: number
   double: number
   owners: number
@@ -107,7 +109,44 @@ function splitNotes(cell: string): string | null {
   return orNull(lines.join(' | '))
 }
 
+const PHARMACY_CELLS = 16
+
+/**
+ * One row of the pharmacy layout (16 cells): 1 # (crm id from the visit link), 2 Territory, 3 S/D, 4 Acc. Type, 5 Acc. Name,
+ * 6 Doctor Name, 9 Date + time, 10 Products (no samples), 14 Members, 15 Notes. No Visit Root / Source. Null when the date is missing.
+ */
+function parsePharmacyCells(cells: string[]): RawVisitRow | null {
+  const when = cleanText(inner(cells[9]))
+  const date = /\d{4}-\d\d-\d\d/.exec(when)
+  if (!date) return null
+  const time = /\d\d:\d\d/.exec(when)
+  const id = /user\.visit\.php\?action=view&(?:amp;)?id=(\d+)/i.exec(cells[1])
+  const terr = inner(cells[2]).split(BR)
+  const brickRaw = terr.slice(1).join(' ')
+  const brick = /<nobr[^>]*>([\s\S]*?)(?:<\/nobr>|$)/i.exec(brickRaw)
+  const { owner, members } = splitMembers(inner(cells[14]))
+  return {
+    crm_id: id ? (Number.isSafeInteger(Number(id[1])) ? Number(id[1]) : id[1]) : null,
+    shift: null,
+    territory: cleanText(terr[0] ?? ''),
+    brick: orNull(cleanText(brick ? brick[1] : brickRaw)),
+    visit_type: cleanText(inner(cells[3])).toUpperCase(),
+    acc_type: cleanText(inner(cells[4])),
+    acc_name: cleanText(inner(cells[5])),
+    doctor_name: cleanText(inner(cells[6])),
+    visit_date: date[0],
+    visit_time: time ? time[0] : null,
+    owner,
+    members,
+    products: splitProducts(inner(cells[10]), ''),
+    notes: splitNotes(inner(cells[15])),
+    visit_root: null,
+    source: null,
+  }
+}
+
 export function parseRawVisitsFile(name: string, text: string): RawVisitsFile {
+  const pharmacyLayout = /Last\s*Order/i.test(text)
   const pieces = text.split(/<tr\s+align=['"]center['"]\s+valign=['"]top['"]/i).slice(1) // piece 0 = header
   const rows: RawVisitRow[] = []
   const rowNumbers: number[] = []
@@ -120,7 +159,19 @@ export function parseRawVisitsFile(name: string, text: string): RawVisitsFile {
   pieces.forEach((piece, idx) => {
     const rowNo = idx + 1
     const cells = piece.split('<td').slice(1)
-    if (cells.length < 17) { shortRows++; return }
+    const pharmacyRow = pharmacyLayout && cells.length === PHARMACY_CELLS
+    if (cells.length < 17 && !pharmacyRow) { shortRows++; return }
+    if (pharmacyRow) {
+      const r = parsePharmacyCells(cells)
+      if (!r) { errors.push({ row: rowNo, reason: 'no valid visit date' }); return }
+      rows.push(r)
+      rowNumbers.push(rowNo)
+      if (r.visit_type === 'D') double++
+      else single++
+      if (r.owner) owners.add(r.owner)
+      types.set(r.acc_type, (types.get(r.acc_type) ?? 0) + 1)
+      return
+    }
     const id = /actual_(\d+)/.exec(cells[0])
     const terr = inner(cells[2]).split(BR)
     const brickRaw = terr.slice(1).join(' ')
@@ -157,7 +208,7 @@ export function parseRawVisitsFile(name: string, text: string): RawVisitsFile {
     types.set(accType, (types.get(accType) ?? 0) + 1)
   })
   const accTypes = [...types].map(([type, n]) => ({ type, rows: n, shift: shiftOfAccType(type) })).sort((a, b) => b.rows - a.rows || a.type.localeCompare(b.type))
-  return { name, titleRange: titleRangeOf(text), rows, rowNumbers, errors, totalRows: pieces.length, shortRows, single, double, owners: owners.size, accTypes }
+  return { name, titleRange: titleRangeOf(text), rows, rowNumbers, errors, totalRows: pieces.length, shortRows, pharmacy: rows.length > 0 && rows.every((r) => r.acc_type.trim().toUpperCase() === 'P'), single, double, owners: owners.size, accTypes }
 }
 
 /* ---------------------------------- planning ---------------------------------- */
@@ -194,7 +245,14 @@ export function monthsBetween(from: string, to: string): string[] {
   return out
 }
 
-export interface PlannedFile { file: RawVisitsFile; line: number | null }
+export interface PlannedFile {
+  file: RawVisitsFile
+  line: number | null
+  /** A pharmacy file: replaced with clear_pharmacy_visits_range_line, so clinic visits stay. */
+  pharmacy?: boolean
+  /** Pharmacy file left on "Auto (by owner)": rows are split per owner line (see pharmacyLines.ts). */
+  auto?: boolean
+}
 
 export interface RawPlan {
   rows: number
@@ -206,7 +264,7 @@ export interface RawPlan {
   /** Same line + overlapping dates: likely the same file twice. */
   overlaps: string[]
   /** Per distinct line: the dates (min/max over that line's files) to clear before loading. */
-  perLine: { line: number; from: string; to: string }[]
+  perLine: { line: number; from: string; to: string; pharmacy: boolean }[]
 }
 
 export function planRawUpload(files: PlannedFile[]): RawPlan {
@@ -224,23 +282,25 @@ export function planRawUpload(files: PlannedFile[]): RawPlan {
     }
     for (let j = i + 1; j < files.length; j++) {
       const o = ranges[j]
-      if (r && o && f.line !== null && f.line === files[j].line && r.from <= o.to && o.from <= r.to) {
+      if (r && o && f.line !== null && f.line === files[j].line && !!f.pharmacy === !!files[j].pharmacy && r.from <= o.to && o.from <= r.to) {
         overlaps.push(`${f.file.name} and ${files[j].file.name} have the same line and overlapping dates (${r.from} → ${r.to} / ${o.from} → ${o.to}) — likely a duplicate.`)
       }
     }
   })
   const lines = [...new Set(files.flatMap((f) => (f.line === null ? [] : [f.line])))]
   const perLine: RawPlan['perLine'] = []
-  for (const line of lines) {
-    let lf: string | null = null
-    let lt: string | null = null
-    files.forEach((f, i) => {
-      const r = ranges[i]
-      if (f.line !== line || !r || f.file.rows.length === 0) return
-      if (lf === null || r.from < lf) lf = r.from
-      if (lt === null || r.to > lt) lt = r.to
-    })
-    if (lf !== null && lt !== null) perLine.push({ line, from: lf, to: lt })
+  for (const pharmacy of [false, true]) {
+    for (const line of lines) {
+      let lf: string | null = null
+      let lt: string | null = null
+      files.forEach((f, i) => {
+        const r = ranges[i]
+        if (f.line !== line || !!f.pharmacy !== pharmacy || !r || f.file.rows.length === 0) return
+        if (lf === null || r.from < lf) lf = r.from
+        if (lt === null || r.to > lt) lt = r.to
+      })
+      if (lf !== null && lt !== null) perLine.push({ line, from: lf, to: lt, pharmacy })
+    }
   }
   return { rows, from, to, months: from && to ? monthsBetween(from, to) : [], lines, overlaps, perLine }
 }

@@ -16,7 +16,7 @@ export interface RawLoadFile { name: string; lineId: number; rows: RawVisitRow[]
 export interface RawLoadParams {
   files: RawLoadFile[]
   /** Per-line dates to replace and the months to process / refresh afterwards. */
-  clears: { line: number; from: string; to: string }[]
+  clears: { line: number; from: string; to: string; pharmacy: boolean }[]
   months: string[]
   onProgress: (p: ProgressInfo) => void
   onBatch: (id: number) => void
@@ -32,7 +32,7 @@ async function sendChunk(batch: number, line: number, rows: RawVisitRow[]): Prom
 }
 
 /**
- * start_upload('visits', files) -> clear_visits_range_line(from, to, line) per distinct line -> load_visits_raw_chunk per file (300 rows)
+ * start_upload('visits', files) -> clear_visits_range_line (clinic) or clear_pharmacy_visits_range_line (pharmacy)(from, to, line) per distinct line -> load_visits_raw_chunk per file (300 rows)
  * -> finish_upload_nr -> process_visits_month + refresh_month per month (one request each, retryable).
  */
 export async function loadRawVisits(p: RawLoadParams): Promise<LoadOutcome> {
@@ -48,8 +48,8 @@ export async function loadRawVisits(p: RawLoadParams): Promise<LoadOutcome> {
   try {
     p.onProgress({ done: 0, total, month: '', phase: 'Clearing dates' })
     for (const c of p.clears) {
-      where = `clearing dates of line ${c.line}`
-      await rpc<number>('clear_visits_range_line', { p_from: c.from, p_to: c.to, p_line: c.line })
+      where = `clearing ${c.pharmacy ? 'pharmacy ' : ''}dates of line ${c.line}`
+      await rpc<number>(c.pharmacy ? 'clear_pharmacy_visits_range_line' : 'clear_visits_range_line', { p_from: c.from, p_to: c.to, p_line: c.line })
     }
     let done = 0
     for (const f of p.files) {

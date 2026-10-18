@@ -1,6 +1,7 @@
 // Run: npm run test:visits-raw
 import assert from 'node:assert/strict'
 import { parseRawVisitsFile, guessLineNumber, planRawUpload, shiftOfAccType, splitMembers, monthsBetween } from '../src/features/uploads/visits/rawVisitsParse.ts'
+import { expandAutoFiles, summarizeByLine } from '../src/features/uploads/visits/pharmacyLines.ts'
 import { normalizeSummary, splitOwnerRejections } from '../src/features/uploads/visits/rawVisitsResult.ts'
 
 let n = 0
@@ -77,5 +78,43 @@ t('summary normalizer accepts map and array shapes', () => {
   assert.equal(a.unlinked[0].visits, 3); assert.equal(a.unknownProducts[0].name, 'X')
   const b = normalizeSummary([{ link_methods: [{ method: 'name', n: 1 }] }])
   assert.equal(b.linkMethods.find((m) => m.key === 'name').count, 1)
+})
+const ptr = ({ id = 501, vt = 'S', when = '2026-10-04 11:20', members = '<nobr>Ali Hassan</nobr><br/>-Mona Said', products = '-Biotin<br/>-Vit C', notes = '-', cells = 16 } = {}) => {
+  const c = [
+    cell("<input type='checkbox'>"), cell(`<a href='user.visit.php?action=view&id=${id}'>9</a>`), cell('T-9<br/><nobr>Maadi</nobr>'), cell(vt), cell('P'), cell('Pharmacy X'), cell('- Pharmacy X'),
+    cell('Pharm'), cell('A'), cell(when), cell(products), cell('5'), cell('3'), cell('1'), cell(members), cell(notes),
+  ].slice(0, cells)
+  return `<tr align='center' valign='top' class='x'>${c.join('')}</tr>`
+}
+const pfile = (...rows) => `<html><legend>Visits</legend><legend>Pharmacies Visits</legend><table><caption>Actual Visits Report <b>From 2026-10-01 To 2026-10-15</b></caption><tr><th>#</th><th>Last Order</th></tr>${rows.join('\n')}`
+
+t('pharmacy layout: 16 cells, crm id from the link, products without samples, no root / source', () => {
+  const f = parseRawVisitsFile('p.xls', pfile(ptr(), ptr({ id: 502, vt: 'D' })))
+  assert.equal(f.rows.length, 2); assert.equal(f.shortRows, 0); assert.equal(f.pharmacy, true)
+  const r = f.rows[0]
+  assert.equal(r.crm_id, 501); assert.equal(r.territory, 'T-9'); assert.equal(r.brick, 'Maadi'); assert.equal(r.acc_type, 'P')
+  assert.equal(r.doctor_name, '- Pharmacy X'); assert.equal(r.visit_date, '2026-10-04'); assert.equal(r.visit_time, '11:20')
+  assert.equal(r.owner, 'Ali Hassan'); assert.equal(r.members, 'Mona Said'); assert.deepEqual(r.products, [{ n: 'Biotin', s: 0 }, { n: 'Vit C', s: 0 }])
+  assert.equal(r.notes, null); assert.equal(r.visit_root, null); assert.equal(r.source, null)
+  assert.equal(f.double, 1); assert.equal(f.single, 1)
+})
+t('a 16-cell row is skipped without the pharmacy header; clinic files are not pharmacy', () => {
+  assert.equal(parseRawVisitsFile('x', file(ptr())).shortRows, 1)
+  assert.equal(parseRawVisitsFile('x', file(tr())).pharmacy, false)
+})
+t('auto lines: rows split per owner line, unresolved owners listed and not sent', () => {
+  const f = parseRawVisitsFile('p.xls', pfile(ptr({ id: 1 }), ptr({ id: 2, members: '<nobr>Mona Said</nobr>' }), ptr({ id: 3, members: '<nobr>Nobody Here</nobr>' }), ptr({ id: 4, members: '<nobr>Nobody Here</nobr>' })))
+  const map = new Map([['2026-10-01', new Map([['ali hassan', 1], ['mona said', 2]])]])
+  const x = expandAutoFiles([{ file: f, line: null, pharmacy: true, auto: true }], map)
+  assert.deepEqual(x.files.map((p) => [p.line, p.file.rows.length, p.file.rowNumbers, p.pharmacy]), [[1, 1, [1], true], [2, 1, [2], true]])
+  assert.deepEqual(x.unresolved, [{ owner: 'Nobody Here', rows: 2 }])
+  const s = summarizeByLine(x.files)
+  assert.deepEqual(s.map((l) => [l.line, l.rows, l.owners, l.from]), [[1, 1, 1, '2026-10-04'], [2, 1, 1, '2026-10-04']])
+})
+t('plan: pharmacy and clinic clears are separate per line', () => {
+  const c = { file: parseRawVisitsFile('c', file(tr())), line: 1 }
+  const ph = { file: parseRawVisitsFile('p', pfile(ptr())), line: 1, pharmacy: true }
+  const p = planRawUpload([c, ph])
+  assert.deepEqual(p.perLine.map((x) => [x.line, x.pharmacy]).sort(), [[1, false], [1, true]]); assert.equal(p.overlaps.length, 0)
 })
 console.log(`\n${n} tests passed`)

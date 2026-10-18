@@ -3,14 +3,15 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, FileUp, Loader2, ShieldAlert, U
 import { Button } from '../../../components/ui/button'
 import { Badge, Card, Progress } from '../../../components/ui/misc'
 import { useAuth } from '../../../context/AuthContext'
-import { fetchLines, type LineRef } from '../../../lib/api/visitsRaw'
+import { fetchLines, fetchOwnerLines, type LineRef } from '../../../lib/api/visitsRaw'
 import { normName } from '../../../lib/norm'
 import { cn } from '../../../lib/utils'
 import { UndoDialog } from '../UploadWizard'
 import { LoadFailure, type LoadOutcome } from '../types'
 import RawVisitsResult from './RawVisitsResult'
 import { loadRawVisits } from './rawVisitsLoad'
-import { guessLineNumber, parseRawVisitsFile, planRawUpload, effectiveRange, shiftOfAccType, type PlannedFile } from './rawVisitsParse'
+import { guessLineNumber, monthsBetween, parseRawVisitsFile, planRawUpload, effectiveRange, shiftOfAccType, type PlannedFile } from './rawVisitsParse'
+import { expandAutoFiles, summarizeByLine, type OwnerLineMap } from './pharmacyLines'
 
 type Stage = 'files' | 'parsing' | 'preview' | 'decide' | 'loading' | 'result'
 const STEPS: { id: Stage[]; label: string }[] = [
@@ -18,7 +19,7 @@ const STEPS: { id: Stage[]; label: string }[] = [
 ]
 
 export const RAW_VISITS_LABEL = 'Raw CRM files'
-export const RAW_VISITS_DESCRIPTION = 'The c_L_M.xls files straight from the CRM (HTML saved as .xls): clinics and pharmacies, several files at once. Owner, doctor and shift are resolved by the database.'
+export const RAW_VISITS_DESCRIPTION = 'The c_L_M.xls files straight from the CRM (HTML saved as .xls): clinics and pharmacies, several files at once. Owner, doctor and shift are resolved by the database. A pharmacy file (all rows Acc. Type P) covers all lines: its line is taken from each visit owner.'
 
 /** FileReader.readAsText, UTF-8 — the files are not real Excel. */
 function readText(file: File): Promise<string> {
@@ -37,6 +38,7 @@ export default function RawVisitsWizard({ onExit }: { onExit: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [lines, setLines] = useState<LineRef[]>([])
   const [files, setFiles] = useState<PlannedFile[]>([])
+  const [ownerMap, setOwnerMap] = useState<OwnerLineMap | null>(null)
   const [progress, setProgress] = useState<{ done: number; total: number; name: string } | null>(null)
   const [loadProg, setLoadProg] = useState<{ done: number; total: number; month: string; phase?: string } | null>(null)
   const [outcome, setOutcome] = useState<LoadOutcome | null>(null)
@@ -49,8 +51,13 @@ export default function RawVisitsWizard({ onExit }: { onExit: () => void }) {
     fetchLines().then(setLines).catch((e: unknown) => setError(`Could not load the lines: ${e instanceof Error ? e.message : 'unknown error'}`))
   }, [])
 
-  const plan = useMemo(() => planRawUpload(files), [files])
-  const usable = files.filter((f) => f.file.rows.length > 0)
+  // Auto pharmacy files are split into one file per owner line; owners without a line are listed and not sent.
+  const expanded = useMemo(() => expandAutoFiles(files, ownerMap), [files, ownerMap])
+  const plan = useMemo(() => planRawUpload(expanded.files), [expanded.files])
+  const usable = expanded.files.filter((f) => f.file.rows.length > 0)
+  const pharmacyLines = useMemo(() => summarizeByLine(expanded.files.filter((f) => f.pharmacy)), [expanded.files])
+  const hasAuto = files.some((f) => f.auto)
+  const clinicIncluded = usable.some((f) => !f.pharmacy)
   const lineName = (id: number | null) => lines.find((l) => l.id === id)?.name ?? '—'
 
   if (role !== 'admin') {
@@ -58,7 +65,7 @@ export default function RawVisitsWizard({ onExit }: { onExit: () => void }) {
   }
 
   const reset = () => {
-    setStage('files'); setError(null); setFiles([]); setProgress(null); setLoadProg(null); setOutcome(null); setFailure(null)
+    setStage('files'); setError(null); setFiles([]); setOwnerMap(null); setProgress(null); setLoadProg(null); setOutcome(null); setFailure(null)
     batchRef.current = null
     if (inputRef.current) inputRef.current.value = ''
   }
@@ -77,9 +84,11 @@ export default function RawVisitsWizard({ onExit }: { onExit: () => void }) {
         await tick()
         const parsed = parseRawVisitsFile(picked[i].name, await readText(picked[i]))
         const guess = guessLineNumber(picked[i].name)
-        const line = guess === null ? null : known.find((l) => normName(l.name) === `cira ${guess}`)?.id ?? null
-        out.push({ file: parsed, line })
+        const line = parsed.pharmacy || guess === null ? null : known.find((l) => normName(l.name) === `cira ${guess}`)?.id ?? null
+        out.push({ file: parsed, line, pharmacy: parsed.pharmacy, auto: parsed.pharmacy })
       }
+      const autoDays = out.filter((f) => f.auto).flatMap((f) => f.file.rows.map((r) => r.visit_date)).sort()
+      if (autoDays.length > 0) setOwnerMap(await fetchOwnerLines(monthsBetween(autoDays[0], autoDays[autoDays.length - 1])))
       setProgress({ done: picked.length, total: picked.length, name: '' })
       setFiles(out)
       setStage('preview')
@@ -89,8 +98,9 @@ export default function RawVisitsWizard({ onExit }: { onExit: () => void }) {
     }
   }
 
-  const setLine = (i: number, id: number | null) => setFiles((fs) => fs.map((f, k) => (k === i ? { ...f, line: id } : f)))
-  const missingLine = usable.some((f) => f.line === null)
+  /** A pharmacy file keeps the Auto option; picking a line forces it. */
+  const setLine = (i: number, id: number | 'auto' | null) => setFiles((fs) => fs.map((f, k) => (k === i ? { ...f, line: id === 'auto' ? null : id, auto: id === 'auto' } : f)))
+  const missingLine = files.some((f) => f.file.rows.length > 0 && !f.auto && f.line === null)
 
   const start = async () => {
     if (!plan.from || !plan.to) return
@@ -120,12 +130,13 @@ export default function RawVisitsWizard({ onExit }: { onExit: () => void }) {
 
   const stepIndex = STEPS.findIndex((s) => s.id.includes(stage))
   const warnings: string[] = [...plan.overlaps]
+  if (hasAuto && expanded.unresolved.length > 0) warnings.push(`${expanded.unresolved.reduce((a, u) => a + u.rows, 0).toLocaleString()} pharmacy row(s) of ${expanded.unresolved.length} owner(s) have no line in the master data for their month: they will NOT be sent (list below).`)
   for (const f of files) {
     if (f.file.rows.length === 0) warnings.push(`${f.file.name}: no visit rows found — is this a CRM visits file? It is left out of the upload.`)
     const bad = f.file.accTypes.filter((t) => t.shift === null)
     if (bad.length > 0) warnings.push(`${f.file.name}: Acc. Type ${bad.map((t) => `${t.type || '(blank)'} (${t.rows.toLocaleString()})`).join(', ')} is outside A, H, AM, PC, C, P — the database will reject those rows as “unknown account type”.`)
     if (f.file.errors.length > 0) warnings.push(`${f.file.name}: ${f.file.errors.length.toLocaleString()} row(s) without a valid visit date are left out.`)
-    if (f.file.shortRows > 0) warnings.push(`${f.file.name}: ${f.file.shortRows.toLocaleString()} row(s) with fewer than 17 cells were ignored.`)
+    if (f.file.shortRows > 0) warnings.push(`${f.file.name}: ${f.file.shortRows.toLocaleString()} row(s) did not match the clinic (17+ cells) or pharmacy (16 cells) layout and were ignored.`)
     if (f.file.rows.some((r) => r.owner === '')) warnings.push(`${f.file.name}: ${f.file.rows.filter((r) => r.owner === '').length.toLocaleString()} row(s) have no owner in Members — the database will reject them.`)
   }
 
@@ -198,12 +209,13 @@ export default function RawVisitsWizard({ onExit }: { onExit: () => void }) {
                       <h3 className="truncate text-sm font-semibold">{f.file.name}</h3>
                       <p className="tnum text-xs text-muted-foreground">{range ? `${range.from} → ${range.to}` : 'no dates found'}</p>
                     </div>
-                    {f.file.rows.length > 0 && f.line === null && <Badge tone="warning">Choose a line</Badge>}
+                    {f.file.pharmacy && <Badge tone="info">Pharmacy file</Badge>}
+                    {f.file.rows.length > 0 && !f.auto && f.line === null && <Badge tone="warning">Choose a line</Badge>}
                   </div>
                   <div className="mt-3">
                     <label htmlFor={`line-${i}`} className="mb-1 block text-xs font-medium">Line <span className="text-danger" aria-hidden>*</span></label>
-                    <select id={`line-${i}`} required value={f.line ?? ''} onChange={(e) => setLine(i, e.target.value ? Number(e.target.value) : null)} className="h-9 w-full rounded-control border bg-card px-3 text-sm">
-                      <option value="">Select a line…</option>
+                    <select id={`line-${i}`} required value={f.auto ? 'auto' : f.line ?? ''} onChange={(e) => setLine(i, e.target.value === 'auto' ? 'auto' : e.target.value ? Number(e.target.value) : null)} className="h-9 w-full rounded-control border bg-card px-3 text-sm">
+                      {f.file.pharmacy ? <option value="auto">Auto (by owner)</option> : <option value="">Select a line…</option>}
                       {lines.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                     </select>
                   </div>
@@ -231,6 +243,22 @@ export default function RawVisitsWizard({ onExit }: { onExit: () => void }) {
             })}
           </div>
 
+          {pharmacyLines.length > 0 && (
+            <Card className="p-5">
+              <h3 className="mb-2 text-sm font-semibold">Pharmacy visits per line</h3>
+              <table className="w-full text-sm">
+                <thead><tr className="border-b text-left text-xs text-muted-foreground"><th className="py-1 font-medium">Line</th><th className="py-1 text-right font-medium">Rows</th><th className="py-1 text-right font-medium">Single</th><th className="py-1 text-right font-medium">Double</th><th className="py-1 text-right font-medium">Owners</th><th className="py-1 pl-4 font-medium">Dates</th></tr></thead>
+                <tbody>
+                  {pharmacyLines.map((l) => (
+                    <tr key={l.line} className="border-b last:border-0"><td className="py-1">{lineName(l.line)}</td><td className="tnum py-1 text-right">{l.rows.toLocaleString()}</td><td className="tnum py-1 text-right">{l.single.toLocaleString()}</td><td className="tnum py-1 text-right">{l.double.toLocaleString()}</td><td className="tnum py-1 text-right">{l.owners.toLocaleString()}</td><td className="tnum py-1 pl-4">{l.from} → {l.to}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
+
+          {hasAuto && <UnresolvedOwners items={expanded.unresolved} />}
+
           {warnings.length > 0 && (
             <Card className="p-5">
               <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold"><AlertTriangle className="h-4 w-4 text-warning" aria-hidden /> Warnings</h3>
@@ -250,14 +278,24 @@ export default function RawVisitsWizard({ onExit }: { onExit: () => void }) {
         <>
           <Card className="p-5">
             <h2 className="mb-2 text-sm font-semibold">Replace confirmation</h2>
-            <p className="text-sm">
-              Visits already uploaded from raw files for <b>{plan.perLine.map((c) => lineName(c.line)).join(', ')}</b> between <b className="tnum">{plan.from}</b> and <b className="tnum">{plan.to}</b> will be <b className="text-danger">REPLACED</b>. Other lines are not affected.
-            </p>
-            {plan.perLine.length > 1 && (
-              <ul className="mt-2 list-disc pl-5 text-sm text-muted-foreground">
-                {plan.perLine.map((c) => <li key={c.line}>{lineName(c.line)}: <span className="tnum">{c.from} → {c.to}</span></li>)}
-              </ul>
-            )}
+            {[false, true].map((ph) => {
+              const cl = plan.perLine.filter((c) => c.pharmacy === ph)
+              if (cl.length === 0) return null
+              const from = cl.reduce((m, c) => (c.from < m ? c.from : m), cl[0].from)
+              const to = cl.reduce((m, c) => (c.to > m ? c.to : m), cl[0].to)
+              return (
+                <div key={String(ph)} className="mb-3">
+                  <p className="text-sm">
+                    {ph ? 'Pharmacy' : 'Clinic'} visits already uploaded from raw files for <b>{cl.map((c) => lineName(c.line)).join(', ')}</b> between <b className="tnum">{from}</b> and <b className="tnum">{to}</b> will be <b className="text-danger">REPLACED</b>. {ph ? 'Clinic visits are not touched.' : 'Clinic visits only; pharmacy visits are not touched.'} Other lines are not affected.
+                  </p>
+                  {cl.length > 1 && (
+                    <ul className="mt-2 list-disc pl-5 text-sm text-muted-foreground">
+                      {cl.map((c) => <li key={c.line}>{lineName(c.line)}: <span className="tnum">{c.from} → {c.to}</span></li>)}
+                    </ul>
+                  )}
+                </div>
+              )
+            })}
             <p className="mt-2 text-sm text-muted-foreground">Loading: {usable.map((f) => `${f.file.name} → ${lineName(f.line)}`).join('; ')}.</p>
           </Card>
           <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -305,7 +343,8 @@ export default function RawVisitsWizard({ onExit }: { onExit: () => void }) {
             </dl>
             <p className="mt-3 text-sm text-muted-foreground">{outcome.months.map((m) => m.slice(0, 7)).join(', ')}. Batch #{outcome.batch}.</p>
           </Card>
-          <RawVisitsResult outcome={outcome} onViewChanges={() => undefined} />
+          {hasAuto && <UnresolvedOwners items={expanded.unresolved} />}
+          <RawVisitsResult outcome={outcome} onViewChanges={() => undefined} showLinks={clinicIncluded} />
           <div className="flex gap-2">
             <Button variant="primary" onClick={reset}>Upload more</Button>
             <Button variant="danger" onClick={() => setUndoBatch(outcome.batch)}><Undo2 className="h-4 w-4" aria-hidden /> Undo this upload</Button>
@@ -315,5 +354,20 @@ export default function RawVisitsWizard({ onExit }: { onExit: () => void }) {
 
       {undoBatch !== null && <UndoDialog batch={undoBatch} onClose={() => setUndoBatch(null)} onDone={() => { setUndoBatch(null); reset() }} />}
     </div>
+  )
+}
+
+/** Pharmacy owners with no line for their month: not sent; fix the master data and upload the file again. */
+function UnresolvedOwners({ items }: { items: { owner: string; rows: number }[] }) {
+  if (items.length === 0) return null
+  return (
+    <Card className="p-5">
+      <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold"><AlertTriangle className="h-4 w-4 text-warning" aria-hidden /> Owners without a line ({items.length.toLocaleString()})</h3>
+      <p className="mb-3 text-sm text-muted-foreground">These owners are not in the master data for the month of their visits (reps / managers in the organisation), so their pharmacy rows were not sent. Fix the master data and upload the file again.</p>
+      <table className="w-full text-sm">
+        <thead><tr className="border-b text-left text-xs text-muted-foreground"><th className="py-1.5 font-medium">Owner</th><th className="py-1.5 text-right font-medium">Rows</th></tr></thead>
+        <tbody>{items.map((u) => <tr key={u.owner} className="border-b last:border-0"><td className="py-1.5">{u.owner}</td><td className="tnum py-1.5 text-right">{u.rows.toLocaleString()}</td></tr>)}</tbody>
+      </table>
+    </Card>
   )
 }
