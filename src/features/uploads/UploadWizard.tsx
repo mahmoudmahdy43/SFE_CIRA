@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ArrowLeft, CheckCircle2, Download, FileUp, Loader2, Undo2, XCircle } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { toast } from 'sonner'
@@ -10,7 +10,7 @@ import { downloadCsv } from '../../lib/csv'
 import { cn } from '../../lib/utils'
 import { openParseSession, type ParseSession } from './workerClient'
 import {
-  LoadFailure, type LoadOutcome, type ParsedBase, type Preview, type UploadTypeConfig,
+  LoadFailure, type LoadOutcome, type ParsedBase, type Preview, type ReferenceData, type UploadTypeConfig,
 } from './types'
 
 type Stage = 'file' | 'sheet' | 'parsing' | 'preview' | 'decide' | 'loading' | 'result'
@@ -26,6 +26,11 @@ const STEPS: { id: Stage[]; label: string }[] = [
 
 const monthLabel = (m: string) => m.slice(0, 7)
 const n = (v: number | string) => (typeof v === 'number' ? v.toLocaleString() : v)
+const firstOfThisMonth = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+}
+const SPREADSHEET = /\.(xlsx?|csv)$/i
 
 export function downloadTemplate(headers: string[], file: string): void {
   const wb = XLSX.utils.book_new()
@@ -46,11 +51,13 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
   const [stage, setStage] = useState<Stage>('file')
   const [error, setError] = useState<string | null>(null)
   const [fileName, setFileName] = useState('')
+  const [fileCount, setFileCount] = useState(1)
   const [sheets, setSheets] = useState<string[]>([])
   const [sheet, setSheet] = useState('')
   const [progress, setProgress] = useState<{ phase: string; done: number; total: number } | null>(null)
   const [parsed, setParsed] = useState<P | null>(null)
-  const [preview, setPreview] = useState<Preview | null>(null)
+  const [refData, setRefData] = useState<ReferenceData | null>(null)
+  const [monthPick, setMonthPick] = useState(firstOfThisMonth)
   const [existing, setExisting] = useState<Map<string, number>>(new Map())
   const [choices, setChoices] = useState<Record<string, Choice>>({})
   const [loadProg, setLoadProg] = useState<{ done: number; total: number; month: string; phase?: string } | null>(null)
@@ -63,16 +70,43 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
 
   useEffect(() => () => session.current?.terminate(), [])
 
+  // What is previewed and loaded: the parsed file(s) with the picked Month applied (types without applyMonth: as parsed).
+  const view = useMemo(() => (parsed ? (config.applyMonth ? config.applyMonth(parsed, monthPick) : parsed) : null), [parsed, monthPick, config])
+  const preview: Preview | null = useMemo(() => (view && refData ? config.buildPreview(view, refData) : null), [view, refData, config])
+
   const reset = useCallback(() => {
     session.current?.terminate()
     session.current = null
-    setStage('file'); setError(null); setFileName(''); setSheets([]); setParsed(null); setPreview(null)
+    setStage('file'); setError(null); setFileName(''); setFileCount(1); setSheets([]); setParsed(null); setRefData(null); setMonthPick(firstOfThisMonth())
     setChoices({}); setOutcome(null); setFailure(null); setLoadProg(null); setProgress(null)
     batchRef.current = null
     if (inputRef.current) inputRef.current.value = ''
   }, [])
 
-  const analyse = async (name: string) => {
+  /** Merge (multi-file types) -> checks -> reference data -> preview. */
+  const finishAnalysis = async (list: { name: string; parsed: P }[]) => {
+    const result = config.combineFiles ? config.combineFiles(list) : list[0].parsed
+    if (result.fatal) {
+      setError(result.fatal)
+      setStage('file')
+      return
+    }
+    if (result.missing.length > 0) {
+      setError(
+        `Missing required column(s): ${result.missing.join(', ')}.\nFound: ${result.headers.join(', ') || '(no headers)'}\nExpected: ${config.requiredHeaders.join(', ')}`,
+      )
+      setStage('file')
+      return
+    }
+    const ref = await config.loadReference(result)
+    setParsed(result)
+    setExisting(ref.existingMonths)
+    setRefData(ref)
+    setMonthPick(firstOfThisMonth())
+    setStage('preview')
+  }
+
+  const analyse = async (name: string, srcName = fileName) => {
     const s = session.current
     if (!s) return
     setStage('parsing')
@@ -82,18 +116,7 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
       const result = await s.parse(name, (done, total, phase) => setProgress({ phase, done, total }))
       s.terminate()
       session.current = null
-      if (result.missing.length > 0) {
-        setError(
-          `Missing required column(s): ${result.missing.join(', ')}.\nFound: ${result.headers.join(', ') || '(no headers)'}\nExpected: ${config.requiredHeaders.join(', ')}`,
-        )
-        setStage('file')
-        return
-      }
-      const ref = await config.loadReference(result)
-      setParsed(result)
-      setExisting(ref.existingMonths)
-      setPreview(config.buildPreview(result, ref))
-      setStage('preview')
+      await finishAnalysis([{ name: srcName, parsed: result }])
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not analyse the file')
       setStage('file')
@@ -102,7 +125,7 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
 
   const onFile = async (file: File | undefined) => {
     if (!file) return
-    if (!/\.(xlsx?|csv)$/i.test(file.name)) {
+    if (!SPREADSHEET.test(file.name)) {
       setError('Please choose an Excel or CSV file (.xlsx, .xls or .csv).')
       return
     }
@@ -115,7 +138,7 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
       session.current = s
       setSheets(s.sheets)
       setSheet(s.sheets[0] ?? '')
-      if (s.sheets.length <= 1) await analyse(s.sheets[0] ?? '')
+      if (s.sheets.length <= 1) await analyse(s.sheets[0] ?? '', file.name)
       else setStage('sheet')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not read the file')
@@ -123,15 +146,63 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
     }
   }
 
+  /** Several files at once (types with combineFiles). One file keeps the single-file flow, sheet picker included. */
+  const onFiles = async (picked: File[]) => {
+    if (picked.length === 0) return
+    if (!config.combineFiles) return onFile(picked[0])
+    const bad = picked.filter((f) => !SPREADSHEET.test(f.name))
+    if (bad.length > 0) {
+      setError(`Please choose Excel or CSV files (.xlsx, .xls or .csv). Not accepted: ${bad.map((f) => f.name).join(', ')}`)
+      return
+    }
+    if (picked.length === 1) return onFile(picked[0])
+    reset()
+    setFileCount(picked.length)
+    setFileName(picked.map((f) => f.name).join(', ').slice(0, 250))
+    setStage('parsing')
+    setProgress({ phase: 'reading', done: 0, total: 0 })
+    const list: { name: string; parsed: P }[] = []
+    try {
+      for (const file of picked) {
+        setProgress({ phase: 'reading', done: 0, total: 0 })
+        list.push({ name: file.name, parsed: await parseOne(file) })
+      }
+      await finishAnalysis(list)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not analyse the files')
+      setStage('file')
+    }
+  }
+
+  /** One file of a multi-file drop: the first sheet the parser recognises (a fresh worker per sheet, the buffer is consumed). */
+  const parseOne = async (file: File): Promise<P> => {
+    let first: P | null = null
+    let count = 1
+    for (let i = 0; i < count; i++) {
+      const s = await openParseSession<P>(config.createWorker(), await file.arrayBuffer())
+      try {
+        count = s.sheets.length
+        const res = await s.parse(s.sheets[i] ?? '', (done, total, phase) => setProgress({ phase, done, total }))
+        if (res.missing.length === 0) return res
+        first ??= res
+      } catch (e) {
+        throw new Error(`${file.name}: ${e instanceof Error ? e.message : 'Could not read the file'}`)
+      } finally {
+        s.terminate()
+      }
+    }
+    return first as P
+  }
+
   const startLoad = async () => {
-    if (!parsed) return
+    if (!view) return
     setStage('loading')
     setFailure(null)
-    setLoadProg({ done: 0, total: parsed.rows.length, month: '' })
+    setLoadProg({ done: 0, total: view.rows.length, month: '' })
     await runLoad(() => config.load({
       fileName,
-      rows: parsed.rows,
-      excelRows: parsed.excelRows,
+      rows: view.rows,
+      excelRows: view.excelRows,
       replaceMonths: Object.entries(choices).filter(([, c]) => c === 'replace').map(([m]) => m),
       skipMonths: Object.entries(choices).filter(([, c]) => c === 'skip').map(([m]) => m),
       onProgress: setLoadProg,
@@ -190,13 +261,14 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
           <label
             htmlFor="upload-file"
             onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => { e.preventDefault(); void onFile(e.dataTransfer.files[0]) }}
+            onDrop={(e) => { e.preventDefault(); void onFiles([...e.dataTransfer.files]) }}
             className="mt-5 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed px-6 py-10 text-center hover:bg-muted"
           >
             <FileUp className="h-6 w-6 text-muted-foreground" aria-hidden />
-            <span className="text-sm font-medium">Drop an Excel or CSV file here, or click to choose</span>
+            <span className="text-sm font-medium">{config.combineFiles ? 'Drop one or more Excel or CSV files here, or click to choose' : 'Drop an Excel or CSV file here, or click to choose'}</span>
             <span className="text-xs text-muted-foreground">.xlsx, .xls or .csv — parsed in your browser; only cleaned rows are sent to the database</span>
-            <input ref={inputRef} id="upload-file" type="file" accept=".xlsx,.xls,.csv" className="sr-only" onChange={(e) => void onFile(e.target.files?.[0])} />
+            {config.dropHint && <span className="max-w-xl text-xs text-muted-foreground">{config.dropHint}</span>}
+            <input ref={inputRef} id="upload-file" type="file" accept=".xlsx,.xls,.csv" multiple={!!config.combineFiles} className="sr-only" onChange={(e) => void onFiles([...(e.target.files ?? [])])} />
           </label>
           {stage === 'sheet' && (
             <div className="mt-5 flex flex-wrap items-end gap-3">
@@ -227,15 +299,31 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
       )}
 
       {/* 2 — preview */}
-      {stage === 'preview' && preview && parsed && (
+      {stage === 'preview' && preview && view && (
         <>
+          {view.needsMonth && (
+            <Card className="p-5">
+              <h3 className="mb-1 text-sm font-semibold">Month for this upload</h3>
+              <p className="mb-3 text-sm text-muted-foreground">The file(s) have no Month column. Every row without one is loaded into the month you choose here.</p>
+              <label htmlFor="month-pick" className="mb-1.5 block text-sm font-medium">Month <span className="text-danger" aria-hidden>*</span></label>
+              <input
+                id="month-pick"
+                type="month"
+                required
+                value={monthPick.slice(0, 7)}
+                onChange={(e) => setMonthPick(e.target.value ? `${e.target.value}-01` : '')}
+                className="h-9 rounded-control border bg-card px-3 text-sm"
+              />
+              {!monthPick && <p role="alert" className="mt-2 text-sm text-danger">Choose a month to continue.</p>}
+            </Card>
+          )}
           {preview.alerts && preview.alerts.length > 0 && (
             <div role="alert" className="space-y-1 rounded-card border border-warning/50 bg-warning-soft px-4 py-3 text-sm text-warning">
               {preview.alerts.map((a) => <p key={a} className="flex items-start gap-2 font-medium"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />{a}</p>)}
             </div>
           )}
           <Card className="p-5">
-            <h2 className="mb-3 text-sm font-semibold">Preview — {fileName}</h2>
+            <h2 className="mb-3 text-sm font-semibold">Preview — {fileCount > 1 ? `${fileCount} files` : fileName}</h2>
             <dl className="grid gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
               {preview.stats.map((s) => (
                 <div key={s.label} className="flex items-center justify-between border-b py-1.5 text-sm">
@@ -293,16 +381,16 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
             </Card>
           )}
 
-          {parsed.errors.length > 0 && (
+          {view.errors.length > 0 && (
             <Card className="p-5">
               <div className="mb-2 flex items-center justify-between">
-                <h3 className="flex items-center gap-2 text-sm font-semibold"><XCircle className="h-4 w-4 text-danger" aria-hidden /> Excluded rows ({parsed.errors.length.toLocaleString()})</h3>
-                <Button size="sm" onClick={() => downloadCsv('excluded-rows.csv', parsed.errors.map((e) => ({ excel_row: e.excelRow, reason: e.reason })))}><Download className="h-4 w-4" aria-hidden /> CSV</Button>
+                <h3 className="flex items-center gap-2 text-sm font-semibold"><XCircle className="h-4 w-4 text-danger" aria-hidden /> Excluded rows ({view.errors.length.toLocaleString()})</h3>
+                <Button size="sm" onClick={() => downloadCsv('excluded-rows.csv', view.errors.map((e) => ({ excel_row: e.excelRow, reason: e.reason })))}><Download className="h-4 w-4" aria-hidden /> CSV</Button>
               </div>
               <ul className="max-h-48 space-y-1 overflow-auto text-sm">
-                {parsed.errors.slice(0, 100).map((e) => <li key={e.excelRow}><span className="tnum text-muted-foreground">Row {e.excelRow}:</span> {e.reason}</li>)}
+                {view.errors.slice(0, 100).map((e, i) => <li key={`${e.excelRow}-${i}`}><span className="tnum text-muted-foreground">Row {e.excelRow}:</span> {e.reason}</li>)}
               </ul>
-              {parsed.errors.length > 100 && <p className="mt-2 text-xs text-muted-foreground">Showing the first 100; download the CSV for all.</p>}
+              {view.errors.length > 100 && <p className="mt-2 text-xs text-muted-foreground">Showing the first 100; download the CSV for all.</p>}
             </Card>
           )}
 
@@ -321,14 +409,14 @@ export default function UploadWizard<R extends { month: string }, P extends Pars
           </Card>
 
           <div className="flex gap-2">
-            <Button variant="primary" disabled={parsed.rows.length === 0} onClick={() => setStage('decide')}>Continue</Button>
+            <Button variant="primary" disabled={view.rows.length === 0 || (!!view.needsMonth && !monthPick)} onClick={() => setStage('decide')}>Continue</Button>
             <Button onClick={reset}>Cancel — nothing has been written</Button>
           </div>
         </>
       )}
 
       {/* 3 — decide per month */}
-      {stage === 'decide' && preview && parsed && (
+      {stage === 'decide' && preview && view && (
         <DecideStep
           preview={preview}
           existing={existing}

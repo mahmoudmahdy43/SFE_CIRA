@@ -1,8 +1,8 @@
 import * as XLSX from 'xlsx'
 import {
-  LIST_COLUMNS, isAmbiguousMonth, matchHeaders, normId, normText, parseDate, parseFreq, parseMonth,
+  LIST_COLUMNS, isAmbiguousMonth, listKey, matchHeaders, normHeader, normId, normText, parseDate, parseFreq, parseMonth,
   type Cell, type ListRow,
-} from './listParse'
+} from './listParse.ts'
 
 export interface RowError { excelRow: number; reason: string }
 
@@ -15,6 +15,53 @@ export interface MonthSample {
   /** Text Excel displays for the cell (for comparison only; never used for parsing). */
   shown: string
   parsed: string | null
+}
+
+/** One row of a Speciality file, already reduced to what the join needs. */
+export interface SpecEntry { key: string; specialty: string | null }
+
+/** What the merge step keeps from the dropped files until the Month is known (see listJoin.ts). */
+export interface CrmRaw {
+  /** Main-list files, in the order their rows were concatenated. */
+  mains: { name: string; lines: string[]; rows: number; hasMonth: boolean }[]
+  specs: { name: string; entries: SpecEntry[]; skipped: number }[]
+}
+
+export interface CrmFileInfo {
+  name: string
+  kind: 'main' | 'speciality'
+  /** Main file: its line(s). Speciality file: the line of the main rows it matched (it has no Line column). */
+  line: string | null
+  rows: number
+  /** Speciality file only: rows matching nothing in the main lists. */
+  unmatched?: number
+  /** Speciality file only: rows without Account ID / Doctor ID (ignored). */
+  skipped?: number
+}
+
+export interface CrmLineStat {
+  line: string
+  rows: number
+  /** Rows still without a Speciality after the join. */
+  noSpeciality: number
+  /** Rows with no match in any Speciality file. */
+  noMatch: number
+}
+
+export interface CrmInfo {
+  /** False when the drop was only old-format files: the wizard then shows nothing new. */
+  show: boolean
+  files: CrmFileInfo[]
+  lines: CrmLineStat[]
+  /** Rows without a Speciality after the join (for the "Download list" Excel). */
+  noSpecRows: ListRow[]
+  /** Speciality-file rows that match nothing in the main lists. */
+  specNoMatch: number
+  /** Main-list rows with no match in the Speciality files. */
+  mainNoMatch: number
+  /** Same doctor listed with two different specialities across Speciality files (the first one is used). */
+  specConflicts: number
+  specFiles: number
 }
 
 export interface ParsedList {
@@ -31,6 +78,18 @@ export interface ParsedList {
   monthSamples: MonthSample[]
   headers: string[]
   missing: string[]
+  /** 'main' (old single-file format or CRM main list) or 'speciality'. Absent = 'main'. */
+  fileKind?: 'main' | 'speciality'
+  /** True when some rows have no Month column: the wizard asks for one Month for them. */
+  needsMonth?: boolean
+  /** Set by the merge step when the dropped files cannot be used; shown instead of a preview. */
+  fatal?: string
+  /** Speciality file only. */
+  specs?: SpecEntry[]
+  specSkipped?: number
+  /** Merge step output (before the Month is chosen) and the finished join summary. */
+  crmRaw?: CrmRaw
+  crm?: CrmInfo
 }
 
 export type Sheet = XLSX.WorkSheet | Record<string, unknown>[][]
@@ -60,25 +119,74 @@ function divisionText(cell: XLSX.CellObject | undefined): { text: string | null;
   return { text: normText(plain(cell)), wasDate: false }
 }
 
-/** Parse one worksheet into cleaned rows. Only the columns we use are read. */
-export function parseListSheet(ws: Sheet, onProgress?: (done: number, total: number) => void): ParsedList {
-  const ref = Array.isArray(ws) ? undefined : (ws as XLSX.WorkSheet)['!ref']
-  let rangeS = 0, rangeE = -1, colS = 0, colE = -1
+interface Bounds { rowS: number; rowE: number; colS: number; colE: number }
+
+function boundsOf(ws: Sheet): Bounds {
   if (Array.isArray(ws)) {
-    rangeE = ws.length - 1
-    colE = Math.max(...ws.slice(0, 5).map((r) => (r ? r.length : 0))) - 1
-  } else if (ref) {
-    const range = XLSX.utils.decode_range(ref)
-    rangeS = range.s.r; rangeE = range.e.r; colS = range.s.c; colE = range.e.c
+    // Dense sheets keep absolute row numbers, so a blank first row is a hole in the array: never spread
+    // the rows into Math.max (a hole would become undefined -> NaN).
+    const widths = Array.from({ length: Math.min(12, ws.length) }, (_, i) => (ws[i] ? ws[i].length : 0))
+    return { rowS: 0, rowE: ws.length - 1, colS: 0, colE: Math.max(0, ...widths) - 1 }
   }
-  const headers: string[] = []
-  for (let c = colS; c <= colE; c++) headers.push(String(plain(cellAt(ws, rangeS, c)) ?? ''))
-  const { index, missing } = matchHeaders(headers)
-  const empty: ParsedList = {
+  const ref = (ws as XLSX.WorkSheet)['!ref']
+  if (!ref) return { rowS: 0, rowE: -1, colS: 0, colE: -1 }
+  const range = XLSX.utils.decode_range(ref)
+  return { rowS: range.s.r, rowE: range.e.r, colS: range.s.c, colE: range.e.c }
+}
+
+/** The CRM exports start with an empty row (or a title): the header is the first row, within the first 10, that has one of these cells. */
+const HEADER_SCAN_ROWS = 10
+
+function normRow(ws: Sheet, b: Bounds, r: number): string[] {
+  const out: string[] = []
+  for (let c = b.colS; c <= b.colE; c++) out.push(normHeader(plain(cellAt(ws, r, c))))
+  return out
+}
+
+function findHeaderRow(ws: Sheet, b: Bounds, wanted: string): number {
+  const last = Math.min(b.rowE, b.rowS + HEADER_SCAN_ROWS - 1)
+  for (let r = b.rowS; r <= last; r++) {
+    if (normRow(ws, b, r).includes(wanted)) return r
+  }
+  return -1
+}
+
+function headerLabels(ws: Sheet, b: Bounds, r: number): string[] {
+  const out: string[] = []
+  for (let c = b.colS; c <= b.colE; c++) out.push(String(plain(cellAt(ws, r, c)) ?? ''))
+  return out
+}
+
+function emptyParsed(headers: string[], missing: string[]): ParsedList {
+  return {
     rows: [], excelRows: [], errors: [], totalRows: 0, duplicates: 0, divisionDates: 0, ambiguousMonths: 0, monthSamples: [],
     headers: headers.filter((h) => h.trim() !== ''), missing,
   }
+}
+
+/**
+ * Parse one worksheet. The type is read from the headers, never from the file name:
+ *  - a row with `Acc.ID` (and no `Account ID` row) = Speciality file;
+ *  - otherwise a main list (row with `Account ID`; the old single-file format has a Month column, the CRM export has none).
+ */
+export function parseListSheet(ws: Sheet, onProgress?: (done: number, total: number) => void): ParsedList {
+  const b = boundsOf(ws)
+  const rAcc = findHeaderRow(ws, b, 'accountid')
+  const rSpec = findHeaderRow(ws, b, 'accid')
+  if (rSpec >= 0 && rAcc < 0) return parseSpecialitySheet(ws, b, rSpec, onProgress)
+  // No "Account ID" cell found: fall back to the first row so the usual "missing columns" message appears.
+  return parseMainSheet(ws, b, rAcc >= 0 ? rAcc : b.rowS, onProgress)
+}
+
+/** Main list (old format or CRM export). Only the columns we use are read. */
+function parseMainSheet(ws: Sheet, b: Bounds, headerRow: number, onProgress?: (done: number, total: number) => void): ParsedList {
+  const { colS, rowE } = b
+  const headers = headerLabels(ws, b, headerRow)
+  const { index, missing } = matchHeaders(headers)
+  const empty = emptyParsed(headers, missing)
+  empty.fileKind = 'main'
   if (missing.length) return empty
+  const hasMonth = index.month !== undefined
 
   const col = (key: keyof ListRow) => (index[key] === undefined ? undefined : colS + (index[key] as number))
   const get = (r: number, key: keyof ListRow): Cell => {
@@ -95,9 +203,9 @@ export function parseListSheet(ws: Sheet, onProgress?: (done: number, total: num
   let ambiguousMonths = 0
   const monthSamples: MonthSample[] = []
   let totalRows = 0
-  const total = rangeE - rangeS
+  const total = rowE - headerRow
 
-  for (let r = rangeS + 1; r <= rangeE; r++) {
+  for (let r = headerRow + 1; r <= rowE; r++) {
     const excelRow = r + 1
     // Skip fully blank rows.
     let any = false
@@ -108,19 +216,22 @@ export function parseListSheet(ws: Sheet, onProgress?: (done: number, total: num
     totalRows++
 
     // The RAW cell value (cell.v) is parsed; the displayed text (cell.w) is only shown for comparison.
-    const rawMonth = get(r, 'month')
-    const month = parseMonth(rawMonth)
-    if (isAmbiguousMonth(rawMonth)) ambiguousMonths++
-    if (monthSamples.length < 3) {
-      const mc = col('month')
-      const mcell = mc === undefined ? undefined : cellAt(ws, r, mc)
-      monthSamples.push({
-        excelRow,
-        raw: rawMonth === null ? '' : String(rawMonth),
-        type: rawMonth === null ? 'empty' : typeof rawMonth === 'number' ? 'number' : 'text',
-        shown: mcell?.w ?? '',
-        parsed: month,
-      })
+    // Without a Month column the month stays '' here; the wizard's Month picker fills it in.
+    const rawMonth = hasMonth ? get(r, 'month') : null
+    const month = hasMonth ? parseMonth(rawMonth) : ''
+    if (hasMonth) {
+      if (isAmbiguousMonth(rawMonth)) ambiguousMonths++
+      if (monthSamples.length < 3) {
+        const mc = col('month')
+        const mcell = mc === undefined ? undefined : cellAt(ws, r, mc)
+        monthSamples.push({
+          excelRow,
+          raw: rawMonth === null ? '' : String(rawMonth),
+          type: rawMonth === null ? 'empty' : typeof rawMonth === 'number' ? 'number' : 'text',
+          shown: mcell?.w ?? '',
+          parsed: month,
+        })
+      }
     }
     const line = normText(get(r, 'line'))
     const empCode = normId(get(r, 'emp_code'))
@@ -130,7 +241,7 @@ export function parseListSheet(ws: Sheet, onProgress?: (done: number, total: num
     const freq = parseFreq(get(r, 'freq'))
 
     const problems: string[] = []
-    if (!month) problems.push(get(r, 'month') === null ? 'Month is blank' : 'Month is not a valid date')
+    if (hasMonth && !month) problems.push(rawMonth === null ? 'Month is blank' : 'Month is not a valid date')
     if (!line) problems.push('Line is blank')
     if (!empCode) problems.push('Emp. Code is blank')
     if (!accountId) problems.push('Account ID is blank')
@@ -178,8 +289,53 @@ export function parseListSheet(ws: Sheet, onProgress?: (done: number, total: num
       rows.push(row)
       excelRows.push(excelRow)
     }
-    if (onProgress && (r - rangeS) % 5000 === 0) onProgress(r - rangeS, total)
+    if (onProgress && (r - headerRow) % 5000 === 0) onProgress(r - headerRow, total)
   }
   onProgress?.(total, total)
-  return { rows, excelRows, errors, totalRows, duplicates, divisionDates, ambiguousMonths, monthSamples, headers: empty.headers, missing: [] }
+  return {
+    rows, excelRows, errors, totalRows, duplicates, divisionDates, ambiguousMonths, monthSamples,
+    headers: empty.headers, missing: [], fileKind: 'main', needsMonth: !hasMonth,
+  }
+}
+
+/** Speciality file: only Type, Acc.ID, Doctor ID and Specialty are read; everything else is ignored. */
+function parseSpecialitySheet(ws: Sheet, b: Bounds, headerRow: number, onProgress?: (done: number, total: number) => void): ParsedList {
+  const { colS, rowE } = b
+  const headers = headerLabels(ws, b, headerRow)
+  const byNorm = new Map<string, number>()
+  headers.forEach((h, i) => {
+    const n = normHeader(h)
+    if (n && !byNorm.has(n)) byNorm.set(n, i)
+  })
+  const iType = byNorm.get('type')
+  const iAcc = byNorm.get('accid')
+  const iDoc = byNorm.get('doctorid')
+  const iSpec = byNorm.get('specialty') ?? byNorm.get('speciality')
+  const missing: string[] = []
+  if (iType === undefined) missing.push('Type')
+  if (iAcc === undefined) missing.push('Acc.ID')
+  if (iDoc === undefined) missing.push('Doctor ID')
+  if (iSpec === undefined) missing.push('Specialty')
+  const out = emptyParsed(headers, missing)
+  out.fileKind = 'speciality'
+  if (missing.length) return out
+
+  const get = (r: number, i: number | undefined): Cell => (i === undefined ? null : plain(cellAt(ws, r, colS + i)))
+  const specs: SpecEntry[] = []
+  let skipped = 0
+  let totalRows = 0
+  const total = rowE - headerRow
+  for (let r = headerRow + 1; r <= rowE; r++) {
+    const type = normText(get(r, iType))
+    const acc = normId(get(r, iAcc))
+    const doc = normId(get(r, iDoc))
+    const specialty = normText(get(r, iSpec))
+    if (type === null && acc === null && doc === null && specialty === null) continue // blank row
+    totalRows++
+    if (acc === null || doc === null) { skipped++; continue }
+    specs.push({ key: listKey(type, acc, doc), specialty })
+    if (onProgress && (r - headerRow) % 5000 === 0) onProgress(r - headerRow, total)
+  }
+  onProgress?.(total, total)
+  return { ...out, totalRows, specs, specSkipped: skipped, missing: [] }
 }

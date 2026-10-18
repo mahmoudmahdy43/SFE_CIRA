@@ -13,6 +13,10 @@ export interface ParsedBase<R> {
   duplicates: number
   headers: string[]
   missing: string[]
+  /** Some rows have no Month of their own: the wizard shows a required Month picker (see UploadTypeConfig.applyMonth). */
+  needsMonth?: boolean
+  /** The dropped files cannot be used (merge step): shown as the error instead of a preview. */
+  fatal?: string
 }
 
 /** Reference data the preview needs; each type fills what it uses. */
@@ -92,6 +96,18 @@ export interface UploadTypeConfig<R extends { month: string }, P extends ParsedB
   /** Header names shown in "expected vs found" errors. */
   requiredHeaders: string[]
   createWorker: () => Worker
+  /** Text under the drop-zone title when it differs from the default (e.g. which files to drop together). */
+  dropHint?: string
+  /**
+   * Multi-file types: the drop zone accepts several files at once. Each file is parsed by the worker on its own,
+   * then this merges them into the one result the rest of the wizard works with. Absent = one file, as before.
+   */
+  combineFiles?: (files: { name: string; parsed: P }[]) => P
+  /**
+   * Applied to the parsed result before every preview / load with the Month picked in the wizard (only offered when
+   * `needsMonth`). Must not modify its input; it is called again whenever the Month changes.
+   */
+  applyMonth?: (parsed: P, month: string) => P
   loadReference: (parsed: P) => Promise<ReferenceData>
   buildPreview: (parsed: P, ref: ReferenceData) => Preview
   load: (p: LoadParams<R>) => Promise<LoadOutcome>

@@ -6,6 +6,8 @@ import { makeFinisher } from '../finish'
 import ListResultPanel from './ListResultPanel'
 import { LoadFailure, type LoadOutcome, type LoadParams, type Preview, type ReferenceData, type RejectedRow, type UploadTypeConfig } from '../types'
 import { LIST_COLUMNS, chunkRows, excelRowOf, type ListRow } from './listParse'
+import ListFilesPanel from './ListFilesPanel'
+import { combineListFiles, finalizeList } from './listJoin'
 import type { ParsedList } from './listSheet'
 
 export const LIST_CHUNK = 2000
@@ -33,6 +35,18 @@ function buildPreview(p: ParsedList, ref: ReferenceData): Preview {
   if (p.errors.length > 0) warnings.push(`${p.errors.length.toLocaleString()} row(s) have blank or invalid required values and will be excluded (listed below).`)
   if (unknownReps.size > 0) warnings.push(`${unknownReps.size} unknown rep code(s) — the database will reject those rows.`)
   if (unknownLines.size > 0) warnings.push(`${unknownLines.size} line name(s) not found in the system — the database will reject those rows.`)
+  // CRM exports (main list + Speciality file). Non-blocking: rows without a speciality are still loaded.
+  const crm = p.crm?.show ? p.crm : undefined
+  if (crm) {
+    if (crm.noSpecRows.length > 0) {
+      warnings.push(crm.specFiles === 0
+        ? `No Speciality file was dropped — all ${crm.noSpecRows.length.toLocaleString()} row(s) will load without a speciality.`
+        : `${crm.noSpecRows.length.toLocaleString()} row(s) have no Speciality after joining the Speciality file(s) — they will still be loaded with a blank speciality (use “Download list” below).`)
+    }
+    if (crm.specConflicts > 0) warnings.push(`${crm.specConflicts.toLocaleString()} Speciality row(s) give a different speciality for a doctor already listed — the first one was used.`)
+    const skipped = crm.files.reduce((a, f) => a + (f.skipped ?? 0), 0)
+    if (skipped > 0) warnings.push(`${skipped.toLocaleString()} Speciality row(s) without Account ID or Doctor ID were ignored.`)
+  }
   return {
     stats: [
       { label: 'Rows in file', value: p.totalRows },
@@ -48,10 +62,16 @@ function buildPreview(p: ParsedList, ref: ReferenceData): Preview {
     months: [...monthCount].map(([month, rows]) => ({ month, rows })).sort((a, b) => a.month.localeCompare(b.month)),
     unknownReps: [...unknownReps].map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count),
     unknownLines: [...unknownLines].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
-    sample: {
-      columns: ['Month', 'Line', 'Emp. Code', 'Account ID', 'Doctor Id', 'Doctor Name', 'Account Name', 'Class', 'Freq.'],
-      rows: p.rows.slice(0, 20).map((r) => [r.month, r.line, r.emp_code, r.account_id, r.doctor_id, r.doctor_name, r.account_name, r.class, r.freq]),
-    },
+    sample: crm
+      ? {
+          columns: ['Month', 'Line', 'Emp. Code', 'Account ID', 'Doctor Id', 'Doctor Name', 'Account Name', 'Speciality', 'Class', 'Freq.'],
+          rows: p.rows.slice(0, 20).map((r) => [r.month, r.line, r.emp_code, r.account_id, r.doctor_id, r.doctor_name, r.account_name, r.speciality, r.class, r.freq]),
+        }
+      : {
+          columns: ['Month', 'Line', 'Emp. Code', 'Account ID', 'Doctor Id', 'Doctor Name', 'Account Name', 'Class', 'Freq.'],
+          rows: p.rows.slice(0, 20).map((r) => [r.month, r.line, r.emp_code, r.account_id, r.doctor_id, r.doctor_name, r.account_name, r.class, r.freq]),
+        },
+    extra: crm ? <ListFilesPanel info={crm} /> : undefined,
   }
 }
 
@@ -144,6 +164,9 @@ export const listConfig: UploadTypeConfig<ListRow, ParsedList> = {
   templateHeaders: LIST_COLUMNS.map((c) => c.label),
   templateFile: 'target_list_template.xlsx',
   requiredHeaders: LIST_COLUMNS.filter((c) => c.required).map((c) => c.label),
+  dropHint: 'CRM exports: drop the main list and the Speciality file of every line (CIRA 1 / 2 / 3) together. The old single file with a Month column still works on its own.',
+  combineFiles: combineListFiles,
+  applyMonth: finalizeList,
   createWorker: () => new Worker(new URL('./parse.worker.ts', import.meta.url), { type: 'module' }),
   loadReference,
   buildPreview,

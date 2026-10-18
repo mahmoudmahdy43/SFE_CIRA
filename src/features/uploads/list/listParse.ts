@@ -32,7 +32,9 @@ export interface ColumnSpec {
 }
 
 export const LIST_COLUMNS: ColumnSpec[] = [
-  { key: 'month', label: 'Month', required: true },
+  // Month is only required row by row when the file HAS a Month column (old single-file format). The CRM
+  // exports have none; the wizard then asks for one Month for the whole upload.
+  { key: 'month', label: 'Month', required: false },
   { key: 'line', label: 'Line', required: true },
   { key: 'emp_code', label: 'Emp. Code', required: true },
   { key: 'account_id', label: 'Account ID', required: true },
@@ -186,6 +188,14 @@ export function normText(v: Cell): string | null {
   if (v === null) return null
   const s = String(v).trim()
   return s === '' ? null : s
+}
+
+/**
+ * Key that links a main-list row to its Speciality-file row: Account Type | Account ID | Doctor Id,
+ * all as trimmed strings (IDs already normalised by normId, so never "1350.0"). A missing type is ''.
+ */
+export function listKey(accountType: string | null, accountId: string, doctorId: string): string {
+  return `${accountType ?? ''}|${accountId}|${doctorId}`
 }
 
 export type FreqResult = { ok: true; value: number } | { ok: false }

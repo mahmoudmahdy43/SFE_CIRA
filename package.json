@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test:reports": "node scripts/reportMath.test.mjs",
+    "test:list": "node scripts/listUpload.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
