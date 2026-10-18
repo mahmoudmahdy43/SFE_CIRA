@@ -1,13 +1,13 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { ProfileLink } from '../../components/app/ProfileLink'
 import { EmptyState, ErrorState } from '../../components/app/states'
 import { Skeleton } from '../../components/ui/misc'
 import { useDateRange } from '../../context/DateRangeContext'
 import { downloadCsv } from '../../lib/csv'
-import { fetchEmployeePerformance } from '../../lib/api/reports'
-import { downloadXlsxGrid } from '../../lib/xlsxExport'
+import { fetchEmployeePerformance, fetchUncoveredDoctors } from '../../lib/api/reports'
+import { downloadXlsxGrids } from '../../lib/xlsxExport'
 import { useAsync } from '../dashboard/useAsync'
-import { PERF_BAND, PERF_COLS, exportPerfFlat, buildPerfGrid, fmtPerf, groupFill, orderPerf, perfCellFill, perfFileName, perfTitle } from './employeePerfMath'
+import { PERF_BAND, PERF_COLS, exportPerfFlat, buildPerfGrid, buildUncoveredGrid, fmtPerf, groupFill, orderPerf, perfCellFill, perfFileName, perfTitle } from './employeePerfMath'
 import { ReportToolbar } from './ReportToolbar'
 import { filterRows, managerOptions, type ReportFilters } from './reportMath'
 
@@ -31,6 +31,17 @@ export function EmployeePerformanceTab({ lines, filters, onFilters }: {
   const managers = useMemo(() => managerOptions(all ?? [], filters.lineId), [all, filters.lineId])
   const effective = managers.includes(filters.manager) ? filters : { ...filters, manager: '' }
   const rows = useMemo(() => orderPerf(filterRows(all ?? [], effective)), [all, effective.lineId, effective.manager, effective.search]) // eslint-disable-line react-hooks/exhaustive-deps
+  const [exportError, setExportError] = useState<string | null>(null)
+  // Excel: the report sheet plus a second sheet of list doctors with no visit in the range (download only, not shown on screen).
+  const exportXlsx = async () => {
+    setExportError(null)
+    try {
+      const uncovered = await fetchUncoveredDoctors(dr.from, dr.to)
+      await downloadXlsxGrids(`${name}.xlsx`, [buildPerfGrid(rows, dr.from, dr.to), buildUncoveredGrid(uncovered)])
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : 'Could not build the Excel file')
+    }
+  }
   const title = perfTitle(dr.from, dr.to)
   const name = perfFileName(dr.from, dr.to)
 
@@ -40,9 +51,10 @@ export function EmployeePerformanceTab({ lines, filters, onFilters }: {
         lines={lines} filters={effective} onFilters={onFilters} managers={managers}
         columns={[]} hidden={NO_HIDDEN} onToggleColumn={() => undefined}
         canExport={rows.length > 0}
-        onXlsx={() => void downloadXlsxGrid(`${name}.xlsx`, buildPerfGrid(rows, dr.from, dr.to))}
+        onXlsx={() => void exportXlsx()}
         onCsv={() => downloadCsv(`${name}.csv`, exportPerfFlat(rows))}
       />
+      {exportError && <div role="alert" className="rounded-control bg-danger-soft px-3 py-2 text-sm text-danger">Excel export failed: {exportError}</div>}
       <p className="text-xs text-muted-foreground">PM shift only (Clinic + Poly Clinic). Coverage counts the visits inside the selected days against the month&apos;s frequency. Actual CR is red below 70% of Target CR.</p>
       {data.error ? (
         <div className="rounded-card border bg-card"><ErrorState message={data.error} onRetry={data.reload} /></div>

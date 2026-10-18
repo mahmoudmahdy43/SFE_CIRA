@@ -3,7 +3,7 @@ import { supabase } from '../supabase'
 import type { MonthDetail } from './kpi'
 import { toKpiRepRow, type KpiRepRow } from '../../features/reports/kpiRepMath'
 import { toLeaveRow, toMissingRow, type LeaveRow, type MissingRow } from '../../features/reports/absenceMath'
-import { toPerfRow, type PerfRow } from '../../features/reports/employeePerfMath'
+import { toPerfRow, toUncoveredDoctor, type PerfRow, type UncoveredDoctor } from '../../features/reports/employeePerfMath'
 import { MANAGER_COLS, toManagerRow, type ManagerRow } from '../../features/reports/managerMath'
 import { toCapacityRow, type CapacityRow } from '../../features/reports/capacityMath'
 import { toJointRow, type JointRow } from '../../features/reports/jointMath'
@@ -106,6 +106,19 @@ export async function fetchManagerReport(month: string): Promise<ManagerRow[]> {
 export async function fetchEmployeePerformance(from: string, to: string): Promise<PerfRow[]> {
   const rows = await rpc<Raw[] | null>('employee_performance_range', { p_from: from, p_to: to })
   return (rows ?? []).map(toPerfRow)
+}
+
+/** List doctors (Clinic + Poly Clinic) with zero visits in the range, per rep (employee_uncovered_doctors). Pages through the RPC 1,000 rows at a time. */
+export async function fetchUncoveredDoctors(from: string, to: string): Promise<UncoveredDoctor[]> {
+  const out: UncoveredDoctor[] = []
+  for (let start = 0; ; start += 1000) {
+    const { data, error } = await supabase.rpc('employee_uncovered_doctors', { p_from: from, p_to: to }).range(start, start + 999)
+    if (error) throw new Error(error.message)
+    const rows = (data ?? []) as Raw[]
+    out.push(...rows.map(toUncoveredDoctor))
+    if (rows.length < 1000) break
+  }
+  return out
 }
 
 /** One row per manager for an arbitrary day range (manager_report_range, admin-gated; days after today are not counted). */

@@ -183,3 +183,35 @@ export function buildPerfGrid(rows: PerfRow[], from: string, to: string): GridSh
     autofilter: { row: 1, fromCol: 0, toCol: n - 1, lastRow: rows.length + 1 },
   }
 }
+
+/* ------------------------- second sheet: uncovered doctors ------------------------- */
+export interface UncoveredDoctor { line_name: string | null; manager: string | null; rep_name: string | null; territory: string | null; doctor_name: string | null }
+
+export const toUncoveredDoctor = (r: Record<string, unknown>): UncoveredDoctor => ({
+  line_name: str(r.line_name), manager: str(r.manager), rep_name: str(r.rep_name), territory: str(r.territory), doctor_name: str(r.doctor_name),
+})
+
+const UNCOVERED_COLS: { header: string; width: number; value: (d: UncoveredDoctor) => string | null }[] = [
+  { header: 'Line', width: 11, value: (d) => d.line_name },
+  { header: 'DM', width: 24, value: (d) => d.manager },
+  { header: 'Emp. Name', width: 28, value: (d) => d.rep_name },
+  { header: 'Territory', width: 22, value: (d) => d.territory },
+  { header: 'Doctor Name', width: 34, value: (d) => d.doctor_name },
+]
+
+/** "Uncovered Doctors" sheet: list doctors with no visit in the range, in the order the database returned them. Header only when empty. */
+export function buildUncoveredGrid(rows: UncoveredDoctor[]): GridSheet {
+  const cells: GridSheetCell[][] = [UNCOVERED_COLS.map((c) => ({ v: c.header, s: { fill: fill(HEAD_GREEN), font: { bold: true }, alignment: center, border } }))]
+  rows.forEach((d, ri) => {
+    const band = ri % 2 === 1 ? PERF_BAND : '#FFFFFF'
+    cells.push(UNCOVERED_COLS.map((c) => ({ v: c.value(d), s: { fill: fill(band), alignment: { horizontal: 'left', vertical: 'center' }, border } })))
+  })
+  return {
+    name: 'Uncovered Doctors',
+    cells,
+    widths: UNCOVERED_COLS.map((c) => c.width),
+    heights: [26],
+    freeze: { rows: 1, cols: 0 },
+    autofilter: { row: 0, fromCol: 0, toCol: UNCOVERED_COLS.length - 1, lastRow: rows.length },
+  }
+}
