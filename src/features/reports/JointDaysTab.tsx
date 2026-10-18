@@ -6,6 +6,9 @@ import { Skeleton } from '../../components/ui/misc'
 import { downloadCsv } from '../../lib/csv'
 import { downloadXlsxGrid } from '../../lib/xlsxExport'
 import { fetchJointDays, fetchJointMonth } from '../../lib/api/reports'
+import { useDateRange } from '../../context/DateRangeContext'
+import { PeriodBanner } from '../../components/app/PeriodBanner'
+import { lastDayOf, periodLabel as rangePeriodLabel, rangeFileSlug } from '../../lib/dateRange'
 import { cn } from '../../lib/utils'
 import { useAsync } from '../dashboard/useAsync'
 import { ReportTable, type ReportCol } from './ReportTable'
@@ -19,7 +22,7 @@ import {
 import type { ReportFilters } from './reportMath'
 
 interface Props {
-  month: string
+  month?: string
   lines: { id: number; name: string }[]
   filters: ReportFilters
   onFilters: (f: ReportFilters) => void
@@ -73,15 +76,18 @@ function ModeToggle({ value, onChange }: { value: JointMode; onChange: (v: Joint
   )
 }
 
-export function JointDaysTab({ month, lines, filters, onFilters }: Props) {
-  const dayData = useAsync(`report:joint:day:${month}`, () => fetchJointDays(month))
+export function JointDaysTab({ lines, filters, onFilters }: Props) {
+  const dr = useDateRange()
+  const { month } = dr
+  // By day follows the day range (v_manager_joint_days has a day column); the Summary view is monthly (v_manager_joint_month).
+  const dayData = useAsync(`report:joint:day:${dr.from}:${dr.to}`, () => fetchJointDays(dr.from, dr.to))
   const monthData = useAsync(`report:joint:month:${month}`, () => fetchJointMonth(month))
   const [mode, setMode] = useState<JointMode>('day')
   /** null = not chosen yet -> the first manager with joint days; '' = All managers. */
   const [mgr, setMgr] = useState<string | null>(null)
   const [range, setRange] = useState({ from: '', to: '' })
   const [sorted, setSorted] = useState<JointRow[]>([])
-  useEffect(() => { setMgr(null); setRange({ from: '', to: '' }) }, [month])
+  useEffect(() => { setMgr(null); setRange({ from: '', to: '' }) }, [dr.from, dr.to])
 
   const dayRows = useMemo(() => dayData.data ?? [], [dayData.data])
   const monthRows = useMemo(() => monthData.data ?? [], [monthData.data])
@@ -93,7 +99,7 @@ export function JointDaysTab({ month, lines, filters, onFilters }: Props) {
   const showManager = manager === ''
   const lineName = filters.lineId === null ? null : lines.find((l) => l.id === filters.lineId)?.name ?? null
   const [from, to] = range.from && range.to && range.from > range.to ? [range.to, range.from] : [range.from, range.to]
-  const bounds = monthBounds(month)
+  const bounds = mode === 'day' ? { first: dr.from, last: dr.to } : monthBounds(month)
 
   const scope = { line: lineName, manager, search: filters.search }
   const rows = useMemo(
@@ -137,12 +143,14 @@ export function JointDaysTab({ month, lines, filters, onFilters }: Props) {
   )
 
   const managerLabel = manager === '' ? 'All managers' : manager
-  const fileName = `manager-joint-days-${mode === 'day' ? 'by-day' : 'summary'}-${month.slice(0, 7)}`
+  const periodText = mode === 'day' ? `PERIOD: ${rangePeriodLabel(dr.from, dr.to).toUpperCase()}` : periodLabel(month)
+  const fileName = `manager-joint-days-${mode === 'day' ? 'by-day' : 'summary'}-${mode === 'day' ? rangeFileSlug(dr.from, dr.to) : rangeFileSlug(month, lastDayOf(month))}`
   const ordered = () => (sorted.length === rows.length ? sorted : rows)
   const noData = !active.loading && !active.error && allRows.length === 0
 
   return (
     <div className="space-y-3 [-webkit-print-color-adjust:exact] [print-color-adjust:exact]">
+      <div className="print:hidden"><PeriodBanner monthly={mode === 'month'} /></div>
       {/* 1. header band */}
       <div className="overflow-hidden rounded-md border bg-white" style={{ borderColor: PAL.navy }}>
         <div className="flex items-center gap-4 px-4 py-3">
@@ -154,7 +162,7 @@ export function JointDaysTab({ month, lines, filters, onFilters }: Props) {
           <div aria-hidden className="hidden w-32 shrink-0 sm:block" />
         </div>
         <div className="px-4 py-1.5 text-center text-xs font-bold uppercase tracking-wide text-white" style={{ backgroundColor: PAL.green }}>
-          {periodLabel(month)}
+          {periodText}
           <span className="ml-3 normal-case">·  Manager: {managerLabel}</span>
         </div>
       </div>
@@ -172,7 +180,7 @@ export function JointDaysTab({ month, lines, filters, onFilters }: Props) {
           lines={lines} filters={filters} onFilters={onFilters} managers={[]}
           columns={[]} hidden={new Set()} onToggleColumn={() => undefined}
           canExport={rows.length > 0}
-          onXlsx={() => void downloadXlsxGrid(`${fileName}.xlsx`, { name: 'Manager Joint Days', ...buildJointGrid({ cols: defs, rows: ordered(), total, month, managerLabel }) })}
+          onXlsx={() => void downloadXlsxGrid(`${fileName}.xlsx`, { name: 'Manager Joint Days', ...buildJointGrid({ cols: defs, rows: ordered(), total, month, period: periodText, managerLabel }) })}
           onCsv={() => downloadCsv(`${fileName}.csv`, jointFlatRows(defs, ordered(), total))}
           roleSelect={<></>}
           searchLabel="Search rep name or code" searchPlaceholder="Rep name or code…"

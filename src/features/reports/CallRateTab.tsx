@@ -1,3 +1,4 @@
+import { lastDayOf, rangeFileSlug } from '../../lib/dateRange'
 import { ProfileLink } from '../../components/app/ProfileLink'
 import { useCallback, useMemo, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
@@ -64,7 +65,7 @@ export function CallRateTab({ month, lines, filters, onFilters }: {
   const partial = !!all && all.length > 0 && working.data != null && visitDays < working.data
 
   const records = () => exportCallRate(sorted.length === rows.length ? sorted : rows, total, mode, showMissing, idVisible)
-  const name = `call-rate-${mode === 'both' ? 'all' : mode}-${month.slice(0, 7)}`
+  const name = `call-rate-${mode === 'both' ? 'all' : mode}-${rangeFileSlug(month, lastDayOf(month))}`
 
   return (
     <div className="space-y-3">

@@ -1,3 +1,4 @@
+import { lastDayOf, rangeFileSlug } from '../../lib/dateRange'
 import { ProfileLink } from '../../components/app/ProfileLink'
 import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -111,7 +112,7 @@ export function SpecialityMixTab({ month, lines, filters, onFilters }: Props) {
 
   const noData = !!data.data && data.data.length === 0
   const noStrategy = !noData && all.length > 0 && !hasStrategy(all)
-  const name = `speciality-mix-${kind}-${month.slice(0, 7)}`
+  const name = `speciality-mix-${kind}-${rangeFileSlug(month, lastDayOf(month))}`
   const records = () => exportMix(sorted.length === rows.length ? sorted : rows, specs, total, kind)
   const exportXlsx = () => {
     const x = records()

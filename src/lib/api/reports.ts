@@ -113,9 +113,9 @@ export async function fetchVisitsCapacity(month: string): Promise<CapacityRow[]>
 const JOINT_COLS =
   'month,manager,manager_id,rep_name,rep_code,rep_id,line,box,rep_am,rep_pm,rep_pharmacy,rep_total,joint_am,joint_pm,joint_pharmacy,joint_total,cover_am,cover_pm,cover_pharmacy,cover_total'
 
-/** One row per day x manager x rep for the month (v_manager_joint_days: every number and ratio comes from the view). */
-export async function fetchJointDays(month: string): Promise<JointRow[]> {
-  const rows = await fetchAll<Raw>('v_manager_joint_days', `day,${JOINT_COLS}`, ['day', 'manager_id', 'rep_id'], (q) => q.eq('month', month))
+/** One row per day x manager x rep for `day between from and to` (v_manager_joint_days: every number and ratio comes from the view). */
+export async function fetchJointDays(from: string, to: string): Promise<JointRow[]> {
+  const rows = await fetchAll<Raw>('v_manager_joint_days', `day,${JOINT_COLS}`, ['day', 'manager_id', 'rep_id'], (q) => q.gte('day', from).lte('day', to))
   return rows.map(toJointRow)
 }
 

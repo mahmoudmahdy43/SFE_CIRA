@@ -1,7 +1,8 @@
+import { lastDayOf, rangeFileSlug } from '../../lib/dateRange'
 import { useEffect, useMemo, useState } from 'react'
 import { FileSpreadsheet } from 'lucide-react'
 import { Button } from '../../components/ui/button'
-import { Input, Skeleton } from '../../components/ui/misc'
+import { Badge, Input, Skeleton } from '../../components/ui/misc'
 import { EmptyState, ErrorState } from '../../components/app/states'
 import { downloadXlsxGrids } from '../../lib/xlsxExport'
 import {
@@ -134,7 +135,7 @@ export function SalesTab({ lines }: Props) {
 
   const periodText = resolved ? `${rangeText(from, to)}${hasCmp ? `   vs   ${rangeText(cf, ct)}` : ''}` : '…'
   const periodLine = `PERIOD: ${periodText.toUpperCase()}   |   LINE: ${(selectedLineName ?? 'All').toUpperCase()}${managerName ? `   |   MANAGER: ${managerName.toUpperCase()}` : ''}   |   METRIC: ${metric.toUpperCase()}`
-  const fileBase = `sales-${from.slice(0, 7)}_${to.slice(0, 7)}${selectedLineName ? `-${selectedLineName.replace(/\s+/g, '').toLowerCase()}` : ''}`
+  const fileBase = `sales-${rangeFileSlug(from, lastDayOf(to))}${selectedLineName ? `-${selectedLineName.replace(/\s+/g, '').toLowerCase()}` : ''}`
 
   const exportXlsx = () => {
     const pv = productViews(products, metric)
@@ -152,6 +153,7 @@ export function SalesTab({ lines }: Props) {
 
   return (
     <div className="space-y-4 [-webkit-print-color-adjust:exact] [print-color-adjust:exact]">
+      <div className="flex items-center gap-2 text-sm print:hidden"><Badge tone="neutral" title="Sales has its own period filters (month / quarter / semester / YTD); the top-bar day range does not apply">Monthly</Badge><span className="text-xs text-muted-foreground">Uses its own period filters below, not the top-bar range.</span></div>
       {/* header band */}
       <div className="overflow-hidden rounded-md border bg-white" style={{ borderColor: CPAL.navy }}>
         <div className="flex items-center gap-4 px-4 py-3">

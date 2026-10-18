@@ -1,3 +1,4 @@
+import { lastDayOf, rangeFileSlug } from '../../lib/dateRange'
 import { ProfileLink } from '../../components/app/ProfileLink'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Info, ListX } from 'lucide-react'
@@ -183,7 +184,7 @@ export function ManagerCoverageTab({ month, lines, filters, onFilters }: Props) 
   const toggleSort = (id: ColId) => setSort((s) => (s.id === id ? { id, desc: !s.desc } : { id, desc: id !== 'rep' && id !== 'box' }))
   const toggleOpen = (k: string) => setOpen((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n })
   const periodLine = `PERIOD: ${label.toUpperCase()}   |   SHIFT: ${shiftText(shift).toUpperCase()}   |   ${lineName ? `LINE: ${lineName.toUpperCase()}   |   ` : ''}MANAGER: ${manager === '' ? 'ALL MANAGERS' : manager.toUpperCase()}`
-  const fileName = `manager-coverage-${range.from.slice(0, 7)}_${range.to.slice(0, 7)}-${shift.toLowerCase()}`
+  const fileName = `manager-coverage-${rangeFileSlug(range.from, lastDayOf(range.to))}-${shift.toLowerCase()}`
 
   const exportXlsx = () => {
     const ordered = flattenGroups(groups)

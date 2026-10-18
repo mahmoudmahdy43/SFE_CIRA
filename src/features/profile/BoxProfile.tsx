@@ -17,7 +17,7 @@ import { cn } from '../../lib/utils'
 function HistoryTab({ boxId }: { boxId: number }) {
   const q = useAsync(`prof:boxhist:${boxId}`, () => fetchBoxRepHistory(boxId))
   return (
-    <Section state={q} title="Reps history" description="Who covered the box and when. Gaps between periods are shown as Vacant." isEmpty={(d) => d.length === 0} emptyTitle="No history" emptyText="No rep has been assigned to this box yet.">
+    <Section period="monthly" state={q} title="Reps history" description="Who covered the box and when. Gaps between periods are shown as Vacant." isEmpty={(d) => d.length === 0} emptyTitle="No history" emptyText="No rep has been assigned to this box yet.">
       {(periods) => {
         const today = todayIso()
         const segs = boxSegments(periods, today)
@@ -59,7 +59,7 @@ function ListTab({ boxId, month }: { boxId: number; month: string }) {
           <span><b className="tnum">{missing.data}</b> list rows of {month.slice(0, 7)} have no box yet, so this month can look incomplete. Run <code className="rounded bg-muted px-1">select backfill_list_box('{month}');</code> in the SQL Editor.</span>
         </Card>
       )}
-      <Section state={cov} title="List and visits per month" description={`${month.slice(0, 4)} — whoever the rep was (box_coverage).`} isEmpty={(d) => d.length === 0} emptyTitle="No coverage rows" emptyText="No month of this year has a list linked to this box yet.">
+      <Section period="monthly" state={cov} title="List and visits per month" description={`${month.slice(0, 4)} — whoever the rep was (box_coverage).`} isEmpty={(d) => d.length === 0} emptyTitle="No coverage rows" emptyText="No month of this year has a list linked to this box yet.">
         {(rows) => (
           <div className="space-y-4">
             <BarsChart xKey="m" suffix="" series={[{ key: 'list', name: 'List doctors' }, { key: 'visited', name: 'Visited' }, { key: 'full', name: 'Fully covered' }]} data={rows.map((r) => ({ m: monthShort(r.month), list: r.list_doctors, visited: r.visited, full: r.fully }))} />
@@ -75,7 +75,7 @@ function ListTab({ boxId, month }: { boxId: number; month: string }) {
           </div>
         )}
       </Section>
-      <Section state={list} title={`List doctors of ${month.slice(0, 7)}`} description="Doctors of the month's list linked to this box, with the visits they received." isEmpty={(d) => d.length === 0} emptyText="No list doctors linked to this box in the selected month.">
+      <Section period="monthly" state={list} title={`List doctors of ${month.slice(0, 7)}`} description="Doctors of the month's list linked to this box, with the visits they received." isEmpty={(d) => d.length === 0} emptyText="No list doctors linked to this box in the selected month.">
         {(rows) => (
           <SimpleTable
             rows={rows} rowKey={(r) => r.doctor_id}

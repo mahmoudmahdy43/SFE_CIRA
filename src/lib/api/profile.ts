@@ -80,8 +80,9 @@ export const fetchRepSpecMix = (repId: number, month: string): Promise<Raw[]> =>
   fetchAll<Raw>('v_speciality_mix', 'speciality,doctors,total_docs,share_pct,strategy_pct,diff_points,is_off,threshold_points', ['speciality'], (q) => q.eq('month', month).eq('rep_id', repId))
 
 export interface DaySlot { day: string; shift: 'AM' | 'PM'; status: string; visits: number }
-export async function fetchRepDays(repId: number, month: string): Promise<DaySlot[]> {
-  const rows = await fetchAll<Raw>('rep_day_shift', 'day,shift,status,visits', ['day', 'shift'], (q) => q.eq('rep_id', repId).gte('day', month).lte('day', lastDayOf(month)))
+/** A rep's daily slots for `day between from and to`. */
+export async function fetchRepDays(repId: number, from: string, to: string): Promise<DaySlot[]> {
+  const rows = await fetchAll<Raw>('rep_day_shift', 'day,shift,status,visits', ['day', 'shift'], (q) => q.eq('rep_id', repId).gte('day', from).lte('day', to))
   return rows.map((r) => ({ day: String(r.day).slice(0, 10), shift: r.shift === 'PM' ? 'PM' : 'AM', status: String(r.status), visits: numOrNull(r.visits) ?? 0 }))
 }
 

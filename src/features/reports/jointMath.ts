@@ -314,6 +314,8 @@ export function buildJointGrid(a: {
   rows: JointRow[]
   total: JointRow
   month: string
+  /** Overrides the period band (a day range). */
+  period?: string
   managerLabel: string
 }): Grid {
   const { cols, rows, total } = a
@@ -336,7 +338,7 @@ export function buildJointGrid(a: {
   // header band
   pushBands([{ c0: 0, c1: n - 1, v: HEADER_TITLE, st: style(PAL.navy, PAL.white, { bold: true, sz: 16 }) }], 30)
   pushBands([{ c0: 0, c1: n - 1, v: HEADER_SUBTITLE, st: style(null, PAL.grey, { italic: true, sz: 10 }) }], 18)
-  pushBands([{ c0: 0, c1: n - 1, v: `${periodLabel(a.month)}   |   MANAGER: ${a.managerLabel.toUpperCase()}`, st: style(PAL.green, PAL.white, { bold: true, sz: 10 }) }], 20)
+  pushBands([{ c0: 0, c1: n - 1, v: `${a.period ?? periodLabel(a.month)}   |   MANAGER: ${a.managerLabel.toUpperCase()}`, st: style(PAL.green, PAL.white, { bold: true, sz: 10 }) }], 20)
   cells.push(blank()); heights.push(6)
 
   // KPI strip: four blocks of (almost) equal width

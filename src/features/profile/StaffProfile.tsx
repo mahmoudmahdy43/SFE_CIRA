@@ -20,14 +20,14 @@ export function StaffProfile({ id, month }: { id: number; month: string }) {
         <Fact label="Month">{month.slice(0, 7)}</Fact>
       </ProfileHeader>
       <div className="space-y-4">
-        <Section state={months} title="Visits per month" description={`${month.slice(0, 4)} — visits, AM / PM and field days (v_staff_visits_month).`} isEmpty={(d) => d.length === 0} emptyText="No visits recorded for this staff member in the year.">
+        <Section period="monthly" state={months} title="Visits per month" description={`${month.slice(0, 4)} — visits, AM / PM and field days (v_staff_visits_month).`} isEmpty={(d) => d.length === 0} emptyText="No visits recorded for this staff member in the year.">
           {(rows) => <RawTable rows={rows} />}
         </Section>
-        <Section state={detail} title={`Visits of ${monthShort(month)} ${month.slice(0, 4)}`} description="v_staff_visit_detail" isEmpty={(d) => d.length === 0} emptyText="No visits in the selected month.">
+        <Section period="monthly" state={detail} title={`Visits of ${monthShort(month)} ${month.slice(0, 4)}`} description="v_staff_visit_detail" isEmpty={(d) => d.length === 0} emptyText="No visits in the selected month.">
           {(rows) => <RawTable rows={rows} />}
         </Section>
         {trainer && (
-          <Section state={given} title="Coaching data" description="Evaluations given, January to the selected month." isEmpty={(d) => d.length === 0} emptyText="No coaching evaluations given.">
+          <Section period="monthly" state={given} title="Coaching data" description="Evaluations given, January to the selected month." isEmpty={(d) => d.length === 0} emptyText="No coaching evaluations given.">
             {(rows) => <SimpleTable rows={rows} rowKey={(r, i) => `${r.rep}-${i}`} cols={[{ h: 'Date', cell: (r) => r.visit_date ?? '—' }, { h: 'Rep', cell: (r) => r.rep }, { h: 'Avg score', right: true, cell: (r) => r.avg_score?.toFixed(2) ?? '—' }]} />}
           </Section>
         )}

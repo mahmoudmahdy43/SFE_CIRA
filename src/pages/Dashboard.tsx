@@ -5,7 +5,8 @@ import { PageHeader, EmptyState, ErrorState } from '../components/app/states'
 import { KpiCard, StatGrid } from '../components/app/KpiCard'
 import { Button } from '../components/ui/button'
 import { Card, Skeleton } from '../components/ui/misc'
-import { useMonth } from '../context/MonthContext'
+import { useDateRange } from '../context/DateRangeContext'
+import { PeriodBanner } from '../components/app/PeriodBanner'
 import {
   clearKpiCache, fetchCompanySeries, fetchLineSeries, fetchMonthDetail, fetchVacantBoxes, fetchWorkingDays,
 } from '../lib/api/kpi'
@@ -42,7 +43,7 @@ const naPct = (v: number | null) => (v === null ? 'n/a' : fmtPct(v))
 const toneOf = (v: number | null) => (v === null ? 'neutral' : kpiTone(v, 1))
 
 export default function Dashboard() {
-  const { month, setMonth } = useMonth()
+  const { month, setMonth, custom } = useDateRange()
   const [lineId, setLineId] = useState<number | null>(null)
   const [repNode, setRepNode] = useState<TreeNode | null>(null)
 
@@ -58,10 +59,10 @@ export default function Dashboard() {
   useEffect(() => {
     if (initDone.current || !company.data) return
     initDone.current = true
-    if (company.data.some((r) => r.month === month)) return
+    if (custom || company.data.some((r) => r.month === month)) return
     const latest = latestMonth(company.data.map((r) => r.month))
     if (latest) setMonth(latest)
-  }, [company.data, month, setMonth])
+  }, [company.data, month, setMonth, custom])
 
   const refreshAll = () => {
     clearKpiCache()
@@ -108,9 +109,11 @@ export default function Dashboard() {
     <div className="space-y-6">
       <PageHeader
         title="Dashboard"
-        description={`KPIs for ${month.slice(0, 7)} — every figure comes from the database views; change the month with the picker in the top bar.`}
+        description={`KPIs for ${month.slice(0, 7)} — every figure comes from the monthly database views (Coverage, PCF and Freq are monthly targets); with a day range the Dashboard shows the month of the To date.`}
         actions={<Button size="sm" onClick={refreshAll} aria-label="Reload KPI data"><RefreshCw className="h-4 w-4" aria-hidden /> Reload</Button>}
       />
+
+      <PeriodBanner monthly className="-mt-3" />
 
       <div role="group" aria-label="Line filter" className="-mt-2 flex flex-wrap gap-1.5">
         {chips.map((c) => (

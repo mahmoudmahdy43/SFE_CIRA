@@ -1,3 +1,4 @@
+import { lastDayOf, rangeFileSlug } from '../../lib/dateRange'
 import { useMemo, useState } from 'react'
 import { FileSpreadsheet } from 'lucide-react'
 import { Button } from '../../components/ui/button'
@@ -31,7 +32,7 @@ function Body({ target, from, to, periodText, shift }: { target: CoverRow; from:
 
   const exportXlsx = () =>
     void downloadXlsx(
-      `manager-coverage-doctors-${(target.rep_name ?? 'rep').replace(/[^\w]+/g, '-')}-${from.slice(0, 7)}_${to.slice(0, 7)}-${shift.toLowerCase()}.xlsx`,
+      `manager-coverage-doctors-${(target.rep_name ?? 'rep').replace(/[^\w]+/g, '-')}-${rangeFileSlug(from, lastDayOf(to))}-${shift.toLowerCase()}.xlsx`,
       'Doctors',
       shown.map((d) => ({
         Manager: target.manager ?? '', Rep: target.rep_name ?? '', Period: periodText, Shift: shiftText(shift),

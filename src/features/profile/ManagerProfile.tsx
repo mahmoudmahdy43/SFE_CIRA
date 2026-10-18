@@ -19,7 +19,7 @@ function TeamTab({ managerId, month, org }: { managerId: number; month: string; 
   const vacant = [...new Set((orgm.data ?? []).filter((r) => r.rep_id === null).map((r) => r.box_id))]
   return (
     <div className="space-y-4">
-      <Section state={q} title="Team and KPIs" description={`His reps for ${month.slice(0, 7)} with their KPIs (v_kpi_rep), and the manager's own roll-up from v_kpi_manager.`} isEmpty={(d) => !d.reps.some((r) => r.manager_id === managerId)} emptyText="No reps with KPIs under this manager in the month.">
+      <Section period="monthly" state={q} title="Team and KPIs" description={`His reps for ${month.slice(0, 7)} with their KPIs (v_kpi_rep), and the manager's own roll-up from v_kpi_manager.`} isEmpty={(d) => !d.reps.some((r) => r.manager_id === managerId)} emptyText="No reps with KPIs under this manager in the month.">
         {(d) => {
           const reps = d.reps.filter((r) => r.manager_id === managerId)
           return (
@@ -36,7 +36,7 @@ function TeamTab({ managerId, month, org }: { managerId: number; month: string; 
           )
         }}
       </Section>
-      <Section state={q} title="Team averages" description="Computed by the database for the manager (not an average of the rows above)." isEmpty={(d) => !d.managers.some((m) => m.manager_id === managerId)}>
+      <Section period="monthly" state={q} title="Team averages" description="Computed by the database for the manager (not an average of the rows above)." isEmpty={(d) => !d.managers.some((m) => m.manager_id === managerId)}>
         {(d) => {
           const a = d.managers.find((m) => m.manager_id === managerId)!
           return (
@@ -47,7 +47,7 @@ function TeamTab({ managerId, month, org }: { managerId: number; month: string; 
           )
         }}
       </Section>
-      <Section state={orgm} title="Vacant boxes of the district" isEmpty={() => vacant.length === 0} emptyTitle="No vacant boxes" emptyText="Every box of this district has a rep in the month.">
+      <Section period="monthly" state={orgm} title="Vacant boxes of the district" isEmpty={() => vacant.length === 0} emptyTitle="No vacant boxes" emptyText="Every box of this district has a rep in the month.">
         {() => <ul className="flex flex-wrap gap-2">{vacant.map((b) => <li key={b}><ProfileLink type="box" id={b}><VacantPill what={org.boxById.get(b)?.name ?? `Box #${b}`} /></ProfileLink></li>)}</ul>}
       </Section>
     </div>
@@ -60,7 +60,7 @@ function JointTab({ managerId, month }: { managerId: number; month: string }) {
   const cov = useAsync(`prof:mcov:${managerId}:${month}`, () => fetchManagerCoverageFor(managerId, month))
   return (
     <div className="space-y-4">
-      <Section state={row} title="Manager report" description="His row of the Manager report." isEmpty={(d) => d === null} emptyText="No Manager report row for this month.">
+      <Section period="monthly" state={row} title="Manager report" description="His row of the Manager report." isEmpty={(d) => d === null} emptyText="No Manager report row for this month.">
         {(r) => r && (
           <dl className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
             <Fact label="Field days">{r.field_days}</Fact><Fact label="Working days">{r.working_days}</Fact><Fact label="Single visits">{r.single_visits}</Fact>
@@ -68,7 +68,7 @@ function JointTab({ managerId, month }: { managerId: number; month: string }) {
           </dl>
         )}
       </Section>
-      <Section state={joint} title="Joint days per rep" isEmpty={(d) => d.length === 0} emptyText="No joint days this month.">
+      <Section period="monthly" state={joint} title="Joint days per rep" isEmpty={(d) => d.length === 0} emptyText="No joint days this month.">
         {(rows) => (
           <SimpleTable
             rows={rows} rowKey={(r) => r.rep_id}
@@ -80,7 +80,7 @@ function JointTab({ managerId, month }: { managerId: number; month: string }) {
           />
         )}
       </Section>
-      <Section state={cov} title="Manager coverage" description="How many of the team's list doctors he covered." isEmpty={(d) => d.length === 0} emptyText="No Manager Coverage rows for this month.">
+      <Section period="monthly" state={cov} title="Manager coverage" description="How many of the team's list doctors he covered." isEmpty={(d) => d.length === 0} emptyText="No Manager Coverage rows for this month.">
         {(rows) => (
           <SimpleTable
             rows={rows} rowKey={(r) => r.rep_id}
@@ -99,7 +99,7 @@ function JointTab({ managerId, month }: { managerId: number; month: string }) {
 function SalesTab({ managerId, month }: { managerId: number; month: string }) {
   const q = useAsync(`prof:msales:${managerId}:${month}`, () => fetchManagerSales(managerId, month))
   return (
-    <Section state={q} title="District sales" description={`Monthly sales against target for January to ${monthShort(month)}; reps, territories and products for ${monthLong(month)}.`} isEmpty={(d) => d.monthly.length === 0} emptyTitle="No sales" emptyText="No sales for this district in the period.">
+    <Section period="monthly" state={q} title="District sales" description={`Monthly sales against target for January to ${monthShort(month)}; reps, territories and products for ${monthLong(month)}.`} isEmpty={(d) => d.monthly.length === 0} emptyTitle="No sales" emptyText="No sales for this district in the period.">
       {(d) => (
         <div className="space-y-5">
           <BarsChart xKey="m" suffix="" series={[{ key: 's', name: 'Sales' }, { key: 't', name: 'Target' }]} data={d.monthly.map((m) => ({ m: monthShort(m.month), s: Math.round(m.s_value), t: Math.round(m.t_value) }))} />
@@ -123,10 +123,10 @@ function OwnTab({ managerId, name, month }: { managerId: number; name: string; m
   const visits = useAsync(`prof:mvisits:${managerId}:${month}`, () => fetchManagerVisits(managerId, month))
   return (
     <div className="space-y-4">
-      <Section state={given} title="Coaching given" description={`Evaluations he gave as evaluator, January to ${monthShort(month)} (manager evaluations).`} isEmpty={(d) => d.length === 0} emptyText="No coaching evaluations given in the period.">
+      <Section period="monthly" state={given} title="Coaching given" description={`Evaluations he gave as evaluator, January to ${monthShort(month)} (manager evaluations).`} isEmpty={(d) => d.length === 0} emptyText="No coaching evaluations given in the period.">
         {(rows) => <SimpleTable rows={rows} rowKey={(r, i) => `${r.rep}-${r.visit_date}-${i}`} maxHeight={300} cols={[{ h: 'Date', cell: (r) => r.visit_date ?? '—' }, { h: 'Rep', cell: (r) => r.rep }, { h: 'Avg score', right: true, cell: (r) => r.avg_score?.toFixed(2) ?? '—' }]} />}
       </Section>
-      <Section state={visits} title="Own visits" description={`${month.slice(0, 7)} — visits recorded under his own code.`} isEmpty={(d) => d.length === 0} emptyText="No visits recorded for him in the month.">
+      <Section period="monthly" state={visits} title="Own visits" description={`${month.slice(0, 7)} — visits recorded under his own code.`} isEmpty={(d) => d.length === 0} emptyText="No visits recorded for him in the month.">
         {(rows) => <SimpleTable rows={rows} rowKey={(_, i) => i} cols={[{ h: 'Date', cell: (v) => v.visit_date }, { h: 'Shift', cell: (v) => v.shift }, { h: 'Type', cell: (v) => v.visit_type ?? '—' }, { h: 'Doctor', cell: (v) => v.doctor ?? '—' }, { h: 'Account', cell: (v) => v.account ?? '—' }, { h: 'Territory', cell: (v) => v.territory ?? '—' }]} />}
       </Section>
     </div>

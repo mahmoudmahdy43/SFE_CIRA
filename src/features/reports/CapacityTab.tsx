@@ -1,3 +1,4 @@
+import { lastDayOf, rangeFileSlug } from '../../lib/dateRange'
 import { ProfileLink } from '../../components/app/ProfileLink'
 import { useCallback, useMemo, useState } from 'react'
 import { Card, Skeleton } from '../../components/ui/misc'
@@ -117,7 +118,7 @@ export function CapacityTab({ month, lines, filters, onFilters }: {
   const onRowsChange = useCallback((r: CapacityRow[]) => setSorted(r), [])
 
   const records = () => exportCapacity(sorted.length === rows.length ? sorted : rows)
-  const name = `visits-capacity-${month.slice(0, 7)}`
+  const name = `visits-capacity-${rangeFileSlug(month, lastDayOf(month))}`
   const noData = !!all && all.length === 0
   const nobodyOver = !noData && scope.length > 0 && rows.length === 0 && status === 'Over capacity'
 

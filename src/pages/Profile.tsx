@@ -3,7 +3,8 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { PageHeader, ErrorState } from '../components/app/states'
 import { Skeleton } from '../components/ui/misc'
 import { useAuth } from '../context/AuthContext'
-import { useMonth } from '../context/MonthContext'
+import { useDateRange } from '../context/DateRangeContext'
+import { periodLabel } from '../lib/dateRange'
 import { useOrg } from '../lib/api/org'
 import { BoxProfile } from '../features/profile/BoxProfile'
 import { ManagerProfile } from '../features/profile/ManagerProfile'
@@ -15,7 +16,7 @@ import { StaffProfile } from '../features/profile/StaffProfile'
 /** 360° View: `/360` = search, `/360?type=rep|manager|staff|box&id=N` = profile. Admin only (the whole app is). */
 export default function Profile() {
   const { role } = useAuth()
-  const { month } = useMonth()
+  const { month, from, to, isFullMonth } = useDateRange()
   const [params] = useSearchParams()
   const target = parseProfileParams(`?${params.toString()}`)
   const { org, error, reload } = useOrg()
@@ -24,7 +25,7 @@ export default function Profile() {
     <div>
       <PageHeader
         title="360° View"
-        description={target ? `Profile for ${month.slice(0, 7)} (change the month in the top bar). Trends cover all months of ${month.slice(0, 4)}.` : 'Full profile of a rep, a manager, a staff member or a box.'}
+        description={target ? `Profile for ${isFullMonth ? month.slice(0, 7) : periodLabel(from, to)} (change the period in the top bar). ${isFullMonth ? '' : 'A rep\'s KPIs and day calendar follow the day range; every other tab is monthly (marked) and shows ' + month.slice(0, 7) + '. '}Trends cover all months of ${month.slice(0, 4)}.` : 'Full profile of a rep, a manager, a staff member or a box.'}
         actions={target ? <Link to="/360" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" aria-hidden /> New search</Link> : undefined}
       />
       {!target ? (

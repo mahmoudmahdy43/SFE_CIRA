@@ -9,6 +9,11 @@ import { useAuth } from '../../context/AuthContext'
 import { downloadCsv } from '../../lib/csv'
 import { downloadXlsx } from '../../lib/xlsxExport'
 import { fetchMonthDetail } from '../../lib/api/kpi'
+import { fetchKpiRangeRows } from '../../lib/api/range'
+import { useDateRange } from '../../context/DateRangeContext'
+import { PeriodBanner } from '../../components/app/PeriodBanner'
+import { rangeFileSlug } from '../../lib/dateRange'
+import { MONTHLY_ONLY_COLUMNS, MONTHLY_ONLY_TIP, aggregateRange, rangeByLine, rangeByManager } from './kpiRangeMath'
 import { kpiRepRows } from '../../lib/api/reports'
 import { kpiTone, toneText } from '../../lib/kpi'
 import { cn } from '../../lib/utils'
@@ -37,10 +42,12 @@ interface Col<T> {
 const kpiCell = (v: number | null) => <span className={cn('font-medium', v !== null && toneText[kpiTone(v, 1)])}>{fmtPct(v)}</span>
 
 /** The thirteen metric columns shared by the rep table and the roll-ups. */
-function metricCols<T extends Metrics>(): Col<T>[] {
-  const m = (id: string, header: string, key: keyof Metrics, render: (v: number | null) => ReactNode, foot: (t: Metrics) => ReactNode, tip?: string): Col<T> => ({
-    id, header, tip, numeric: true, value: (r) => r[key], render: (r) => render(r[key]), foot,
-  })
+function metricCols<T extends Metrics>(partial = false): Col<T>[] {
+  const blank = (tip: string) => <span title={tip} className="text-muted-foreground">-</span>
+  const m = (id: string, header: string, key: keyof Metrics, render: (v: number | null) => ReactNode, foot: (t: Metrics) => ReactNode, tip?: string): Col<T> =>
+    partial && MONTHLY_ONLY_COLUMNS.has(id)
+      ? { id, header, tip: MONTHLY_ONLY_TIP, numeric: true, value: () => null, render: () => blank(MONTHLY_ONLY_TIP), foot: () => blank(MONTHLY_ONLY_TIP) }
+      : { id, header, tip, numeric: true, value: (r) => r[key], render: (r) => render(r[key]), foot }
   return [
     m('list', 'List Doctors', 'list_doctors', fmtInt, (t) => fmtInt(t.list_doctors)),
     m('covered', 'Covered', 'covered_doctors', fmtInt, (t) => fmtInt(t.covered_doctors)),
@@ -126,16 +133,26 @@ function sortRows<T>(rows: T[], cols: Col<T>[], sort: { id: string; dir: 'asc' |
   })
 }
 
-export function KpiRepTab({ month, lines, filters, onFilters }: {
-  month: string
+export function KpiRepTab({ lines, filters, onFilters }: {
+  month?: string
   lines: { id: number; name: string }[]
   filters: ReportFilters
   onFilters: (f: ReportFilters) => void
 }) {
   const { session } = useAuth()
   const storageKey = `sfe-hub:kpi-rep-excluded:${session?.user.id ?? 'anon'}`
-  const detail = useAsync(`kpi:detail:${month}`, () => fetchMonthDetail(month))
-  const all = useMemo(() => (detail.data ? kpiRepRows(detail.data, month) : []), [detail.data, month])
+  const range = useDateRange()
+  const { month, from, to } = range
+  const partial = !range.isFullMonth
+  // One request per mode: a full month reads rep_month_kpi / v_kpi_rep (unchanged); any other range calls kpi_range.
+  const monthly = useAsync(partial ? 'kpi:skip' : `kpi:detail:${month}`, () => (partial ? Promise.resolve(null) : fetchMonthDetail(month)))
+  const ranged = useAsync(partial ? `kpi:range:${from}:${to}` : 'kpi:skip', () => (partial ? fetchKpiRangeRows(from, to, month) : Promise.resolve(null)))
+  const detail = partial ? ranged : monthly
+  const all = useMemo<KpiRepRow[]>(() => {
+    if (partial) return (ranged.data as KpiRepRow[] | null) ?? []
+    const d = monthly.data as Awaited<ReturnType<typeof fetchMonthDetail>> | null
+    return d ? kpiRepRows(d, month) : []
+  }, [partial, ranged.data, monthly.data, month])
 
   const [excluded, setExcluded] = useState<Set<number>>(() => {
     try {
@@ -163,7 +180,7 @@ export function KpiRepTab({ month, lines, filters, onFilters }: {
   const effective = managers.includes(filters.manager) ? filters : { ...filters, manager: '' }
   const visible = useMemo(() => filterRows(all, effective), [all, effective.lineId, effective.manager, effective.search]) // eslint-disable-line react-hooks/exhaustive-deps
   const split = useMemo(() => splitExcluded(visible, excluded), [visible, excluded])
-  const total = useMemo(() => aggregate(split.included), [split.included])
+  const total = useMemo(() => (partial ? aggregateRange(split.included) : aggregate(split.included)), [partial, split.included])
 
   const excludedHere = useMemo(() => all.filter((r) => excluded.has(r.rep_id)), [all, excluded])
 
@@ -173,7 +190,7 @@ export function KpiRepTab({ month, lines, filters, onFilters }: {
     { id: 'box', header: 'Box', value: (r) => r.box, render: (r) => r.box ?? DASH },
     { id: 'line', header: 'Line', value: (r) => r.line, render: (r) => r.line ?? DASH },
     { id: 'dm', header: 'DM', value: (r) => r.manager, render: (r) => <ProfileLink type="manager" id={r.manager_id}>{r.manager ?? DASH}</ProfileLink> },
-    ...metricCols<KpiRepRow>(),
+    ...metricCols<KpiRepRow>(partial),
     {
       id: 'action', header: '', value: () => null,
       render: (r) => (
@@ -188,21 +205,21 @@ export function KpiRepTab({ month, lines, filters, onFilters }: {
       ),
       foot: () => '',
     },
-  ], [excluded, toggleExcluded])
+  ], [excluded, toggleExcluded, partial])
   const groupCols = useMemo<Col<KpiGroup>[]>(() => [
     { id: 'name', header: view === 'dm' ? 'DM' : 'Line', value: (g) => g.label, render: (g) => <span className="font-medium">{g.label}</span> },
     { id: 'reps', header: 'Reps', numeric: true, value: (g) => g.reps, render: (g) => g.reps, foot: (t) => t.reps },
-    ...metricCols<KpiGroup>(),
-  ], [view])
+    ...metricCols<KpiGroup>(partial),
+  ], [view, partial])
 
   const repRows = useMemo(() => {
     const inc = sortRows(split.included, repCols, sort)
     return showExcluded ? [...inc, ...sortRows(split.excluded, repCols, sort)] : inc
   }, [split, repCols, sort, showExcluded])
-  const groups = useMemo(() => sortRows(view === 'dm' ? byManager(split.included) : byLine(split.included), groupCols, sort), [split.included, view, groupCols, sort])
+  const groups = useMemo(() => sortRows(view === 'dm' ? (partial ? rangeByManager(split.included) : byManager(split.included)) : (partial ? rangeByLine(split.included) : byLine(split.included)), groupCols, sort), [split.included, view, groupCols, sort, partial])
 
   const records = () => (view === 'reps' ? exportReps(repRows.filter((r) => !excluded.has(r.rep_id)), total, split.excluded, showExcluded) : exportGroups(groups, total, view === 'dm' ? 'DM' : 'Line'))
-  const fileName = `kpi-by-rep-${view}-${month.slice(0, 7)}`
+  const fileName = `kpi-by-rep-${view}-${rangeFileSlug(from, to)}`
 
   const pickable = useMemo(() => {
     const q = pick.trim().toLowerCase()
@@ -211,6 +228,7 @@ export function KpiRepTab({ month, lines, filters, onFilters }: {
 
   return (
     <div className="space-y-3">
+      <PeriodBanner />
       <ReportToolbar
         lines={lines} filters={effective} onFilters={onFilters} managers={managers}
         columns={[]} hidden={new Set()} onToggleColumn={() => undefined}
@@ -279,7 +297,7 @@ export function KpiRepTab({ month, lines, filters, onFilters }: {
         <SortTable
           cols={repCols} rows={repRows} total={total} rowKey={(r) => String(r.rep_id)} sort={sort} onSort={onSort}
           rowClass={(r) => (excluded.has(r.rep_id) ? 'opacity-50 [&_td]:line-through' : undefined)}
-          empty={{ title: all.length === 0 ? `No KPI data for ${month.slice(0, 7)}` : 'No reps match the filters', description: all.length === 0 ? 'KPIs appear once the list, visits and calendar exist for the month. Pick another month.' : 'Clear the search, choose another line / manager, or clear the exclusions.' }}
+          empty={{ title: all.length === 0 ? (partial ? 'No KPI data in this date range' : `No KPI data for ${month.slice(0, 7)}`) : 'No reps match the filters', description: all.length === 0 ? 'KPIs appear once the list, visits and calendar exist for the period. Pick another month or range.' : 'Clear the search, choose another line / manager, or clear the exclusions.' }}
         />
       ) : (
         <SortTable
@@ -288,6 +306,7 @@ export function KpiRepTab({ month, lines, filters, onFilters }: {
         />
       )}
       <p className="text-xs text-muted-foreground">
+        {partial && <><b>Day range:</b> Coverage, PCF and Total KPI are monthly only (Freq is a monthly target) and are shown as “-”; targets are those of {month.slice(0, 7)} (the month of the To date). </>}
         KPIs use the PM shift only (Clinic + Poly Clinic). Totals and roll-ups are recomputed from the sums of the reps shown, never as an average of their ratios. Pharmacy and AM Center / A / H visits are outside the KPI.
       </p>
     </div>

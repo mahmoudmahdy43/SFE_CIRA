@@ -1,3 +1,4 @@
+import { lastDayOf, rangeFileSlug } from '../../lib/dateRange'
 import { ProfileLink } from '../../components/app/ProfileLink'
 import { useMemo, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
@@ -130,7 +131,7 @@ export function ManagersTab({ month, lines, filters, onFilters }: Props) {
   const plain = cols.filter((c) => !c.group)
   const rates = cols.filter((c) => c.group === 'rate')
 
-  const fileName = `managers-${month.slice(0, 7)}-${role || 'all'}-${SHIFT_LABEL[shift].toLowerCase()}`
+  const fileName = `managers-${rangeFileSlug(month, lastDayOf(month))}-${role || 'all'}-${SHIFT_LABEL[shift].toLowerCase()}`
   const records = () => exportManagers(rows, total, showVisits, shift)
   const empty = { title: `No managers for ${rangeLabel(month, month)}`, description: (data.data ?? []).length === 0 ? 'The report has no rows for this month.' : 'No managers match the filters.' }
 

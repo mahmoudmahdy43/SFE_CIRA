@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { PageHeader } from '../components/app/states'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/overlay'
-import { useMonth } from '../context/MonthContext'
+import { useDateRange } from '../context/DateRangeContext'
+import { PeriodBanner } from '../components/app/PeriodBanner'
+import { periodLabel } from '../lib/dateRange'
 import { fetchLineNames } from '../lib/api/reports'
 import { useAsync } from '../features/dashboard/useAsync'
 import { CallRateTab } from '../features/reports/CallRateTab'
@@ -18,7 +20,7 @@ import { SalesTab } from '../features/reports/SalesTab'
 import type { ReportFilters } from '../features/reports/reportMath'
 
 export default function Reports() {
-  const { month } = useMonth()
+  const { month, from, to, isFullMonth } = useDateRange()
   const [filters, setFilters] = useState<ReportFilters>({ lineId: null, manager: '', search: '' })
   const lines = useAsync('lines:names', fetchLineNames)
   const shared = { month, lines: lines.data ?? [], filters, onFilters: setFilters }
@@ -28,7 +30,7 @@ export default function Reports() {
       <div className="print:hidden">
         <PageHeader
           title="Reports"
-          description={`Coverage, call-rate, KPI, leave, missing-day, visits-capacity, speciality-mix, manager-joint-days, manager-coverage, coaching and sales reports for ${month.slice(0, 7)} — read straight from the database views; change the month in the top bar (Leaves and Missing Days also have their own From / To months).`}
+          description={`Coverage, call-rate, KPI, leave, missing-day, visits-capacity, speciality-mix, manager-joint-days, manager-coverage, coaching and sales reports for ${isFullMonth ? month.slice(0, 7) : periodLabel(from, to)} — read straight from the database; change the period in the top bar. KPI by Rep, Leaves, Missing Days and Joint Days (by day) follow a day range; the others are monthly and show the month of the To date.`}
         />
       </div>
       <Tabs defaultValue="coverage">
@@ -46,17 +48,17 @@ export default function Reports() {
           <TabsTrigger value="coaching">Coaching</TabsTrigger>
           <TabsTrigger value="sales">Sales</TabsTrigger>
         </TabsList>
-        <TabsContent value="coverage"><CoverageTab {...shared} /></TabsContent>
-        <TabsContent value="call-rate"><CallRateTab {...shared} /></TabsContent>
+        <TabsContent value="coverage"><PeriodBanner monthly className="mb-3" /><CoverageTab {...shared} /></TabsContent>
+        <TabsContent value="call-rate"><PeriodBanner monthly className="mb-3" /><CallRateTab {...shared} /></TabsContent>
         <TabsContent value="kpi-rep"><KpiRepTab {...shared} /></TabsContent>
         <TabsContent value="leaves"><LeavesTab {...shared} /></TabsContent>
         <TabsContent value="missing"><MissingTab {...shared} /></TabsContent>
-        <TabsContent value="managers"><ManagersTab {...shared} /></TabsContent>
-        <TabsContent value="capacity"><CapacityTab {...shared} /></TabsContent>
-        <TabsContent value="speciality-mix"><SpecialityMixTab {...shared} /></TabsContent>
+        <TabsContent value="managers"><PeriodBanner monthly className="mb-3" /><ManagersTab {...shared} /></TabsContent>
+        <TabsContent value="capacity"><PeriodBanner monthly className="mb-3" /><CapacityTab {...shared} /></TabsContent>
+        <TabsContent value="speciality-mix"><PeriodBanner monthly className="mb-3" /><SpecialityMixTab {...shared} /></TabsContent>
         <TabsContent value="joint-days"><JointDaysTab {...shared} /></TabsContent>
-        <TabsContent value="manager-coverage"><ManagerCoverageTab {...shared} /></TabsContent>
-        <TabsContent value="coaching"><CoachingTab {...shared} /></TabsContent>
+        <TabsContent value="manager-coverage"><PeriodBanner monthly own className="mb-3" /><ManagerCoverageTab {...shared} /></TabsContent>
+        <TabsContent value="coaching"><PeriodBanner monthly own className="mb-3" /><CoachingTab {...shared} /></TabsContent>
         <TabsContent value="sales"><SalesTab {...shared} /></TabsContent>
       </Tabs>
     </div>

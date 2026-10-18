@@ -1,3 +1,4 @@
+import { lastDayOf, rangeFileSlug } from '../../lib/dateRange'
 import { useMemo, useState } from 'react'
 import { Download } from 'lucide-react'
 import { Button } from '../../components/ui/button'
@@ -35,7 +36,7 @@ function Body({ rep, month }: { rep: CoverageRow; month: string }) {
 
   const exportCsv = () =>
     downloadCsv(
-      `coverage-doctors-${rep.rep_code ?? rep.rep_id}-${month.slice(0, 7)}.csv`,
+      `coverage-doctors-${rep.rep_code ?? rep.rep_id}-${rangeFileSlug(month, lastDayOf(month))}.csv`,
       shown.map((d: CoverageDoctor) => ({ Doctor: d.doctor_name, Account: d.account_name, Class: d.class, Freq: d.freq, Visits: d.visits, Status: STATUS[d.status].label })),
     )
 

@@ -1,3 +1,4 @@
+import { lastDayOf, rangeFileSlug } from '../../lib/dateRange'
 import { ProfileLink } from '../../components/app/ProfileLink'
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowDownRight, ArrowUpRight, ChevronDown, ChevronRight, Info, Minus, ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
@@ -143,7 +144,7 @@ export function CoachingTab({ lines, filters, onFilters }: Props) {
   const periodText = ready ? (from === to ? monthName(from) : `${monthName(from)} – ${monthName(to)}`) : '…'
   const evalText = EVAL_OPTIONS.find((o) => o.id === group)?.label ?? 'All'
   const periodLine = `PERIOD: ${periodText.toUpperCase()}   |   EVALUATORS: ${evalText.toUpperCase()}${lineName ? `   |   LINE: ${lineName.toUpperCase()}` : ''}${manager ? `   |   MANAGER: ${manager.toUpperCase()}` : ''}`
-  const fileName = `coaching-${from.slice(0, 7)}_${to.slice(0, 7)}-${group.toLowerCase()}`
+  const fileName = `coaching-${rangeFileSlug(from, lastDayOf(to))}-${group.toLowerCase()}`
 
   const exportXlsx = () =>
     void downloadXlsxGrids(`${fileName}.xlsx`, [

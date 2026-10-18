@@ -1,4 +1,8 @@
 import { useMemo, useState } from 'react'
+import { useDateRange } from '../../context/DateRangeContext'
+import { fetchKpiRangeRows } from '../../lib/api/range'
+import { MONTHLY_ONLY_TIP, aggregateRange } from '../reports/kpiRangeMath'
+import { periodLabel } from '../../lib/dateRange'
 import { Download } from 'lucide-react'
 import { Badge, Card } from '../../components/ui/misc'
 import { Button } from '../../components/ui/button'
@@ -33,11 +37,38 @@ const KPIS: KpiSpec[] = [
 ]
 const fmtKpi = (s: KpiSpec, v: number | null) => (v === null ? '—' : s.kind === 'pct' ? fmtPct(v) : s.kind === 'rate' ? fmtRate(v) : fmtInt(v))
 
+/** KPIs of the active day range (kpi_range, this rep only). Coverage, PCF and Total KPI are monthly only. */
+function RangeKpis({ repId }: { repId: number }) {
+  const r = useDateRange()
+  const q = useAsync(`kpi:range:${r.from}:${r.to}`, () => fetchKpiRangeRows(r.from, r.to, r.month))
+  const mine = useMemo(() => (q.data ? q.data.filter((x) => x.rep_id === repId) : null), [q.data, repId])
+  const one = mine && mine.length > 0 ? aggregateRange(mine) : null
+  return (
+    <Section state={{ ...q, data: mine }} title={`KPIs · ${periodLabel(r.from, r.to)}`} description={`Computed from the days in the range (kpi_range); targets are those of ${r.month.slice(0, 7)}. Coverage, PCF and Total KPI are monthly only (Freq is a monthly target).`} isEmpty={(d) => d.length === 0} emptyTitle="No KPI data in this range" emptyText="The rep has no working days or visits in the selected dates.">
+      {() => (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard label="Total visits (C/PC)" value={fmtInt(one?.total_visits ?? null)} empty={one === null} />
+          <KpiCard label="Days PM" value={fmtInt(one?.days_pm ?? null)} empty={one === null} />
+          <KpiCard label="Missing days PM" value={fmtInt(one?.missing_pm ?? null)} empty={one === null} />
+          <KpiCard label="Call Rate PM" value={fmtRate(one?.call_rate_pm ?? null)} empty={one === null} />
+          <KpiCard label="Expected visits" value={fmtInt(one?.expected_visits ?? null)} empty={one === null} />
+          <KpiCard label="Ach CR" value={fmtPct(one?.ach_cr ?? null)} empty={one?.ach_cr == null} tone={one?.ach_cr != null ? kpiTone(one.ach_cr, 1) : 'neutral'} />
+          <KpiCard label="Coverage" value="-" tooltip={MONTHLY_ONLY_TIP} empty />
+          <KpiCard label="PCF / Total KPI" value="-" tooltip={MONTHLY_ONLY_TIP} empty />
+        </div>
+      )}
+    </Section>
+  )
+}
+
 function KpiTab({ repId, month }: { repId: number; month: string }) {
+  const range = useDateRange()
   const q = useAsync(`prof:kpi:${repId}:${month.slice(0, 4)}`, () => fetchRepKpiYear(repId, month))
   const months = useMemo(() => yearMonths(month), [month])
   return (
-    <Section state={q} title="KPIs and trend" description={`All months of ${month.slice(0, 4)}. Months where the rep did not occupy a box are blank.`} isEmpty={(d) => d.every((x) => x === null)} emptyTitle="No KPI rows" emptyText="This rep has no KPI rows in this year.">
+    <div className="space-y-4">
+    {!range.isFullMonth && <RangeKpis repId={repId} />}
+    <Section period="monthly" state={q} title="KPIs and trend" description={`All months of ${month.slice(0, 4)}. Months where the rep did not occupy a box are blank.`} isEmpty={(d) => d.every((x) => x === null)} emptyTitle="No KPI rows" emptyText="This rep has no KPI rows in this year.">
       {(series) => {
         const idx = months.indexOf(month)
         const cur = series[idx] ?? null
@@ -77,6 +108,7 @@ function KpiTab({ repId, month }: { repId: number; month: string }) {
         )
       }}
     </Section>
+    </div>
   )
 }
 
@@ -146,7 +178,7 @@ export function SalesPanel({ by, id, month, note }: { by: 'rep_id' | 'box_id'; i
   const q = useAsync(`prof:sales:${by}:${id}:${month.slice(0, 4)}`, () => fetchSalesCube(by, id, month))
   const months = useMemo(() => yearMonths(month), [month])
   return (
-    <Section state={q} title="Sales" description={note} isEmpty={(d) => d.length === 0} emptyTitle="No sales" emptyText="No sales rows for this year.">
+    <Section period="monthly" state={q} title="Sales" description={note} isEmpty={(d) => d.length === 0} emptyTitle="No sales" emptyText="No sales rows for this year.">
       {(rows) => {
         const monthly = salesByMonth(rows, months).filter((m) => m.hasData)
         const products = salesByProduct(rows, monthly.map((m) => m.month)).slice(0, 10)
@@ -182,10 +214,10 @@ const DAY_TONE: Record<string, string> = {
 }
 const DAY_TEXT: Record<string, string> = { worked: 'Worked', leave: 'Leave', office_work: 'Office work', activity: 'Activity', missing: 'Missing' }
 
-function DayCalendar({ slots, month }: { slots: DaySlot[]; month: string }) {
+function DayCalendar({ slots, from }: { slots: DaySlot[]; from: string }) {
   const days = [...new Set(slots.map((s) => s.day))].sort()
   const at = (d: string, sh: 'AM' | 'PM') => slots.find((s) => s.day === d && s.shift === sh)
-  const first = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1)).getUTCDay()
+  const first = new Date(Date.UTC(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, Number(from.slice(8, 10)))).getUTCDay()
   const counts = (st: string) => slots.filter((s) => s.status === st).length
   return (
     <div className="space-y-3">
@@ -210,15 +242,16 @@ function DayCalendar({ slots, month }: { slots: DaySlot[]; month: string }) {
 }
 
 function AbsenceTab({ repId, month }: { repId: number; month: string }) {
-  const days = useAsync(`prof:days:${repId}:${month}`, () => fetchRepDays(repId, month))
+  const range = useDateRange()
+  const days = useAsync(`prof:days:${repId}:${range.from}:${range.to}`, () => fetchRepDays(repId, range.from, range.to))
   const joint = useAsync(`prof:joint:rep:${repId}:${month}`, () => fetchJointFor('rep', repId, month))
   const coach = useAsync(`prof:coach:${repId}:${month}`, () => fetchRepCoaching(repId, month))
   return (
     <div className="space-y-4">
-      <Section state={days} title="Day calendar" description={`${month.slice(0, 7)} — worked, leave, office work, activity and missing days, AM and PM.`} isEmpty={(d) => d.length === 0} emptyText="No working slots for this rep in the month.">
-        {(d) => <DayCalendar slots={d} month={month} />}
+      <Section state={days} title="Day calendar" description={`${periodLabel(range.from, range.to)} — worked, leave, office work, activity and missing days, AM and PM.`} isEmpty={(d) => d.length === 0} emptyText="No working slots for this rep in the month.">
+        {(d) => <DayCalendar slots={d} from={range.from} />}
       </Section>
-      <Section state={joint} title="Joint days" description="Days the rep worked with a manager, Field Trainer or other staff (Manager Joint Days data)." isEmpty={(d) => d.length === 0} emptyText="No joint days this month.">
+      <Section period="monthly" state={joint} title="Joint days" description="Days the rep worked with a manager, Field Trainer or other staff (Manager Joint Days data)." isEmpty={(d) => d.length === 0} emptyText="No joint days this month.">
         {(rows) => (
           <SimpleTable
             rows={rows} rowKey={(r, i) => `${r.manager_id}-${i}`}
@@ -230,7 +263,7 @@ function AbsenceTab({ repId, month }: { repId: number; month: string }) {
           />
         )}
       </Section>
-      <Section state={coach} title="Coaching" description={`Coaching visits and scores, January to ${monthShort(month)}.`} isEmpty={(d) => d.summary === null} emptyTitle="No coaching" emptyText="No coaching evaluations for this rep in the period.">
+      <Section period="monthly" state={coach} title="Coaching" description={`Coaching visits and scores, January to ${monthShort(month)}.`} isEmpty={(d) => d.summary === null} emptyTitle="No coaching" emptyText="No coaching evaluations for this rep in the period.">
         {({ summary, visits }) => (
           <div className="space-y-3">
             <dl className="grid gap-3 sm:grid-cols-4">

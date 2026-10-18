@@ -3,6 +3,7 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Clock, LogOut, ShieldAlert } from 'lucide-react'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { MonthProvider } from './context/MonthContext'
+import { DateRangeProvider } from './context/DateRangeContext'
 import { missingEnv } from './lib/supabase'
 import { ALL_NAV } from './lib/nav'
 import Layout from './components/Layout'
@@ -89,7 +90,9 @@ function Guarded() {
   }
   return (
     <MonthProvider>
-      <Layout />
+      <DateRangeProvider>
+        <Layout />
+      </DateRangeProvider>
     </MonthProvider>
   )
 }

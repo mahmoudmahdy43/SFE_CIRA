@@ -1,3 +1,4 @@
+import { lastDayOf, rangeFileSlug } from '../../lib/dateRange'
 import { ProfileLink } from '../../components/app/ProfileLink'
 import { useCallback, useMemo, useState } from 'react'
 import { downloadCsv } from '../../lib/csv'
@@ -79,7 +80,7 @@ export function CoverageTab({ month, lines, filters, onFilters }: {
   const toggle = (id: string) => setHidden((h) => { const n = new Set(h); if (n.has(id)) n.delete(id); else n.add(id); return n })
 
   const records = () => exportCoverage(sorted.length === rows.length ? sorted : rows, total, (id) => !hidden.has(id))
-  const name = `coverage-${month.slice(0, 7)}`
+  const name = `coverage-${rangeFileSlug(month, lastDayOf(month))}`
 
   return (
     <div className="space-y-3">

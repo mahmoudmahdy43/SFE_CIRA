@@ -7,7 +7,7 @@ import { cn } from '../../lib/utils'
 
 /** A card whose body follows an async state: skeleton while loading, error with retry, empty state, or the content. */
 export function Section<T>({
-  title, description, state, isEmpty, emptyTitle = 'Nothing to show', emptyText, actions, className, children,
+  title, description, state, isEmpty, emptyTitle = 'Nothing to show', emptyText, actions, className, period, children,
 }: {
   title: string
   description?: string
@@ -17,6 +17,8 @@ export function Section<T>({
   emptyText?: string
   actions?: ReactNode
   className?: string
+  /** 'monthly': built from monthly data, does not follow a day range (shows the Monthly badge). */
+  period?: 'monthly'
   children: (d: T) => ReactNode
 }) {
   const { data, error, loading, reload } = state
@@ -25,7 +27,7 @@ export function Section<T>({
     <Card className={cn('p-5', className)}>
       <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold">{title}</h3>
+          <h3 className="flex items-center gap-2 text-sm font-semibold">{title}{period === 'monthly' && <Badge tone="neutral" title="Built from monthly data: it does not follow a day range">Monthly</Badge>}</h3>
           {description && <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>}
         </div>
         {actions}
