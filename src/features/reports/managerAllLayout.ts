@@ -29,7 +29,7 @@ const rate = (rateV: number | null, visits: number): number | null => (rateV ===
 export const ALL_COLS: AllCol[] = [
   { id: 'line', header: 'Line', kind: 'text', tone: 'default', value: (r) => r.line },
   { id: 'name', header: 'Sales Manager', kind: 'text', tone: 'default', value: (r) => r.name },
-  { id: 'fieldPm', header: 'PM Field Day', kind: 'days', tone: 'default', sum: true, value: (r) => r.slots.field_pm },
+  { id: 'fieldPm', header: 'PM Field Day', kind: 'days', tone: 'default', sum: true, value: (r) => r.slots.field_pm - r.slots.missing_pm },
   { id: 'leave', header: 'Vacation', kind: 'days', tone: 'default', sum: true, value: (r) => r.slots.leave_pm },
   { id: 'ow', header: 'Office Work', kind: 'days', tone: 'default', sum: true, value: (r) => r.slots.ow_pm },
   { id: 'act', header: 'Activity', kind: 'days', tone: 'default', sum: true, value: (r) => r.slots.act_pm },
@@ -39,7 +39,7 @@ export const ALL_COLS: AllCol[] = [
   { id: 'coaching', header: 'Coaching Report', kind: 'coaching', tone: 'default', value: () => null },
   { id: 'ratePm', header: 'PM Call Rate', kind: 'rate', tone: 'default', value: (r) => rate(r.call_rate_pm, r.visits_pm) },
   { id: 'ratePh', header: 'Pharmacies Call Rate', kind: 'rate', tone: 'pharmacy', value: (r) => rate(r.call_rate_pharmacy, r.visits_pharmacy) },
-  { id: 'fieldAm', header: 'AM Field Day', kind: 'days', tone: 'default', am: true, sum: true, value: (r) => r.slots.field_am },
+  { id: 'fieldAm', header: 'AM Field Day', kind: 'days', tone: 'default', am: true, sum: true, value: (r) => r.slots.field_am - r.slots.missing_am },
   { id: 'visitsAm', header: 'AM Total Visits', kind: 'count', tone: 'default', am: true, sum: true, value: (r) => r.visits_am },
   { id: 'rateAm', header: 'AM Call Rate', kind: 'rate', tone: 'default', am: true, value: (r) => rate(r.call_rate_am, r.visits_am) },
   { id: 'missAm', header: 'AM Missing Days', kind: 'days', tone: 'default', am: true, flag: true, sum: true, value: (r) => r.slots.missing_am },
