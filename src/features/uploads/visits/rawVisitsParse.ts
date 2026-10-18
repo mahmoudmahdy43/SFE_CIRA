@@ -205,6 +205,8 @@ export interface RawPlan {
   lines: number[]
   /** Same line + overlapping dates: likely the same file twice. */
   overlaps: string[]
+  /** Per distinct line: the dates (min/max over that line's files) to clear before loading. */
+  perLine: { line: number; from: string; to: string }[]
 }
 
 export function planRawUpload(files: PlannedFile[]): RawPlan {
@@ -228,5 +230,17 @@ export function planRawUpload(files: PlannedFile[]): RawPlan {
     }
   })
   const lines = [...new Set(files.flatMap((f) => (f.line === null ? [] : [f.line])))]
-  return { rows, from, to, months: from && to ? monthsBetween(from, to) : [], lines, overlaps }
+  const perLine: RawPlan['perLine'] = []
+  for (const line of lines) {
+    let lf: string | null = null
+    let lt: string | null = null
+    files.forEach((f, i) => {
+      const r = ranges[i]
+      if (f.line !== line || !r || f.file.rows.length === 0) return
+      if (lf === null || r.from < lf) lf = r.from
+      if (lt === null || r.to > lt) lt = r.to
+    })
+    if (lf !== null && lt !== null) perLine.push({ line, from: lf, to: lt })
+  }
+  return { rows, from, to, months: from && to ? monthsBetween(from, to) : [], lines, overlaps, perLine }
 }

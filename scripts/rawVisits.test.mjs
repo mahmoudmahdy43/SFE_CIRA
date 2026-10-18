@@ -57,6 +57,14 @@ t('plan: range, months, duplicate warning', () => {
   assert.equal(planRawUpload([a, { ...b, line: 2 }]).overlaps.length, 0)
   assert.deepEqual(monthsBetween('2025-12-20', '2026-01-02'), ['2025-12-01', '2026-01-01'])
 })
+t('plan: one clear range per distinct line (min/max of that line\'s files)', () => {
+  const mk = (name, when, line) => ({ file: parseRawVisitsFile(name, file(tr({ when }))), line })
+  const p = planRawUpload([mk('a', '2026-10-05 09:00', 1), mk('b', '2026-11-02 09:00', 1), mk('c', '2026-10-20 09:00', 2)])
+  const by = Object.fromEntries(p.perLine.map((c) => [c.line, [c.from, c.to]]))
+  assert.deepEqual(by[1], ['2026-10-01', '2026-11-02']); assert.deepEqual(by[2], ['2026-10-01', '2026-10-20'])
+  assert.equal(p.perLine.length, 2)
+  assert.deepEqual(planRawUpload([mk('a', '2026-10-05 09:00', 3)]).perLine.map((c) => c.line), [3])
+})
 t('owner rejections are split and counted per distinct owner', () => {
   const rej = (reason) => ({ excelRow: 1, reason, context: '' })
   const s = splitOwnerRejections([rej('unknown owner Ali'), rej('unknown owner Ali'), rej('owner has no CODE: Mona'), rej('unknown account type Z')])

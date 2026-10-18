@@ -91,19 +91,15 @@ export default function RawVisitsWizard({ onExit }: { onExit: () => void }) {
 
   const setLine = (i: number, id: number | null) => setFiles((fs) => fs.map((f, k) => (k === i ? { ...f, line: id } : f)))
   const missingLine = usable.some((f) => f.line === null)
-  const chosenLines = lines.filter((l) => plan.lines.includes(l.id))
-  const otherLines = lines.filter((l) => !plan.lines.includes(l.id))
 
   const start = async () => {
     if (!plan.from || !plan.to) return
-    const from = plan.from
-    const to = plan.to
     setStage('loading')
     setFailure(null)
     setLoadProg({ done: 0, total: plan.rows, month: '' })
     await run(() => loadRawVisits({
       files: usable.map((f) => ({ name: f.file.name, lineId: f.line as number, rows: f.file.rows, rowNumbers: f.file.rowNumbers })),
-      from, to, months: plan.months, onProgress: setLoadProg, onBatch: (id) => { batchRef.current = id },
+      clears: plan.perLine, months: plan.months, onProgress: setLoadProg, onBatch: (id) => { batchRef.current = id },
     }))
   }
   const run = async (fn: () => Promise<LoadOutcome>) => {
@@ -255,16 +251,14 @@ export default function RawVisitsWizard({ onExit }: { onExit: () => void }) {
           <Card className="p-5">
             <h2 className="mb-2 text-sm font-semibold">Replace confirmation</h2>
             <p className="text-sm">
-              Visits from <b className="tnum">{plan.from}</b> to <b className="tnum">{plan.to}</b> will be <b className="text-danger">REPLACED</b>.
-              The database deletes every stored visit in that date range — <b>all lines and all shifts, including pharmacy</b> — before the new rows are loaded.
+              Visits already uploaded from raw files for <b>{plan.perLine.map((c) => lineName(c.line)).join(', ')}</b> between <b className="tnum">{plan.from}</b> and <b className="tnum">{plan.to}</b> will be <b className="text-danger">REPLACED</b>. Other lines are not affected.
             </p>
-            <p className="mt-2 text-sm text-muted-foreground">Loading: {usable.map((f) => `${f.file.name} → ${lineName(f.line)}`).join('; ')}.</p>
-            {otherLines.length > 0 && (
-              <p role="alert" className="mt-3 flex items-start gap-2 rounded-control bg-warning-soft px-3 py-2 text-sm text-warning">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-                <span>You are uploading {chosenLines.map((l) => l.name).join(', ') || 'no line'} only. Visits of <b>{otherLines.map((l) => l.name).join(', ')}</b> in this date range will be deleted too — upload their files in the same run, or choose Cancel.</span>
-              </p>
+            {plan.perLine.length > 1 && (
+              <ul className="mt-2 list-disc pl-5 text-sm text-muted-foreground">
+                {plan.perLine.map((c) => <li key={c.line}>{lineName(c.line)}: <span className="tnum">{c.from} → {c.to}</span></li>)}
+              </ul>
             )}
+            <p className="mt-2 text-sm text-muted-foreground">Loading: {usable.map((f) => `${f.file.name} → ${lineName(f.line)}`).join('; ')}.</p>
           </Card>
           <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
             <p className="text-sm" role="status">Load <b className="tnum">{plan.rows.toLocaleString()}</b> rows from {usable.length} file{usable.length === 1 ? '' : 's'} · process {plan.months.length} month{plan.months.length === 1 ? '' : 's'}.</p>
