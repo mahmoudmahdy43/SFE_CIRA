@@ -7,7 +7,7 @@ import { periodLabel } from '../lib/dateRange'
 import { fetchLineNames } from '../lib/api/reports'
 import { useAsync } from '../features/dashboard/useAsync'
 import { CallRateTab } from '../features/reports/CallRateTab'
-import { CoverageTab } from '../features/reports/CoverageTab'
+import { EmployeePerformanceTab } from '../features/reports/EmployeePerformanceTab'
 import { LeavesTab, MissingTab } from '../features/reports/AbsenceTab'
 import { ManagersTab } from '../features/reports/ManagersTab'
 import { KpiRepTab } from '../features/reports/KpiRepTab'
@@ -30,12 +30,12 @@ export default function Reports() {
       <div className="print:hidden">
         <PageHeader
           title="Reports"
-          description={`Coverage, call-rate, KPI, leave, missing-day, visits-capacity, speciality-mix, manager-joint-days, manager-coverage, coaching and sales reports for ${isFullMonth ? month.slice(0, 7) : periodLabel(from, to)} — read straight from the database; change the period in the top bar. KPI by Rep, Leaves, Missing Days, Managers and Joint Days (by day) follow a day range; the others are monthly and show the month of the To date.`}
+          description={`Employee performance, call-rate, KPI, leave, missing-day, visits-capacity, speciality-mix, manager-joint-days, manager-coverage, coaching and sales reports for ${isFullMonth ? month.slice(0, 7) : periodLabel(from, to)} — read straight from the database; change the period in the top bar. Employee performance, KPI by Rep, Leaves, Missing Days, Managers and Joint Days (by day) follow a day range; the others are monthly and show the month of the To date.`}
         />
       </div>
-      <Tabs defaultValue="coverage">
+      <Tabs defaultValue="employee-performance">
         <TabsList className="mb-4 print:hidden">
-          <TabsTrigger value="coverage">Coverage</TabsTrigger>
+          <TabsTrigger value="employee-performance">Employee performance</TabsTrigger>
           <TabsTrigger value="call-rate">Call Rate</TabsTrigger>
           <TabsTrigger value="kpi-rep">KPI by Rep</TabsTrigger>
           <TabsTrigger value="leaves">Leaves</TabsTrigger>
@@ -48,7 +48,7 @@ export default function Reports() {
           <TabsTrigger value="coaching">Coaching</TabsTrigger>
           <TabsTrigger value="sales">Sales</TabsTrigger>
         </TabsList>
-        <TabsContent value="coverage"><PeriodBanner monthly className="mb-3" /><CoverageTab {...shared} /></TabsContent>
+        <TabsContent value="employee-performance"><PeriodBanner className="mb-3" /><EmployeePerformanceTab {...shared} /></TabsContent>
         <TabsContent value="call-rate"><PeriodBanner monthly className="mb-3" /><CallRateTab {...shared} /></TabsContent>
         <TabsContent value="kpi-rep"><KpiRepTab {...shared} /></TabsContent>
         <TabsContent value="leaves"><LeavesTab {...shared} /></TabsContent>

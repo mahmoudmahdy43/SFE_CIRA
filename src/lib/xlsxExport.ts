@@ -75,6 +75,8 @@ export interface GridSheet {
   heights?: (number | undefined)[]
   /** Freeze panes: this many top rows and left columns stay in view. */
   freeze?: { rows: number; cols: number }
+  /** AutoFilter on one header row (0-based `row`) over columns fromCol..toCol, down to `lastRow`. */
+  autofilter?: { row: number; fromCol: number; toCol: number; lastRow: number }
 }
 
 type XlsxLib = Pick<typeof import('xlsx-js-style'), 'utils'>
@@ -97,6 +99,10 @@ function gridToWorksheet(XLSX: XlsxLib, sheet: GridSheet): Record<string, unknow
   if (sheet.merges?.length) ws['!merges'] = sheet.merges
   if (sheet.widths) ws['!cols'] = sheet.widths.map((wch) => ({ wch }))
   if (sheet.heights) ws['!rows'] = sheet.heights.map((h) => (h ? { hpt: h } : {}))
+  if (sheet.autofilter) {
+    const a = sheet.autofilter
+    ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: a.row, c: a.fromCol }, e: { r: a.lastRow, c: a.toCol } }) }
+  }
   if (sheet.freeze) {
     const { rows, cols } = sheet.freeze
     ws['!freeze'] = { xSplit: String(cols), ySplit: String(rows), topLeftCell: XLSX.utils.encode_cell({ r: rows, c: cols }), activePane: 'bottomRight', state: 'frozen' }

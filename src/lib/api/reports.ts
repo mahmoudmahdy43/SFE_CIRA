@@ -3,6 +3,7 @@ import { supabase } from '../supabase'
 import type { MonthDetail } from './kpi'
 import { toKpiRepRow, type KpiRepRow } from '../../features/reports/kpiRepMath'
 import { toLeaveRow, toMissingRow, type LeaveRow, type MissingRow } from '../../features/reports/absenceMath'
+import { toPerfRow, type PerfRow } from '../../features/reports/employeePerfMath'
 import { MANAGER_COLS, toManagerRow, type ManagerRow } from '../../features/reports/managerMath'
 import { toCapacityRow, type CapacityRow } from '../../features/reports/capacityMath'
 import { toJointRow, type JointRow } from '../../features/reports/jointMath'
@@ -99,6 +100,12 @@ export function kpiRepRows(detail: MonthDetail, month: string): KpiRepRow[] {
 export async function fetchManagerReport(month: string): Promise<ManagerRow[]> {
   const rows = await fetchAll<Raw>('v_manager_report', MANAGER_COLS, ['manager_id'], (q) => q.eq('month', month))
   return rows.map(toManagerRow)
+}
+
+/** One row per rep for a day range, PM shift only (employee_performance_range, admin-gated; coverage is computed on the visits inside the range). */
+export async function fetchEmployeePerformance(from: string, to: string): Promise<PerfRow[]> {
+  const rows = await rpc<Raw[] | null>('employee_performance_range', { p_from: from, p_to: to })
+  return (rows ?? []).map(toPerfRow)
 }
 
 /** One row per manager for an arbitrary day range (manager_report_range, admin-gated; days after today are not counted). */
