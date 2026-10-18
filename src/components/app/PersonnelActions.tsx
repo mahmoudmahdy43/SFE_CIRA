@@ -136,9 +136,9 @@ export function CreateManagerDialog({ open, onOpenChange, onDone }: Omit<Base, '
 }
 
 /* --------------------------- Assign manager --------------------------- */
-export function AssignManagerDialog({ org, open, onOpenChange, onDone, manager, presetBox }: Base & { manager?: Manager; presetBox?: number }) {
+export function AssignManagerDialog({ org, open, onOpenChange, onDone, manager, presetBox, presetBoxes }: Base & { manager?: Manager; presetBox?: number; presetBoxes?: number[] }) {
   const [mgr, setMgr] = useState<string | null>(manager ? String(manager.id) : null)
-  const [boxes, setBoxes] = useState<number[]>(presetBox ? [presetBox] : [])
+  const [boxes, setBoxes] = useState<number[]>(presetBoxes ?? (presetBox ? [presetBox] : []))
   const [date, setDate] = useState(todayIso())
   const options = allBoxOptions(org).filter((o) => !boxes.includes(Number(o.value)))
   return (

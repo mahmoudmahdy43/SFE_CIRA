@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { fetchAll } from './core'
-import { todayIso } from '../norm'
+import { fetchAll, rpc } from './core'
+import { monthStart, todayIso } from '../norm'
 
 export interface Line { id: number; name: string }
 export interface Nsm { id: number; name: string }
@@ -166,4 +166,19 @@ export function effectiveTarget(targets: TargetRow[], box: number, shift: 'AM' |
     }
   }
   return best
+}
+
+/** One row of the database function vacant_manager_boxes: a box with no manager in the month. */
+export interface VacantManagerBox {
+  box_id: number
+  box_name: string
+  line_name: string
+  district: string | null
+  /** Null = the district's manager is vacant too. */
+  district_manager: string | null
+}
+
+/** Boxes with no manager in the month containing `month` (any date; the first day is sent). */
+export function fetchVacantManagerBoxes(month: string): Promise<VacantManagerBox[]> {
+  return rpc<VacantManagerBox[] | null>('vacant_manager_boxes', { p_month: monthStart(month) }).then((r) => r ?? [])
 }
