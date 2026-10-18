@@ -62,6 +62,10 @@ export interface LoadOutcome {
   months: string[]
   /** Type-specific results (e.g. per-month processing summaries). */
   extra?: unknown
+  /** Result screen: group rejected rows by reason (count per reason, first 20 rows expandable) instead of one flat table. */
+  groupRejected?: boolean
+  /** Header of the "row details" column of the rejected rows table (default: month / rep / account / doctor). */
+  contextLabel?: string
 }
 
 export class LoadFailure extends Error {

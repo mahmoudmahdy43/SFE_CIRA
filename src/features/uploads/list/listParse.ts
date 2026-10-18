@@ -36,7 +36,9 @@ export const LIST_COLUMNS: ColumnSpec[] = [
   // exports have none; the wizard then asks for one Month for the whole upload.
   { key: 'month', label: 'Month', required: false },
   { key: 'line', label: 'Line', required: true },
-  { key: 'emp_code', label: 'Emp. Code', required: true },
+  // The list belongs to the Box: the database ignores the rep code and finds the rep from who covers the Box.
+  // Emp. Code is still sent (as '' when blank) but a blank one is never an error.
+  { key: 'emp_code', label: 'Emp. Code', required: false },
   { key: 'account_id', label: 'Account ID', required: true },
   { key: 'doctor_id', label: 'Doctor Id', required: true },
   { key: 'doctor_name', label: 'Doctor Name', required: true },
@@ -46,7 +48,8 @@ export const LIST_COLUMNS: ColumnSpec[] = [
   { key: 'speciality', label: 'Speciality', required: false, aliases: ['specialty'] },
   { key: 'class', label: 'Class', required: false },
   { key: 'brick', label: 'Brick', required: false },
-  { key: 'division', label: 'Division', required: false },
+  // Division = the Territory name: with Line it is the key that finds the Box, so the column must exist.
+  { key: 'division', label: 'Division', required: true },
   { key: 'active_from', label: 'Active From', required: false },
 ]
 

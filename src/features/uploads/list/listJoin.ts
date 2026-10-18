@@ -168,6 +168,7 @@ export function noSpecialityExport(rows: ListRow[]): Record<string, string>[] {
     Month: r.month,
     Line: r.line,
     'Emp. Code': r.emp_code,
+    Division: r.division ?? '',
     'Account Type': r.account_type ?? '',
     'Account ID': r.account_id,
     'Account Name': r.account_name ?? '',
@@ -176,4 +177,27 @@ export function noSpecialityExport(rows: ListRow[]): Record<string, string>[] {
     Class: r.class ?? '',
     Brick: r.brick ?? '',
   }))
+}
+
+export interface LineDivisionStat {
+  line: string
+  rows: number
+  /** Distinct Divisions (= territory names) in the line. */
+  divisions: number
+  /** Rows with an empty Division: the database cannot find their Box from Line + Division. */
+  noDivision: number
+}
+
+/** Per line: rows, distinct Divisions and rows with an empty Division (Division is the key that finds the Box). */
+export function lineDivisionStats(rows: ListRow[]): LineDivisionStat[] {
+  const by = new Map<string, { rows: number; divs: Set<string>; none: number }>()
+  for (const r of rows) {
+    const st = by.get(r.line) ?? { rows: 0, divs: new Set<string>(), none: 0 }
+    st.rows++
+    const d = r.division?.trim() ?? ''
+    if (d === '') st.none++
+    else st.divs.add(d)
+    by.set(r.line, st)
+  }
+  return [...by].map(([line, v]) => ({ line, rows: v.rows, divisions: v.divs.size, noDivision: v.none })).sort((a, b) => natural(a.line, b.line))
 }

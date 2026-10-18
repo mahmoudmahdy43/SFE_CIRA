@@ -3,7 +3,8 @@
 import assert from 'node:assert/strict'
 import * as XLSX from 'xlsx'
 import { parseListSheet } from '../src/features/uploads/list/listSheet.ts'
-import { combineListFiles, finalizeList, noSpecialityExport } from '../src/features/uploads/list/listJoin.ts'
+import { combineListFiles, finalizeList, lineDivisionStats, noSpecialityExport } from '../src/features/uploads/list/listJoin.ts'
+import { groupRejectedByReason } from '../src/features/uploads/rejected.ts'
 
 let n = 0
 const t = (name, fn) => { fn(); n++; console.log('ok -', name) }
@@ -18,7 +19,7 @@ function sheet(aoa) {
 
 const A_HEAD = ['#', 'Line', 'District', 'Division', 'Brick', 'Account Type', 'Account ID', 'Account Name', 'Doctor Id', 'Doctor Name', 'Class', 'Emp. Code', 'Emp. Name', 'Active From', 'DM', 'No of Visits', 'Freq.']
 const aRow = (i, line, type, acc, doc, name, emp, extra = {}) => [
-  i, line, 'D1', 'Div', extra.brick ?? 'B1', type, acc, 'Acc ' + acc, doc, name, extra.cls ?? 'A', emp, 'Rep ' + emp, extra.from ?? '2026-01-01 03:00:09', 'DM1', 5, extra.freq ?? 4,
+  i, line, 'D1', 'div' in extra ? extra.div : 'Div', extra.brick ?? 'B1', type, acc, 'Acc ' + acc, doc, name, extra.cls ?? 'A', emp, 'Rep ' + emp, extra.from ?? '2026-01-01 03:00:09', 'DM1', 5, extra.freq ?? 4,
 ]
 // CRM main list: the first row is empty, the header is on row 2.
 const mainSheet = (rows) => sheet([[], A_HEAD, ...rows])
@@ -155,6 +156,80 @@ t('old format: wrong file keeps the usual missing-columns result', () => {
   assert.ok(p.missing.includes('Line')); assert.ok(!p.missing.includes('Month'))
   const c = combineListFiles([{ name: 'x.xlsx', parsed: p }])
   assert.equal(c, p) // single file: the wizard shows its usual "Missing required column(s)" message
+})
+
+// ---------- the list belongs to the Box: Emp. Code optional, Division is the key ----------
+t('a row with an empty Emp Code and a valid Division is accepted (CRM main list)', () => {
+  const p = parse(mainSheet([aRow(1, 'CIRA 2', 'Clinic', 1, 10, 'Dr One', null, { div: 'Nasr City' })]))
+  assert.equal(p.errors.length, 0)
+  assert.equal(p.rows.length, 1)
+  assert.equal(p.rows[0].emp_code, ''); assert.equal(p.rows[0].division, 'Nasr City')
+  const f = finalizeList(combineListFiles(files(['m', mainSheet([aRow(1, 'CIRA 2', 'Clinic', 1, 10, 'Dr One', null, { div: 'Nasr City' })])])), '2026-10-01')
+  assert.equal(f.rows.length, 1); assert.equal(f.rows[0].emp_code, ''); assert.equal(f.rows[0].division, 'Nasr City')
+})
+t('a row with an empty Emp Code and a valid Division is accepted (old single-file format)', () => {
+  const ws = sheet([LEGACY_HEAD, ['2026-10-01', 'CIRA 1', null, 1, 10, 'Dr One', 4, 'Acc', 'Clinic', 'Gyn', 'A', 'B1', 'Zamalek', '2026-01-05']])
+  const p = parse(ws)
+  assert.equal(p.errors.length, 0); assert.equal(p.rows.length, 1)
+  assert.equal(p.rows[0].emp_code, ''); assert.equal(p.rows[0].division, 'Zamalek')
+})
+t('Emp. Code column may be missing from the file altogether', () => {
+  const head = A_HEAD.filter((h) => h !== 'Emp. Code')
+  const row = aRow(1, 'CIRA 1', 'Clinic', 1, 10, 'Dr', 9001); row.splice(A_HEAD.indexOf('Emp. Code'), 1)
+  const p = parse(sheet([[], head, row]))
+  assert.equal(p.missing.length, 0); assert.equal(p.rows.length, 1); assert.equal(p.rows[0].emp_code, '')
+})
+t('Division is always part of the row; an empty Division is kept (null) and counted, not an error', () => {
+  const p = parse(mainSheet([aRow(1, 'CIRA 1', 'Clinic', 1, 10, 'A', 1, { div: null }), aRow(2, 'CIRA 1', 'Clinic', 2, 20, 'B', 1, { div: '   ' }), aRow(3, 'CIRA 1', 'Clinic', 3, 30, 'C', 1, { div: 'Giza' })]))
+  assert.equal(p.errors.length, 0); assert.equal(p.rows.length, 3)
+  assert.deepEqual(p.rows.map((r) => r.division), [null, null, 'Giza'])
+  assert.ok(p.rows.every((r) => 'division' in r))
+})
+t('a file without a Division column is reported as missing it (Division finds the Box)', () => {
+  const head = A_HEAD.filter((h) => h !== 'Division')
+  const row = aRow(1, 'CIRA 1', 'Clinic', 1, 10, 'Dr', 9001); row.splice(A_HEAD.indexOf('Division'), 1)
+  assert.deepEqual(parse(sheet([[], head, row])).missing, ['Division'])
+})
+t('per line: rows, distinct Divisions, rows with empty Division', () => {
+  const p = finalizeList(combineListFiles(files(['m1', mainSheet([
+    aRow(1, 'CIRA 1', 'Clinic', 1, 10, 'A', 1, { div: 'Giza' }), aRow(2, 'CIRA 1', 'Clinic', 2, 20, 'B', 1, { div: 'Giza' }),
+    aRow(3, 'CIRA 1', 'Clinic', 3, 30, 'C', 1, { div: 'Nasr' }), aRow(4, 'CIRA 1', 'Clinic', 4, 40, 'D', 1, { div: null }),
+  ])], ['m2', mainSheet([aRow(1, 'CIRA 2', 'Clinic', 5, 50, 'E', null, { div: 'Giza' })])])), '2026-10-01')
+  assert.deepEqual(lineDivisionStats(p.rows), [
+    { line: 'CIRA 1', rows: 4, divisions: 2, noDivision: 1 },
+    { line: 'CIRA 2', rows: 1, divisions: 1, noDivision: 0 },
+  ])
+})
+
+// ---------- Speciality file: its Division column is wrong and must be ignored completely ----------
+t('speciality file: a (wrong) Division column is never read and never changes the join or the rows', () => {
+  const head = [...B_HEAD, 'Division']
+  const withDiv = (rows, div) => sheet([[], head, ...rows.map((r) => [...r, div])])
+  const rowsB = [bRow(1, 'Clinic', 1, 10, 'Gyn'), bRow(2, 'Hospital', 2, 20, 'Derma')]
+  const clean = parse(specSheet(rowsB))
+  const noisy = parse(withDiv(rowsB, 'WRONG TERRITORY'))
+  assert.deepEqual(noisy.specs, clean.specs)
+  assert.deepEqual(noisy.missing, []); assert.equal(noisy.errors.length, 0)
+  const main = [aRow(1, 'CIRA 1', 'Clinic', 1, 10, 'Dr One', 9001, { div: 'Nasr City' }), aRow(2, 'CIRA 1', 'Hospital', 2, 20, 'Dr Two', 9001, { div: 'Giza' })]
+  const joined = finalizeList(combineListFiles([{ name: 'm', parsed: parse(mainSheet(main)) }, { name: 'b', parsed: noisy }]), '2026-10-01')
+  assert.deepEqual(joined.rows.map((r) => [r.division, r.speciality]), [['Nasr City', 'Gyn'], ['Giza', 'Derma']]) // Division stays the main list's; speciality joined on type + account + doctor only
+  assert.deepEqual(joined.crm.noSpecRows, [])
+})
+t('speciality file without any Division column works the same', () => {
+  const p = parse(specSheet([bRow(1, 'Clinic', 1, 10, 'Gyn')]))
+  assert.equal(p.missing.length, 0); assert.equal(p.specs.length, 1)
+})
+
+// ---------- rejected rows grouped by reason ----------
+t('rejected rows are grouped by reason: counts, biggest first, first 20 rows kept', () => {
+  const rej = []
+  for (let i = 0; i < 25; i++) rej.push({ excelRow: 10 + i, reason: 'unknown territory Nasr (CIRA 2)', context: `ctx${i}` })
+  for (let i = 0; i < 3; i++) rej.push({ excelRow: 100 + i, reason: 'unknown territory Giza (CIRA 1)', context: `g${i}` })
+  rej.push({ excelRow: undefined, reason: 'unknown territory Giza (CIRA 1)', context: 'g3' })
+  const g = groupRejectedByReason(rej)
+  assert.deepEqual(g.map((x) => [x.reason, x.count, x.rows.length]), [['unknown territory Nasr (CIRA 2)', 25, 20], ['unknown territory Giza (CIRA 1)', 4, 4]])
+  assert.deepEqual(g[0].rows.map((r) => r.excelRow), Array.from({ length: 20 }, (_, i) => 10 + i)) // the first 20, in reported order
+  assert.deepEqual(groupRejectedByReason([]), [])
 })
 
 // ---------- bad drops ----------

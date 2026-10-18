@@ -243,7 +243,6 @@ function parseMainSheet(ws: Sheet, b: Bounds, headerRow: number, onProgress?: (d
     const problems: string[] = []
     if (hasMonth && !month) problems.push(rawMonth === null ? 'Month is blank' : 'Month is not a valid date')
     if (!line) problems.push('Line is blank')
-    if (!empCode) problems.push('Emp. Code is blank')
     if (!accountId) problems.push('Account ID is blank')
     if (!doctorId) problems.push('Doctor Id is blank')
     if (!doctorName) problems.push('Doctor Name is blank')
@@ -264,7 +263,7 @@ function parseMainSheet(ws: Sheet, b: Bounds, headerRow: number, onProgress?: (d
     const row: ListRow = {
       month: month as string,
       line: line as string,
-      emp_code: empCode as string,
+      emp_code: empCode ?? '',
       account_id: accountId as string,
       doctor_id: doctorId as string,
       account_name: normText(get(r, 'account_name')),

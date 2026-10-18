@@ -7,7 +7,8 @@ import ListResultPanel from './ListResultPanel'
 import { LoadFailure, type LoadOutcome, type LoadParams, type Preview, type ReferenceData, type RejectedRow, type UploadTypeConfig } from '../types'
 import { LIST_COLUMNS, chunkRows, excelRowOf, type ListRow } from './listParse'
 import ListFilesPanel from './ListFilesPanel'
-import { combineListFiles, finalizeList } from './listJoin'
+import ListLinesPanel from './ListLinesPanel'
+import { combineListFiles, finalizeList, lineDivisionStats } from './listJoin'
 import type { ParsedList } from './listSheet'
 
 export const LIST_CHUNK = 2000
@@ -16,15 +17,11 @@ interface ChunkResult { loaded: number; rejected_count: number; rejected: { i: n
 
 function buildPreview(p: ParsedList, ref: ReferenceData): Preview {
   const monthCount = new Map<string, number>()
-  const reps = new Set<string>()
   const doctors = new Set<string>()
-  const unknownReps = new Map<string, number>()
   const unknownLines = new Map<string, number>()
   for (const r of p.rows) {
     monthCount.set(r.month, (monthCount.get(r.month) ?? 0) + 1)
-    reps.add(r.emp_code)
     doctors.add(`${r.account_id}|${r.doctor_id}`)
-    if (!ref.repCodes.has(r.emp_code)) unknownReps.set(r.emp_code, (unknownReps.get(r.emp_code) ?? 0) + 1)
     const ln = normName(r.line) ?? ''
     if (!ref.lineNames.has(ln)) unknownLines.set(r.line, (unknownLines.get(r.line) ?? 0) + 1)
   }
@@ -33,7 +30,9 @@ function buildPreview(p: ParsedList, ref: ReferenceData): Preview {
   if (p.duplicates > 0) warnings.push(`${p.duplicates.toLocaleString()} duplicate row(s) (same Account ID + Doctor Id in the same month) — the last occurrence is used.`)
   if (p.ambiguousMonths > 0) warnings.push(`${p.ambiguousMonths.toLocaleString()} Month value(s) such as 3/4/2026 could mean two different months — day-first was assumed. Check the raw values below.`)
   if (p.errors.length > 0) warnings.push(`${p.errors.length.toLocaleString()} row(s) have blank or invalid required values and will be excluded (listed below).`)
-  if (unknownReps.size > 0) warnings.push(`${unknownReps.size} unknown rep code(s) — the database will reject those rows.`)
+  const lineStats = lineDivisionStats(p.rows)
+  const noDivision = lineStats.reduce((a, l) => a + l.noDivision, 0)
+  if (noDivision > 0) warnings.push(`${noDivision.toLocaleString()} row(s) have an empty Division — the database finds the Box from Line + Division, so these rows cannot be matched to a Box.`)
   if (unknownLines.size > 0) warnings.push(`${unknownLines.size} line name(s) not found in the system — the database will reject those rows.`)
   // CRM exports (main list + Speciality file). Non-blocking: rows without a speciality are still loaded.
   const crm = p.crm?.show ? p.crm : undefined
@@ -52,7 +51,7 @@ function buildPreview(p: ParsedList, ref: ReferenceData): Preview {
       { label: 'Rows in file', value: p.totalRows },
       { label: 'Rows ready to load', value: p.rows.length },
       { label: 'Months detected', value: monthCount.size },
-      { label: 'Distinct reps', value: reps.size },
+      { label: 'Distinct Divisions', value: lineStats.reduce((a, l) => a + l.divisions, 0) },
       { label: 'Distinct doctors', value: doctors.size },
       { label: 'Duplicates merged', value: p.duplicates },
       { label: 'Rows excluded (invalid)', value: p.errors.length },
@@ -60,29 +59,33 @@ function buildPreview(p: ParsedList, ref: ReferenceData): Preview {
     warnings,
     monthSamples: p.monthSamples,
     months: [...monthCount].map(([month, rows]) => ({ month, rows })).sort((a, b) => a.month.localeCompare(b.month)),
-    unknownReps: [...unknownReps].map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count),
+    unknownReps: [],
     unknownLines: [...unknownLines].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
     sample: crm
       ? {
-          columns: ['Month', 'Line', 'Emp. Code', 'Account ID', 'Doctor Id', 'Doctor Name', 'Account Name', 'Speciality', 'Class', 'Freq.'],
-          rows: p.rows.slice(0, 20).map((r) => [r.month, r.line, r.emp_code, r.account_id, r.doctor_id, r.doctor_name, r.account_name, r.speciality, r.class, r.freq]),
+          columns: ['Month', 'Line', 'Division', 'Account ID', 'Doctor Id', 'Doctor Name', 'Account Name', 'Speciality', 'Class', 'Freq.'],
+          rows: p.rows.slice(0, 20).map((r) => [r.month, r.line, r.division, r.account_id, r.doctor_id, r.doctor_name, r.account_name, r.speciality, r.class, r.freq]),
         }
       : {
-          columns: ['Month', 'Line', 'Emp. Code', 'Account ID', 'Doctor Id', 'Doctor Name', 'Account Name', 'Class', 'Freq.'],
-          rows: p.rows.slice(0, 20).map((r) => [r.month, r.line, r.emp_code, r.account_id, r.doctor_id, r.doctor_name, r.account_name, r.class, r.freq]),
+          columns: ['Month', 'Line', 'Division', 'Account ID', 'Doctor Id', 'Doctor Name', 'Account Name', 'Class', 'Freq.'],
+          rows: p.rows.slice(0, 20).map((r) => [r.month, r.line, r.division, r.account_id, r.doctor_id, r.doctor_name, r.account_name, r.class, r.freq]),
         },
-    extra: crm ? <ListFilesPanel info={crm} /> : undefined,
+    extra: (
+      <>
+        <ListLinesPanel stats={lineStats} />
+        {crm && <ListFilesPanel info={crm} />}
+      </>
+    ),
   }
 }
 
 async function loadReference(): Promise<ReferenceData> {
-  const [reps, lines, months] = await Promise.all([
-    fetchAll<{ id: number; code: string }>('reps', 'id,code', ['id']),
+  const [lines, months] = await Promise.all([
     fetchAll<{ id: number; name: string }>('lines', 'id,name', ['id']),
     fetchListMonths(),
   ])
   return {
-    repCodes: new Set(reps.map((r) => r.code)),
+    repCodes: new Set(), // the list belongs to the Box: rep codes are not checked
     lineNames: new Set(lines.map((l) => normName(l.name) ?? '')),
     existingMonths: new Map(months.map((m) => [m.month, m.rows])),
   }
@@ -133,7 +136,7 @@ async function load(p: LoadParams<ListRow>): Promise<LoadOutcome> {
         rejected.push({
           excelRow: excelRowOf(excel, c, LIST_CHUNK, rej.i),
           reason: rej.reason,
-          context: row ? `${row.month} / ${row.emp_code} / ${row.account_id} / ${row.doctor_id}` : '',
+          context: row ? `${row.month} / ${row.line} / ${row.division ?? ''} / ${row.account_id} / ${row.doctor_id}` : '',
         })
       }
       done += chunk.length
@@ -142,7 +145,7 @@ async function load(p: LoadParams<ListRow>): Promise<LoadOutcome> {
   } catch (e) {
     throw new LoadFailure(e instanceof Error ? e.message : 'Upload failed', batch, where)
   }
-  const outcome: LoadOutcome = { batch, total: items.length, loaded, rejectedCount, rejected, months }
+  const outcome: LoadOutcome = { batch, total: items.length, loaded, rejectedCount, rejected, months, groupRejected: true, contextLabel: 'Month / line / division / account / doctor' }
   const fin = makeFinisher({ batch, total: items.length, loaded, rejectedCount, months, onProgress: p.onProgress })
   const finish = async (): Promise<LoadOutcome> => {
     try {
@@ -158,7 +161,7 @@ async function load(p: LoadParams<ListRow>): Promise<LoadOutcome> {
 export const listConfig: UploadTypeConfig<ListRow, ParsedList> = {
   kind: 'list',
   label: 'Target List',
-  description: 'Monthly doctor list per rep with target frequency. Detects added, removed, transferred and frequency-changed doctors.',
+  description: 'Monthly doctor list per box (found from Line + Division) with target frequency. Detects added, removed, transferred and frequency-changed doctors.',
   icon: FileSpreadsheet,
   enabled: true,
   templateHeaders: LIST_COLUMNS.map((c) => c.label),

@@ -8,6 +8,7 @@ import { FormDialog } from '../../components/app/FormDialog'
 import { rpc } from '../../lib/api/core'
 import { downloadCsv } from '../../lib/csv'
 import { cn } from '../../lib/utils'
+import RejectedGroups from './RejectedGroups'
 import { openParseSession, type ParseSession } from './workerClient'
 import {
   LoadFailure, type LoadOutcome, type ParsedBase, type Preview, type ReferenceData, type UploadTypeConfig,
@@ -545,17 +546,23 @@ function ResultStep({ outcome, panel, onUndo, onAgain }: { outcome: LoadOutcome;
             <h3 className="text-sm font-semibold">Rejected rows</h3>
             <Button size="sm" onClick={() => downloadCsv('rejected-rows.csv', outcome.rejected.map((r) => ({ excel_row: r.excelRow ?? '', reason: r.reason, row: r.context })))}><Download className="h-4 w-4" aria-hidden /> Download CSV</Button>
           </div>
-          <div className="max-h-64 overflow-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="border-b text-left text-xs text-muted-foreground"><th className="py-1.5 font-medium">Excel row</th><th className="py-1.5 font-medium">Reason</th><th className="py-1.5 font-medium">Month / rep / account / doctor</th></tr></thead>
-              <tbody>
-                {outcome.rejected.slice(0, 200).map((r, i) => (
-                  <tr key={i} className="border-b last:border-0"><td className="tnum py-1.5 pr-4">{r.excelRow ?? '?'}</td><td className="py-1.5 pr-4">{r.reason}</td><td className="tnum py-1.5 text-muted-foreground">{r.context}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {outcome.rejected.length < outcome.rejectedCount && <p className="mt-2 text-xs text-muted-foreground">The database reports at most the first 200 rejected rows per chunk; {outcome.rejectedCount.toLocaleString()} rows were rejected in total.</p>}
+          {outcome.groupRejected ? (
+            <RejectedGroups outcome={outcome} />
+          ) : (
+            <>
+            <div className="max-h-64 overflow-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b text-left text-xs text-muted-foreground"><th className="py-1.5 font-medium">Excel row</th><th className="py-1.5 font-medium">Reason</th><th className="py-1.5 font-medium">Month / rep / account / doctor</th></tr></thead>
+                <tbody>
+                  {outcome.rejected.slice(0, 200).map((r, i) => (
+                    <tr key={i} className="border-b last:border-0"><td className="tnum py-1.5 pr-4">{r.excelRow ?? '?'}</td><td className="py-1.5 pr-4">{r.reason}</td><td className="tnum py-1.5 text-muted-foreground">{r.context}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {outcome.rejected.length < outcome.rejectedCount && <p className="mt-2 text-xs text-muted-foreground">The database reports at most the first 200 rejected rows per chunk; {outcome.rejectedCount.toLocaleString()} rows were rejected in total.</p>}
+            </>
+          )}
         </Card>
       )}
 
