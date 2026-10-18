@@ -71,6 +71,9 @@ export function parseRawActivitiesFile(name: string, text: string): RawActivitie
   const base = { name, visitRows: 0, titleRange: null, rows: [] as RawActivityRow[], rowNumbers: [] as number[], errors: [] as { row: number; reason: string }[], shortRows: 0, noMembers: 0, byType: [], byShift: [], people: 0 }
   const cap = /<caption[^>]*>([\s\S]*?)(?:<\/caption>|$)/i.exec(text)
   const title = cleanText(cap ? cap[1] : text.slice(0, 5000))
+  if (/Actual\s+Visits\s+Report/i.test(title) && !LEGEND('Activities').test(text) && LEGEND('Office Work').test(text)) {
+    return { ...base, fatal: `${name} is an Office Work file: use the Office Work upload.` }
+  }
   if (!/Actual\s+Visits\s+Report/i.test(title) || !LEGEND('Activities').test(text)) {
     return { ...base, fatal: `${name} is not a CRM Actual Visits Report with an Activities section (caption “Actual Visits Report …” and a “Activities” legend are expected).` }
   }

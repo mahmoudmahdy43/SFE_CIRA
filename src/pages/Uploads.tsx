@@ -7,6 +7,7 @@ import UploadWizard from '../features/uploads/UploadWizard'
 import { listConfig } from '../features/uploads/list/listConfig'
 import { visitsConfig } from '../features/uploads/visits/visitsConfig'
 import ActivitiesUploadEntry from '../features/uploads/absence/ActivitiesUploadEntry'
+import OfficeWorkUploadEntry from '../features/uploads/absence/OfficeWorkUploadEntry'
 import LeavesUploadEntry from '../features/uploads/absence/LeavesUploadEntry'
 import VisitsUploadEntry from '../features/uploads/visits/VisitsUploadEntry'
 import { coachingConfig } from '../features/uploads/coaching/coachingConfig'
@@ -54,7 +55,7 @@ export default function Uploads() {
             ) : wizard === 'leaves' ? (
               <LeavesUploadEntry onExit={exit} onViewChanges={noop} />
             ) : wizard === 'office_work' ? (
-              <UploadWizard config={officeWorkConfig} onExit={exit} onViewChanges={noop} />
+              <OfficeWorkUploadEntry onExit={exit} onViewChanges={noop} />
             ) : wizard === 'activities' ? (
               <ActivitiesUploadEntry onExit={exit} onViewChanges={noop} />
             ) : wizard === 'coaching' ? (
