@@ -6,7 +6,9 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
 import { Skeleton } from '../../components/ui/misc'
 import { EmptyState, ErrorState } from '../../components/app/states'
 import { downloadCsv } from '../../lib/csv'
-import { downloadXlsx } from '../../lib/xlsxExport'
+import { downloadXlsx, downloadXlsxGrids } from '../../lib/xlsxExport'
+import { ManagersAllTable } from './ManagersAllTable'
+import { allFileName, buildAllGrid, exportAllCsv } from './managerAllLayout'
 import { fetchManagerReport, fetchManagerReportRange } from '../../lib/api/reports'
 import { cn } from '../../lib/utils'
 import { useAsync } from '../dashboard/useAsync'
@@ -135,6 +137,13 @@ export function ManagersTab({ lines, filters, onFilters }: Props) {
   const rates = cols.filter((c) => c.group === 'rate')
 
   const fileName = `managers-${rangeFileSlug(dr.from, dr.to)}-${role || 'all'}-${SHIFT_LABEL[shift].toLowerCase()}`
+  const isAll = shift === 'ALL'
+  const allName = allFileName(role, dr.from, dr.to)
+  // All shift: the styled 18-column sheet, plus the Missing Detail sheet as before.
+  const exportAllXlsx = async () => {
+    const detail = exportMissingDetail(rows, shift, dr.from)
+    await downloadXlsxGrids(`${allName}.xlsx`, [buildAllGrid(rows, { role, from: dr.from, to: dr.to, isFullMonth: dr.isFullMonth })], detail.length ? [{ name: 'Missing Detail', rows: detail }] : [])
+  }
   const records = () => exportManagers(rows, total, showVisits, shift)
   const empty = { title: `No managers for ${periodLabel(dr.from, dr.to)}`, description: (data.data ?? []).length === 0 ? 'The report has no rows for this period.' : 'No managers match the filters.' }
 
@@ -168,17 +177,19 @@ export function ManagersTab({ lines, filters, onFilters }: Props) {
         columns={VISIT_COLS} hidden={hidden}
         onToggleColumn={(id) => setHidden((h) => { const n = new Set(h); if (n.has(id)) n.delete(id); else n.add(id); return n })}
         canExport={rows.length > 0}
-        onXlsx={() => void downloadXlsx(`${fileName}.xlsx`, 'Managers', records(), dateKeys.length ? [{ name: 'Missing Detail', rows: exportMissingDetail(rows, shift, dr.from) }] : [])}
-        onCsv={() => downloadCsv(`${fileName}.csv`, records())}
+        onXlsx={() => (isAll ? void exportAllXlsx() : void downloadXlsx(`${fileName}.xlsx`, 'Managers', records(), dateKeys.length ? [{ name: 'Missing Detail', rows: exportMissingDetail(rows, shift, dr.from) }] : []))}
+        onCsv={() => downloadCsv(`${isAll ? allName : fileName}.csv`, isAll ? exportAllCsv(rows) : records())}
       />
       <h3 className="text-sm font-semibold">Managers · {periodLabel(dr.from, dr.to)}</h3>
-      <p className="text-xs text-muted-foreground">
+      {!isAll && <p className="text-xs text-muted-foreground">
         Values are in days (0.5 steps); with the AM / PM shift they are shift days (1 per working shift of that shift), and Pharmacy shows the All day columns with the pharmacy visits and call rate. Double = visited with a rep, Single = visited alone. Call rate AM / PM = visits ÷ field slots of that shift; Pharmacy = visits ÷ field days. Days after the last uploaded visit date are not counted. The Total row leaves call rates blank.
-      </p>
+      </p>}
       {data.error ? (
         <div className="rounded-card border bg-card"><ErrorState message={data.error} onRetry={data.reload} /></div>
       ) : data.loading ? (
         <div className="space-y-2" aria-busy="true">{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="h-10" />)}</div>
+      ) : isAll ? (
+        <ManagersAllTable rows={rows} role={role} from={dr.from} to={dr.to} isFullMonth={dr.isFullMonth} />
       ) : (
         <div className="rounded-card border bg-card">
           <div className="max-h-[68vh] min-h-[320px] overflow-auto">

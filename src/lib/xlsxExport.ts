@@ -73,6 +73,8 @@ export interface GridSheet {
   widths?: number[]
   /** Row heights in points (undefined = default). */
   heights?: (number | undefined)[]
+  /** Freeze panes: this many top rows and left columns stay in view. */
+  freeze?: { rows: number; cols: number }
 }
 
 type XlsxLib = Pick<typeof import('xlsx-js-style'), 'utils'>
@@ -95,6 +97,10 @@ function gridToWorksheet(XLSX: XlsxLib, sheet: GridSheet): Record<string, unknow
   if (sheet.merges?.length) ws['!merges'] = sheet.merges
   if (sheet.widths) ws['!cols'] = sheet.widths.map((wch) => ({ wch }))
   if (sheet.heights) ws['!rows'] = sheet.heights.map((h) => (h ? { hpt: h } : {}))
+  if (sheet.freeze) {
+    const { rows, cols } = sheet.freeze
+    ws['!freeze'] = { xSplit: String(cols), ySplit: String(rows), topLeftCell: XLSX.utils.encode_cell({ r: rows, c: cols }), activePane: 'bottomRight', state: 'frozen' }
+  }
   return ws
 }
 
@@ -108,12 +114,20 @@ export async function downloadXlsxGrid(filename: string, sheet: GridSheet): Prom
 }
 
 /** Several cell-by-cell sheets in one workbook (same styling as downloadXlsxGrid). Empty sheets are skipped. */
-export async function downloadXlsxGrids(filename: string, sheets: GridSheet[]): Promise<void> {
+export async function downloadXlsxGrids(filename: string, sheets: GridSheet[], flatSheets: { name: string; rows: Record<string, Cell>[] }[] = []): Promise<void> {
   const used = sheets.filter((s) => s.cells.length > 0)
   if (used.length === 0) return
   const mod = await import('xlsx-js-style')
   const XLSX = mod.default ?? (mod as unknown as typeof mod.default)
   const wb = XLSX.utils.book_new()
   for (const sheet of used) XLSX.utils.book_append_sheet(wb, gridToWorksheet(XLSX, sheet) as never, sheet.name.slice(0, 31))
+  // plain record sheets (e.g. a detail list) after the grids; Date cells show as dd-mmm
+  for (const f of flatSheets) {
+    if (f.rows.length === 0) continue
+    const ws = XLSX.utils.json_to_sheet(f.rows, { header: Object.keys(f.rows[0]), dateNF: 'dd-mmm' })
+    for (const addr of Object.keys(ws)) if (addr[0] !== '!' && ws[addr].t === 'd') ws[addr].z = 'dd-mmm'
+    ws['!cols'] = Object.keys(f.rows[0]).map((h) => ({ wch: Math.max(h.length, 10) + 2 }))
+    XLSX.utils.book_append_sheet(wb, ws, f.name.slice(0, 31))
+  }
   XLSX.writeFile(wb, filename)
 }
