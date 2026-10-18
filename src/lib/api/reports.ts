@@ -1,4 +1,4 @@
-import { fetchAll } from './core'
+import { fetchAll, rpc } from './core'
 import { supabase } from '../supabase'
 import type { MonthDetail } from './kpi'
 import { toKpiRepRow, type KpiRepRow } from '../../features/reports/kpiRepMath'
@@ -99,6 +99,12 @@ export function kpiRepRows(detail: MonthDetail, month: string): KpiRepRow[] {
 export async function fetchManagerReport(month: string): Promise<ManagerRow[]> {
   const rows = await fetchAll<Raw>('v_manager_report', MANAGER_COLS, ['manager_id'], (q) => q.eq('month', month))
   return rows.map(toManagerRow)
+}
+
+/** One row per manager for an arbitrary day range (manager_report_range, admin-gated; days after today are not counted). */
+export async function fetchManagerReportRange(from: string, to: string): Promise<ManagerRow[]> {
+  const rows = await rpc<Raw[] | null>('manager_report_range', { p_from: from, p_to: to })
+  return (rows ?? []).map(toManagerRow)
 }
 
 const CAPACITY_COLS =

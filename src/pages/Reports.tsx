@@ -30,7 +30,7 @@ export default function Reports() {
       <div className="print:hidden">
         <PageHeader
           title="Reports"
-          description={`Coverage, call-rate, KPI, leave, missing-day, visits-capacity, speciality-mix, manager-joint-days, manager-coverage, coaching and sales reports for ${isFullMonth ? month.slice(0, 7) : periodLabel(from, to)} — read straight from the database; change the period in the top bar. KPI by Rep, Leaves, Missing Days and Joint Days (by day) follow a day range; the others are monthly and show the month of the To date.`}
+          description={`Coverage, call-rate, KPI, leave, missing-day, visits-capacity, speciality-mix, manager-joint-days, manager-coverage, coaching and sales reports for ${isFullMonth ? month.slice(0, 7) : periodLabel(from, to)} — read straight from the database; change the period in the top bar. KPI by Rep, Leaves, Missing Days, Managers and Joint Days (by day) follow a day range; the others are monthly and show the month of the To date.`}
         />
       </div>
       <Tabs defaultValue="coverage">
@@ -53,7 +53,7 @@ export default function Reports() {
         <TabsContent value="kpi-rep"><KpiRepTab {...shared} /></TabsContent>
         <TabsContent value="leaves"><LeavesTab {...shared} /></TabsContent>
         <TabsContent value="missing"><MissingTab {...shared} /></TabsContent>
-        <TabsContent value="managers"><PeriodBanner monthly className="mb-3" /><ManagersTab {...shared} /></TabsContent>
+        <TabsContent value="managers"><PeriodBanner className="mb-3" /><ManagersTab {...shared} /></TabsContent>
         <TabsContent value="capacity"><PeriodBanner monthly className="mb-3" /><CapacityTab {...shared} /></TabsContent>
         <TabsContent value="speciality-mix"><PeriodBanner monthly className="mb-3" /><SpecialityMixTab {...shared} /></TabsContent>
         <TabsContent value="joint-days"><JointDaysTab {...shared} /></TabsContent>

@@ -1,4 +1,5 @@
-import { lastDayOf, rangeFileSlug } from '../../lib/dateRange'
+import { periodLabel, rangeFileSlug } from '../../lib/dateRange'
+import { useDateRange } from '../../context/DateRangeContext'
 import { ProfileLink } from '../../components/app/ProfileLink'
 import { useMemo, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
@@ -6,11 +7,11 @@ import { Skeleton } from '../../components/ui/misc'
 import { EmptyState, ErrorState } from '../../components/app/states'
 import { downloadCsv } from '../../lib/csv'
 import { downloadXlsx } from '../../lib/xlsxExport'
-import { fetchManagerReport } from '../../lib/api/reports'
+import { fetchManagerReport, fetchManagerReportRange } from '../../lib/api/reports'
 import { cn } from '../../lib/utils'
 import { useAsync } from '../dashboard/useAsync'
 import { ReportToolbar } from './ReportToolbar'
-import { DASH, fmtHire, rangeLabel } from './absenceMath'
+import { DASH, fmtHire } from './absenceMath'
 import {
   MANAGER_ROLES, SHIFT_LABEL, applyShift, exportManagers, exportMissingDetail, shiftDateCols, filterManagers, fmtMCount, fmtMDays, fmtRate, lineManagerOrder, shiftRates, shiftUnit, totalManagers,
   type ManagerRow, type ManagerShift, type ManagerSums,
@@ -41,8 +42,10 @@ interface Props {
 
 const VISIT_COLS = [{ id: 'visits', label: 'AM / PM / Pharmacy visits' }]
 
-export function ManagersTab({ month, lines, filters, onFilters }: Props) {
-  const data = useAsync(`report:managers:${month}`, () => fetchManagerReport(month))
+export function ManagersTab({ lines, filters, onFilters }: Props) {
+  const dr = useDateRange()
+  // A whole calendar month reads the monthly view; any other day range goes through the RPC (days after today are not counted).
+  const data = useAsync(`report:managers:${dr.from}:${dr.to}`, () => (dr.isFullMonth ? fetchManagerReport(dr.month) : fetchManagerReportRange(dr.from, dr.to)))
   const [role, setRole] = useState('DM')
   const [shift, setShift] = useState<ManagerShift>('ALL')
   const [sort, setSort] = useState<{ id: string; dir: Dir } | null>(null) // null = Line, then Manager name
@@ -131,9 +134,9 @@ export function ManagersTab({ month, lines, filters, onFilters }: Props) {
   const plain = cols.filter((c) => !c.group)
   const rates = cols.filter((c) => c.group === 'rate')
 
-  const fileName = `managers-${rangeFileSlug(month, lastDayOf(month))}-${role || 'all'}-${SHIFT_LABEL[shift].toLowerCase()}`
+  const fileName = `managers-${rangeFileSlug(dr.from, dr.to)}-${role || 'all'}-${SHIFT_LABEL[shift].toLowerCase()}`
   const records = () => exportManagers(rows, total, showVisits, shift)
-  const empty = { title: `No managers for ${rangeLabel(month, month)}`, description: (data.data ?? []).length === 0 ? 'The report has no rows for this month.' : 'No managers match the filters.' }
+  const empty = { title: `No managers for ${periodLabel(dr.from, dr.to)}`, description: (data.data ?? []).length === 0 ? 'The report has no rows for this period.' : 'No managers match the filters.' }
 
   const roleSelect = (
     <select aria-label="Role" value={role} onChange={(e) => setRole(e.target.value)} className="h-9 rounded-control border bg-card px-2 text-sm">
@@ -165,10 +168,10 @@ export function ManagersTab({ month, lines, filters, onFilters }: Props) {
         columns={VISIT_COLS} hidden={hidden}
         onToggleColumn={(id) => setHidden((h) => { const n = new Set(h); if (n.has(id)) n.delete(id); else n.add(id); return n })}
         canExport={rows.length > 0}
-        onXlsx={() => void downloadXlsx(`${fileName}.xlsx`, 'Managers', records(), dateKeys.length ? [{ name: 'Missing Detail', rows: exportMissingDetail(rows, shift, month) }] : [])}
+        onXlsx={() => void downloadXlsx(`${fileName}.xlsx`, 'Managers', records(), dateKeys.length ? [{ name: 'Missing Detail', rows: exportMissingDetail(rows, shift, dr.from) }] : [])}
         onCsv={() => downloadCsv(`${fileName}.csv`, records())}
       />
-      <h3 className="text-sm font-semibold">Managers · {rangeLabel(month, month)}</h3>
+      <h3 className="text-sm font-semibold">Managers · {periodLabel(dr.from, dr.to)}</h3>
       <p className="text-xs text-muted-foreground">
         Values are in days (0.5 steps); with the AM / PM shift they are shift days (1 per working shift of that shift), and Pharmacy shows the All day columns with the pharmacy visits and call rate. Double = visited with a rep, Single = visited alone. Call rate AM / PM = visits ÷ field slots of that shift; Pharmacy = visits ÷ field days. Days after the last uploaded visit date are not counted. The Total row leaves call rates blank.
       </p>
