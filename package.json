@@ -12,6 +12,7 @@
     "test:vacancies": "node scripts/vacantManagers.test.mjs",
     "test:visits-raw": "node scripts/rawVisits.test.mjs",
     "test:profile": "node scripts/profile360.test.mjs",
+    "test:leaves-raw": "node scripts/rawLeaves.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
