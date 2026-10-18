@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Info, ListX } from 'lucide-react'
 import { Button } from '../../components/ui/button'
@@ -326,7 +327,7 @@ export function ManagerCoverageTab({ month, lines, filters, onFilters }: Props) 
                                     <td className="h-8 whitespace-nowrap border-b px-3 font-medium" style={cell}>
                                       <span className="inline-flex items-center gap-1.5">
                                         {isOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                                        {r.rep_name ?? '-'}
+                                        <ProfileLink type="rep" id={r.rep_id}>{r.rep_name ?? '-'}</ProfileLink>
                                         {r.rep_code && <span className="text-xs font-normal text-muted-foreground">{r.rep_code}</span>}
                                       </span>
                                     </td>

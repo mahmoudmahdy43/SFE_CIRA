@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown, Search, UserMinus, UserPlus, X } from 'lucide-react'
 import { Button } from '../../components/ui/button'
@@ -167,11 +168,11 @@ export function KpiRepTab({ month, lines, filters, onFilters }: {
   const excludedHere = useMemo(() => all.filter((r) => excluded.has(r.rep_id)), [all, excluded])
 
   const repCols = useMemo<Col<KpiRepRow>[]>(() => [
-    { id: 'rep', header: 'Rep', sticky: true, value: (r) => r.rep_name, render: (r) => <span className="font-medium">{r.rep_name ?? DASH}</span> },
+    { id: 'rep', header: 'Rep', sticky: true, value: (r) => r.rep_name, render: (r) => <span className="font-medium"><ProfileLink type="rep" id={r.rep_id}>{r.rep_name ?? DASH}</ProfileLink></span> },
     { id: 'code', header: 'Code', value: (r) => r.rep_code, render: (r) => <span className="tnum">{r.rep_code ?? DASH}</span> },
     { id: 'box', header: 'Box', value: (r) => r.box, render: (r) => r.box ?? DASH },
     { id: 'line', header: 'Line', value: (r) => r.line, render: (r) => r.line ?? DASH },
-    { id: 'dm', header: 'DM', value: (r) => r.manager, render: (r) => r.manager ?? DASH },
+    { id: 'dm', header: 'DM', value: (r) => r.manager, render: (r) => <ProfileLink type="manager" id={r.manager_id}>{r.manager ?? DASH}</ProfileLink> },
     ...metricCols<KpiRepRow>(),
     {
       id: 'action', header: '', value: () => null,

@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { Fragment, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, FileSpreadsheet } from 'lucide-react'
 import { Button } from '../../components/ui/button'
@@ -111,7 +112,7 @@ export function ActionSection({
                     <tr onClick={() => toggle(k)} className="cursor-pointer hover:bg-muted/50" style={i % 2 === 1 ? { backgroundColor: CPAL.zebra } : undefined}>
                       <td className="border-b pl-3 pr-1" style={{ borderBottomColor: CPAL.rowLine }}>{isOpen ? <ChevronDown className="h-4 w-4" aria-label="Collapse" /> : <ChevronRight className="h-4 w-4" aria-label="Expand" />}</td>
                       <td className="border-b px-3" style={{ borderBottomColor: CPAL.rowLine }}><StatusChip status={r.status} /></td>
-                      <td className="min-w-48 border-b px-3 py-1.5" style={tdBase}><div className="font-medium">{r.rep_name}</div><div className="text-xs italic" style={{ color: CPAL.grey }}>{r.reason}</div></td>
+                      <td className="min-w-48 border-b px-3 py-1.5" style={tdBase}><div className="font-medium"><ProfileLink type="rep" id={r.rep_id}>{r.rep_name}</ProfileLink></div><div className="text-xs italic" style={{ color: CPAL.grey }}>{r.reason}</div></td>
                       <td className="whitespace-nowrap border-b px-3 text-muted-foreground" style={{ borderBottomColor: CPAL.rowLine }}>{r.line_names ?? '-'}</td>
                       <td className="whitespace-nowrap border-b px-3 text-muted-foreground" style={{ borderBottomColor: CPAL.rowLine }}>{r.manager_name ?? '-'}</td>
                       <td className="tnum border-b px-3 text-right" style={tdBase}>{r.territories}</td>

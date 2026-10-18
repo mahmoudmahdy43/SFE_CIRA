@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { useCallback, useMemo, useState } from 'react'
 import { Card, Skeleton } from '../../components/ui/misc'
 import { Tooltip } from '../../components/ui/overlay'
@@ -31,7 +32,7 @@ const COLS: ReportCol<CapacityRow>[] = [
     id: 'rep', header: 'Rep', sticky: true, width: 190, value: (r) => r.rep_name,
     render: (r) => (
       <div className="leading-tight">
-        <div className="font-medium">{r.rep_name ?? CAP_DASH}</div>
+        <div className="font-medium"><ProfileLink type="rep" id={r.rep_id}>{r.rep_name ?? CAP_DASH}</ProfileLink></div>
         <div className="tnum text-[11px] text-muted-foreground">{r.rep_code ?? ''}</div>
       </div>
     ),

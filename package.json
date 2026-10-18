@@ -11,6 +11,7 @@
     "test:list": "node scripts/listUpload.test.mjs",
     "test:vacancies": "node scripts/vacantManagers.test.mjs",
     "test:visits-raw": "node scripts/rawVisits.test.mjs",
+    "test:profile": "node scripts/profile360.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

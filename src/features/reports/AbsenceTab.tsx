@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
 import { Skeleton } from '../../components/ui/misc'
@@ -89,9 +90,9 @@ function sortBy<T>(rows: T[], cols: Col<T>[], sort: { id: string; dir: Dir }): T
   })
 }
 
-const repCell = (r: { rep_name: string | null; rep_code: string | null }) => (
+const repCell = (r: { rep_name: string | null; rep_code: string | null; rep_id: number }) => (
   <div>
-    <div className="font-medium">{r.rep_name ?? DASH}</div>
+    <div className="font-medium"><ProfileLink type="rep" id={r.rep_id}>{r.rep_name ?? DASH}</ProfileLink></div>
     {r.rep_code && <div className="tnum text-xs text-muted-foreground">{r.rep_code}</div>}
   </div>
 )
@@ -155,7 +156,7 @@ export function LeavesTab({ month, lines, filters, onFilters }: Props) {
   })
   const repCols = useMemo<Col<LeaveRow>[]>(() => [
     { id: 'line', header: 'Line', value: (r) => r.line, render: (r) => r.line ?? DASH, foot: `Total · ${visible.length} reps` },
-    { id: 'dm', header: 'Direct Manager', value: (r) => r.manager, render: (r) => r.manager ?? DASH },
+    { id: 'dm', header: 'Direct Manager', value: (r) => r.manager, render: (r) => <ProfileLink type="manager" id={r.manager_id}>{r.manager ?? DASH}</ProfileLink> },
     { id: 'rep', header: 'Medical Rep', value: (r) => r.rep_name, render: repCell },
     { id: 'hire', header: 'Hire Date', value: (r) => r.hire_date, render: (r) => fmtHire(r.hire_date) },
     { id: 'box', header: 'Box', value: (r) => r.box, render: (r) => r.box ?? DASH },
@@ -249,7 +250,7 @@ export function MissingTab({ month, lines, filters, onFilters }: Props) {
 
   const cols = useMemo<Col<MissingRow>[]>(() => [
     { id: 'line', header: 'Line', value: (r) => r.line, render: (r) => r.line ?? DASH, foot: `Total · ${visible.length} reps` },
-    { id: 'dm', header: 'Direct Manager', value: (r) => r.manager, render: (r) => r.manager ?? DASH },
+    { id: 'dm', header: 'Direct Manager', value: (r) => r.manager, render: (r) => <ProfileLink type="manager" id={r.manager_id}>{r.manager ?? DASH}</ProfileLink> },
     { id: 'rep', header: 'Medical Rep', value: (r) => r.rep_name, render: repCell },
     { id: 'hire', header: 'Hire Date', value: (r) => r.hire_date, render: (r) => fmtHire(r.hire_date) },
     { id: 'box', header: 'Box', value: (r) => r.box, render: (r) => r.box ?? DASH },

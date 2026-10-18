@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { useMemo } from 'react'
 import { Skeleton } from '../../components/ui/misc'
 import { cn } from '../../lib/utils'
@@ -23,7 +24,7 @@ export function GapSection({ tab, onTab, rows, threshold, loading, error }: { ta
               ? Array.from({ length: 8 }, (_, r) => <tr key={r}>{heads.map((h) => <td key={h} className="h-9 border-b px-3"><Skeleton className="h-4" /></td>)}</tr>)
               : rows.map((r, i) => (
                 <tr key={`${r.key_id}|${r.key_name}`} style={r.isVacant ? { backgroundColor: CPAL.topBody } : i % 2 === 1 ? { backgroundColor: CPAL.zebra } : undefined}>
-                  <td className="h-9 whitespace-nowrap border-b px-3 font-medium" style={tdBase}>{r.key_name}</td>
+                  <td className="h-9 whitespace-nowrap border-b px-3 font-medium" style={tdBase}>{tab === 'rep' ? <ProfileLink type="rep" id={Number(r.key_id) || null}>{r.key_name}</ProfileLink> : tab === 'manager' ? <ProfileLink type="manager" id={Number(r.key_id) || null}>{r.key_name}</ProfileLink> : r.key_name}</td>
                   <td className="whitespace-nowrap border-b px-3 text-muted-foreground" style={{ borderBottomColor: CPAL.rowLine }}>{r.line_names ?? '-'}</td>
                   <td className="whitespace-nowrap border-b px-3 text-muted-foreground" style={{ borderBottomColor: CPAL.rowLine }}>{r.manager_names ?? '-'}</td>
                   <td className="tnum border-b px-3 text-right font-semibold" style={tdBase}>{fmtNum(r.s_value)}</td>

@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { useMemo, useState } from 'react'
 import {
   flexRender, getCoreRowModel, getExpandedRowModel, getFilteredRowModel, getSortedRowModel, useReactTable,
@@ -56,7 +57,7 @@ export function KpiTreeTable({
               ) : (
                 <span className="w-5" aria-hidden />
               )}
-              <span className={cn(n.level === 'line' && 'font-semibold', n.level === 'manager' && 'font-medium', n.name.startsWith('Vacant') && 'italic text-muted-foreground')}>{n.name}</span>
+              <span className={cn(n.level === 'line' && 'font-semibold', n.level === 'manager' && 'font-medium', n.name.startsWith('Vacant') && 'italic text-muted-foreground')}>{n.level === 'rep' ? <ProfileLink type="rep" id={n.repId}>{n.name}</ProfileLink> : n.level === 'manager' ? <ProfileLink type="manager" id={n.managerId}>{n.name}</ProfileLink> : n.name}</span>
               {n.code && <span className="tnum text-xs text-muted-foreground">{n.code}</span>}
             </span>
           )

@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { useCallback, useMemo, useState } from 'react'
 import { downloadCsv } from '../../lib/csv'
 import { downloadXlsx } from '../../lib/xlsxExport'
@@ -43,12 +44,12 @@ const COLS: ReportCol<CoverageRow>[] = [
     id: 'rep', header: 'Medical Rep', sticky: true, width: 190, value: (r) => r.rep_name,
     render: (r) => (
       <div className="leading-tight">
-        <div className="font-medium">{r.rep_name ?? DASH}</div>
+        <div className="font-medium"><ProfileLink type="rep" id={r.rep_id}>{r.rep_name ?? DASH}</ProfileLink></div>
         <div className="tnum text-[11px] text-muted-foreground">{r.rep_code ?? DASH}</div>
       </div>
     ),
   },
-  { id: 'manager', header: 'Direct Manager', value: (r) => r.manager, render: (r) => r.manager ?? DASH },
+  { id: 'manager', header: 'Direct Manager', value: (r) => r.manager, render: (r) => <ProfileLink type="manager" id={r.manager_id}>{r.manager ?? DASH}</ProfileLink> },
   { id: 'hire', header: 'Hiring date', value: (r) => r.hire_date, render: (r) => fmtHireDate(r.hire_date) },
   { id: 'list', header: 'List', numeric: true, value: (r) => r.list_doctors, render: (r) => fmtCount(r.list_doctors) },
   { id: 'fully', header: 'Fully covered', tip: TIPS.fully, numeric: true, value: (r) => r.fully_covered, render: (r) => fmtCount(r.fully_covered) },

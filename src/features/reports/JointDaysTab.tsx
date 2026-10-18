@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Printer } from 'lucide-react'
 import { Button } from '../../components/ui/button'
@@ -124,7 +125,7 @@ export function JointDaysTab({ month, lines, filters, onFilters }: Props) {
           sticky: i < 2,
           width,
           value: (r) => jointValue(d, r),
-          render: (r) => (d.kind === 'cover' ? <CoverCell v={r.cover_total} /> : <span className={numeric ? 'font-bold' : undefined}>{jointText(d, r)}</span>),
+          render: (r) => (d.kind === 'cover' ? <CoverCell v={r.cover_total} /> : d.id === 'rep' ? <ProfileLink type="rep" id={r.rep_id}>{jointText(d, r)}</ProfileLink> : d.id === 'manager' ? <ProfileLink type="manager" id={r.manager_id}>{jointText(d, r)}</ProfileLink> : <span className={numeric ? 'font-bold' : undefined}>{jointText(d, r)}</span>),
           headStyle: { backgroundColor: g.sub, color: PAL.white, fontWeight: 700 },
           groupStyle: { backgroundColor: g.main, color: PAL.white, fontWeight: 700 },
           cellStyle: { color: PAL.navy },

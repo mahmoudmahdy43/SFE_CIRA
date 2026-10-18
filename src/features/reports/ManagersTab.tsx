@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { useMemo, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
 import { Skeleton } from '../../components/ui/misc'
@@ -78,7 +79,7 @@ export function ManagersTab({ month, lines, filters, onFilters }: Props) {
       id: 'name', header: 'Manager', value: (r) => r.name,
       render: (r) => (
         <div>
-          <div className="font-medium">{r.name ?? DASH}</div>
+          <div className="font-medium"><ProfileLink type="manager" id={r.manager_id}>{r.name ?? DASH}</ProfileLink></div>
           {r.code && <div className="tnum text-xs text-muted-foreground">{r.code}</div>}
         </div>
       ),

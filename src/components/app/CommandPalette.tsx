@@ -1,8 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Command } from 'cmdk'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
-import { Box, Search, UserRound, Users } from 'lucide-react'
+import { Search } from 'lucide-react'
+import { KIND_ICON, hitMeta } from '../../features/profile/SearchView'
+import { profileHref } from '../../features/profile/profileLinks'
+import { useProfileSearch } from '../../features/profile/useProfileSearch'
 import { ALL_NAV } from '../../lib/nav'
 import { Kbd } from '../ui/misc'
 import { Dialog, DialogContent } from '../ui/overlay'
@@ -12,6 +15,11 @@ const itemCls =
 
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const navigate = useNavigate()
+  const [query, setQuery] = useState('')
+  const found = useProfileSearch(query)
+  useEffect(() => {
+    if (!open) setQuery('')
+  }, [open])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -32,7 +40,9 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
             <Command.Input
               autoFocus
               aria-label="Search pages and records"
-              placeholder="Search pages…"
+              value={query}
+              onValueChange={setQuery}
+              placeholder="Search pages, reps, managers, staff, boxes…"
               className="h-12 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />
             <Kbd>Esc</Kbd>
@@ -55,17 +65,25 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 </Command.Item>
               ))}
             </Command.Group>
-            <Command.Group heading="Reps / Managers / Boxes (coming soon)" className="text-xs text-muted-foreground [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1.5">
-              {[
-                { l: 'Search reps', i: UserRound },
-                { l: 'Search managers', i: Users },
-                { l: 'Search boxes', i: Box },
-              ].map((x) => (
-                <Command.Item key={x.l} value={x.l} disabled className={itemCls + ' text-muted-foreground'}>
-                  <x.i className="h-4 w-4" aria-hidden /> {x.l}
-                </Command.Item>
-              ))}
-            </Command.Group>
+            {found.error && <div role="alert" className="px-2.5 py-2 text-xs text-danger">Search failed: {found.error}</div>}
+            {found.groups.map((g) => {
+              const Icon = KIND_ICON[g.kind]
+              return (
+                <Command.Group key={g.kind} forceMount heading={g.label} className="text-xs text-muted-foreground [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1.5">
+                  {g.hits.map((h) => (
+                    <Command.Item
+                      key={`${h.kind}-${h.id}`} forceMount value={`profile ${h.kind} ${h.id} ${h.name}`}
+                      onSelect={() => { onOpenChange(false); navigate(profileHref(h.kind, h.id)) }}
+                      className={itemCls + ' text-foreground'}
+                    >
+                      <Icon className="h-4 w-4 text-muted-foreground" aria-hidden />
+                      <span className="flex-1 truncate">{h.name}</span>
+                      <span className="truncate text-xs text-muted-foreground">{hitMeta(h)}</span>
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )
+            })}
           </Command.List>
         </Command>
         <DialogPrimitive.Close className="sr-only">Close</DialogPrimitive.Close>

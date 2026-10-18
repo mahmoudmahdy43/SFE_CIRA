@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { Skeleton } from '../../components/ui/misc'
 import { Dialog, DialogContent } from '../../components/ui/overlay'
 import { ErrorState } from '../../components/app/states'
@@ -9,7 +10,7 @@ import { useAsync } from './useAsync'
 
 const ratio = (v: number | null) => <span className={cn(v !== null && toneText[kpiTone(v, 1)])}>{fmtPct(v)}</span>
 
-/** Side drawer for a rep: this month's numbers + the last months from v_kpi_rep (the 360° page will be richer). */
+/** Side drawer for a rep: this month's numbers + the last months from v_kpi_rep (the full profile is the 360° view). */
 export function RepDrawer({ node, month, onClose }: { node: TreeNode | null; month: string; onClose: () => void }) {
   return (
     <Dialog open={node !== null} onOpenChange={(o) => !o && onClose()}>
@@ -42,6 +43,7 @@ function Body({ node, month }: { node: TreeNode; month: string }) {
       <div>
         <h2 className="text-lg font-semibold">{node.name}</h2>
         <p className="tnum text-sm text-muted-foreground">{node.code} · {node.boxName ?? 'no box'} · {month.slice(0, 7)}</p>
+        <p className="mt-1 text-sm"><ProfileLink type="rep" id={node.repId} className="text-primary">Open 360° profile</ProfileLink></p>
       </div>
       <dl className="divide-y text-sm">
         {facts.map(([k, v]) => (

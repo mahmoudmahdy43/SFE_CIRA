@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { useMemo, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Link2, LogOut, Plus, X } from 'lucide-react'
@@ -24,7 +25,7 @@ export default function ManagersTab({ org, reload }: { org: OrgView; reload: () 
   )
   const columns = useMemo<ColumnDef<Row, unknown>[]>(
     () => [
-      { accessorKey: 'name', header: 'Manager', enableHiding: false },
+      { accessorKey: 'name', header: 'Manager', enableHiding: false, cell: (c) => <ProfileLink type="manager" id={c.row.original.m.id}>{c.row.original.name}</ProfileLink> },
       { accessorKey: 'code', header: 'Code' },
       { accessorKey: 'status', header: 'Status', cell: (c) => <StatusPill status={c.row.original.status} /> },
       { accessorKey: 'count', header: '# Boxes' },
@@ -38,7 +39,7 @@ export default function ManagersTab({ org, reload }: { org: OrgView; reload: () 
             <span className="flex max-w-md flex-wrap gap-1">
               {boxes.map((b) => (
                 <span key={b.id} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">
-                  {b.name}
+                  <ProfileLink type="box" id={b.id}>{b.name}</ProfileLink>
                   <button aria-label={`Unassign ${b.name} from ${c.row.original.name}`} className="text-muted-foreground hover:text-danger" onClick={() => setDlg({ k: 'unassign', box: b.id })}>
                     <X className="h-3 w-3" />
                   </button>

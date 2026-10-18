@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { useMemo, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { ArrowRightLeft, LogOut, Plus } from 'lucide-react'
@@ -46,7 +47,7 @@ export default function RepsTab({ org, reload }: { org: OrgView; reload: () => v
   const columns = useMemo<ColumnDef<Row, unknown>[]>(
     () => [
       { accessorKey: 'code', header: 'Code', enableHiding: false },
-      { accessorKey: 'name', header: 'Name' },
+      { accessorKey: 'name', header: 'Name', cell: (c) => <ProfileLink type="rep" id={c.row.original.rep.id}>{c.row.original.name}</ProfileLink> },
       { accessorKey: 'line', header: 'Line' },
       { accessorKey: 'box', header: 'Box' },
       { accessorKey: 'status', header: 'Status', cell: (c) => <StatusPill status={c.row.original.status} /> },

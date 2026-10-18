@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowDownRight, ArrowUpRight, ChevronDown, ChevronRight, Info, Minus, ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
 import { Input, Skeleton } from '../../components/ui/misc'
@@ -345,7 +346,7 @@ export function CoachingTab({ lines, filters, onFilters }: Props) {
                                         {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                                       </button>
                                     ) : <span className="inline-block w-5" />}
-                                    {coached ? <button onClick={() => setModal(r)} className="text-left underline-offset-2 hover:underline">{r.rep_name}</button> : r.rep_name}
+                                    {coached ? <button onClick={() => setModal(r)} className="text-left underline-offset-2 hover:underline">{r.rep_name}</button> : r.rep_name}<ProfileLink type="rep" id={r.rep_id} className="ml-1 text-xs font-normal text-muted-foreground">360°</ProfileLink>
                                     {r.rep_code && <span className="text-xs font-normal text-muted-foreground">{r.rep_code}</span>}
                                   </span>
                                 </td>
@@ -437,7 +438,7 @@ export function CoachingTab({ lines, filters, onFilters }: Props) {
                     <tbody>
                       {conflictRows.map((r, i) => (
                         <tr key={r.rep_key} style={i % 2 === 1 ? { backgroundColor: CPAL.zebra } : undefined}>
-                          <td className="whitespace-nowrap border-b px-3 py-1.5 font-medium" style={textCell}><button onClick={() => setModal(r)} className="underline-offset-2 hover:underline">{r.rep_name}</button></td>
+                          <td className="whitespace-nowrap border-b px-3 py-1.5 font-medium" style={textCell}><button onClick={() => setModal(r)} className="underline-offset-2 hover:underline">{r.rep_name}</button><ProfileLink type="rep" id={r.rep_id} className="ml-1 text-xs font-normal text-muted-foreground">360°</ProfileLink></td>
                           <td className="whitespace-nowrap border-b px-3" style={textCell}>{r.line ?? '—'}</td>
                           <td className="whitespace-nowrap border-b px-3" style={textCell}>{r.manager ?? '—'}</td>
                           <td className="tnum border-b px-3 text-center font-bold" style={textCell}>{fmtScore(r.training_avg)}</td>

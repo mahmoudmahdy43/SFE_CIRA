@@ -139,3 +139,34 @@ export function Donut({ data, centerLabel }: { data: { name: string; value: numb
     </div>
   )
 }
+
+/** Small single-series line for KPI cards: gaps (missing keys / nulls) are left open, not drawn as zero. */
+export function MiniLine({
+  data,
+  xKey,
+  yKey,
+  name,
+  suffix = '',
+  height = 128,
+}: {
+  data: Record<string, string | number | null>[]
+  xKey: string
+  yKey: string
+  name: string
+  suffix?: string
+  height?: number
+}) {
+  return (
+    <div role="img" aria-label={`${name} by month`} style={{ height }}>
+      <ResponsiveContainer>
+        <LineChart data={data} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+          <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
+          <XAxis dataKey={xKey} {...axis} fontSize={11} />
+          <YAxis {...axis} fontSize={11} />
+          <Tooltip content={<TooltipBox suffix={suffix} />} cursor={{ stroke: 'hsl(var(--border))' }} />
+          <Line dataKey={yKey} name={name} stroke={CHART[0]} strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} connectNulls={false} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}

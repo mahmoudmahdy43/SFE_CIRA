@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Info, TriangleAlert } from 'lucide-react'
@@ -90,7 +91,7 @@ export function SpecialityMixTab({ month, lines, filters, onFilters }: Props) {
         ? [
             {
               id: 'rep', header: 'Rep', sticky: true, width: 190, value: (r) => r.rep_name,
-              render: (r) => <span className="font-medium">{r.rep_name ?? MIX_DASH}</span>,
+              render: (r) => <span className="font-medium"><ProfileLink type="rep" id={kind === 'rep' ? r.rep_id : null}>{r.rep_name ?? MIX_DASH}</ProfileLink></span>,
             },
             { id: 'code', header: 'Code', value: (r) => r.rep_code, render: (r) => (isMixTotal(r) ? '' : r.rep_code ?? MIX_DASH) },
             { id: 'line', header: 'Line', value: (r) => r.line, render: (r) => (isMixTotal(r) ? '' : r.line ?? MIX_DASH) },

@@ -1,3 +1,4 @@
+import { ProfileLink } from '../../components/app/ProfileLink'
 import { useMemo, useState } from 'react'
 import { CheckCircle2 } from 'lucide-react'
 import { Button } from '../../components/ui/button'
@@ -25,7 +26,7 @@ function VacancyList({ title, boxes, org, action, onAction }: { title: string; b
           {boxes.map((b) => (
             <li key={b.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium">{b.name}</div>
+                <div className="truncate text-sm font-medium"><ProfileLink type="box" id={b.id}>{b.name}</ProfileLink></div>
                 <div className="text-xs text-muted-foreground">{org.lineById.get(b.line_id)?.name} · <span className="tnum">{org.territoryCount.get(b.id) ?? 0}</span> territories</div>
               </div>
               <Button size="sm" onClick={() => onAction(b)}>{action}</Button>
@@ -68,7 +69,7 @@ function NoManagerList({ state: { data, error, loading, reload }, onAssign }: { 
                 <tr key={r.box_id} className="border-b last:border-0">
                   <td className="px-4 py-2">{r.line_name}</td>
                   <td className="py-2">{districtLabel(r.district)}</td>
-                  <td className="py-2 font-medium">{r.box_name}</td>
+                  <td className="py-2 font-medium"><ProfileLink type="box" id={r.box_id}>{r.box_name}</ProfileLink></td>
                   <td className="py-2">{r.district_manager}</td>
                   <td className="px-4 py-2 text-right"><Button size="sm" onClick={() => onAssign([r.box_id])}>Assign manager</Button></td>
                 </tr>
@@ -95,7 +96,7 @@ function VacantDistrictRows({ line, district, boxes, onAssign }: { line: string;
       {boxes.map((b) => (
         <tr key={b.box_id} className="border-b last:border-0">
           <td /><td />
-          <td className="py-2 pl-3 font-medium">{b.box_name}</td>
+          <td className="py-2 pl-3 font-medium"><ProfileLink type="box" id={b.box_id}>{b.box_name}</ProfileLink></td>
           <td className="py-2 text-muted-foreground">—</td>
           <td />
         </tr>
