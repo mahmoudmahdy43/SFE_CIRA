@@ -10,7 +10,7 @@ import { useAsync } from '../dashboard/useAsync'
 import { downloadXlsx } from '../../lib/xlsxExport'
 import { fetchTerritorySummary, type Range, type TerritoryRow } from '../../lib/api/dashV1'
 import { money, num, pct } from './dashMath'
-import { AXIS, Loadable, SortTable, signTone, type Col } from './ui'
+import { AXIS, ListWarning, Loadable, SortTable, signTone, type Col } from './ui'
 
 export function TerritoriesTab({ range }: { range: Range }) {
   const state = useAsync(`dashv1:terr:${range.from}:${range.to}:${range.line ?? 'all'}`, () => fetchTerritorySummary(range))
@@ -63,6 +63,7 @@ export function TerritoriesTab({ range }: { range: Range }) {
 
   return (
     <div className="space-y-4">
+      <ListWarning from={range.from} to={range.to} />
       <ChartCard title="List share vs sales share" description="Each dot is a territory. Above the diagonal = sells more than its share of the list.">
         <Loadable state={state}>
           {() => (

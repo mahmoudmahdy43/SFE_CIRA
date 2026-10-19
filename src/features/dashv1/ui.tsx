@@ -3,7 +3,9 @@ import { ArrowDown, ArrowUp } from 'lucide-react'
 import { Skeleton } from '../../components/ui/misc'
 import { EmptyState, ErrorState } from '../../components/app/states'
 import { cn } from '../../lib/utils'
-import type { AsyncState } from '../dashboard/useAsync'
+import { useAsync, type AsyncState } from '../dashboard/useAsync'
+import { fetchTerritoryMonth } from '../../lib/api/dashV1'
+import { monthsWithoutList } from './dashMath'
 
 export const AXIS = { stroke: 'hsl(var(--muted-foreground))', fontSize: 12, tickLine: false, axisLine: false } as const
 
@@ -100,6 +102,18 @@ export function SegToggle<T extends string | number>({ value, onChange, options,
           {o.label}
         </button>
       ))}
+    </div>
+  )
+}
+
+/** Warning for months whose list has no territory; shown on every tab that uses territory data (shared cached request). */
+export function ListWarning({ from, to }: { from: string; to: string }) {
+  const tm = useAsync(`dashv1:tm:${from}:${to}`, () => fetchTerritoryMonth(from, to))
+  const months = useMemo(() => monthsWithoutList(tm.data ?? []), [tm.data])
+  if (months.length === 0) return null
+  return (
+    <div role="alert" className="rounded-control bg-warning-soft px-3 py-2 text-sm text-warning">
+      {months.map((m) => `List for ${m.slice(0, 7)} has no territory — run the backfill`).join('. ')}.
     </div>
   )
 }

@@ -4,8 +4,8 @@ import { ChartCard } from '../../components/app/ChartCard'
 import { CHART } from '../../components/app/charts'
 import { useAsync } from '../dashboard/useAsync'
 import { fetchBands, fetchCorrelations, fetchTerritoryMonth, type Range } from '../../lib/api/dashV1'
-import { corrValue, corrWord, linearFit, metricLabel, monthsWithoutList, pct, scatterPoints } from './dashMath'
-import { AXIS, Loadable, SegToggle, SortTable, signTone } from './ui'
+import { corrValue, corrWord, linearFit, metricLabel, pct, scatterPoints } from './dashMath'
+import { AXIS, ListWarning, Loadable, SegToggle, SortTable, signTone } from './ui'
 
 const key = (n: string, r: Range) => `dashv1:${n}:${r.from}:${r.to}:${r.line ?? 'all'}`
 
@@ -28,15 +28,10 @@ export function EffortTab({ range, lineName }: { range: Range; lineName: string 
     const lo = Math.min(...xs), hi = Math.max(...xs)
     return [{ x: lo, t: fit.intercept + fit.slope * lo }, { x: hi, t: fit.intercept + fit.slope * hi }]
   }, [fit, dots])
-  const noList = useMemo(() => monthsWithoutList(tm.data ?? []), [tm.data])
 
   return (
     <div className="space-y-4">
-      {noList.length > 0 && (
-        <div role="alert" className="rounded-control bg-warning-soft px-3 py-2 text-sm text-warning">
-          {noList.map((m) => `List for ${m.slice(0, 7)} has no territory — run the backfill`).join('. ')}.
-        </div>
-      )}
+      <ListWarning from={range.from} to={range.to} />
       <ChartCard
         title="What moves sales?"
         description="Correlation with sales (0 = none, 1 = perfect)."

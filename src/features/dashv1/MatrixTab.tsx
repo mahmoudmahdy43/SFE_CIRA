@@ -55,7 +55,7 @@ export function MatrixTab({ range }: { range: Range }) {
     { id: 'rep', header: 'Rep', sort: (r) => r.rep_name, cell: (r) => r.rep_name },
     { id: 'line', header: 'Line', sort: (r) => r.line_name, cell: (r) => r.line_name },
     { id: 'mgr', header: 'Manager', sort: (r) => r.manager_name, cell: (r) => r.manager_name || '–' },
-    { id: 'ter', header: 'Territories', align: 'right', sort: (r) => r.territories, cell: (r) => r.territories },
+    { id: 'ter', header: 'Territories', sort: (r) => r.territories, cell: (r) => r.territories },
     { id: 'vis', header: 'Visits', align: 'right', sort: (r) => r.visits, cell: (r) => num(r.visits) },
     { id: 'cr', header: 'Call rate PM', align: 'right', sort: (r) => r.call_rate_pm, cell: (r) => num(r.call_rate_pm, 1) },
     { id: 'eff', header: 'Effort %', align: 'right', sort: (r) => r.effort_pct, cell: (r) => pctPt(r.effort_pct, 0) },

@@ -7,7 +7,7 @@ import { fetchRawSummary } from '../../../lib/api/visitsRaw'
 import RejectedGroups from '../RejectedGroups'
 import type { LoadOutcome } from '../types'
 import VisitsResultPanel from './VisitsResultPanel'
-import { normalizeSummary, splitOwnerRejections, type NameCount, type RawSummary } from './rawVisitsResult'
+import { normalizeSummary, splitOwnerRejections, type NameCount, type RawSummary } from './rawVisitsSummary'
 
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`
 

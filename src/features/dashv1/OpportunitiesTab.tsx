@@ -4,7 +4,7 @@ import { ChartCard } from '../../components/app/ChartCard'
 import { useAsync } from '../dashboard/useAsync'
 import { fetchAbsenceCost, fetchMatrix, fetchTerritorySummary, type Range } from '../../lib/api/dashV1'
 import { biggestGaps, money, num, pct } from './dashMath'
-import { Loadable, SortTable } from './ui'
+import { ListWarning, Loadable, SortTable } from './ui'
 
 const key = (n: string, r: Range) => `dashv1:${n}:${r.from}:${r.to}:${r.line ?? 'all'}`
 
@@ -30,6 +30,7 @@ export function OpportunitiesTab({ range }: { range: Range }) {
 
   return (
     <div className="space-y-4">
+      <ListWarning from={range.from} to={range.to} />
       <ChartCard title="Biggest gaps" description="Territories with share index below 0.8, by list share minus sales share.">
         <Loadable state={terr} empty={() => gaps.length === 0}>
           {() => (
@@ -53,8 +54,8 @@ export function OpportunitiesTab({ range }: { range: Range }) {
         {(rows) => {
           const absence = rows.filter((r) => r.kind === 'absence')
           const vacancy = rows.filter((r) => r.kind === 'vacancy')
-          const filled = vacancy.find((r) => /fill/i.test(r.label)) ?? vacancy[0]
-          const vacant = vacancy.find((r) => /vacan/i.test(r.label) && r !== filled) ?? vacancy[1]
+          const filled = vacancy.find((r) => r.label.toLowerCase() === 'filled territory-months')
+          const vacant = vacancy.find((r) => r.label.toLowerCase() === 'vacant territory-months')
           return (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               <ChartCard title="Cost of absence" className="lg:col-span-2">

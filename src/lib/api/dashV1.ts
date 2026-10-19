@@ -28,7 +28,7 @@ export interface TerritoryRow {
 }
 export type Group = 'STAR' | 'NOT_CONVERTING' | 'EFFICIENT' | 'INTERVENTION' | 'NO_DATA'
 export interface MatrixRow {
-  rep_name: string; line_name: string; manager_name: string; territories: number; visits: number; days_pm: number
+  rep_name: string; line_name: string; manager_name: string; territories: string; visits: number; days_pm: number
   call_rate_pm: number | null; target_pm: number | null; effort_pct: number | null; s_value: number; t_value: number
   ach_pct: number | null; grp: Group
 }
@@ -62,7 +62,7 @@ export async function fetchTerritoryMonth(from: string, to: string): Promise<Ter
 
 export async function fetchBands(r: Range): Promise<BandRow[]> {
   const rows = await rpcAll('dash_coverage_bands', args(r), ['band'])
-  return rows.map((x) => ({ band: s(x.band), territory_months: n0(x.territory_months), territories: n0(x.territories), ach: n(x.ach), growth: n(x.growth) }))
+  return rows.map((x) => ({ band: s(x.band).replace(/^\d+\.\s*/, ''), territory_months: n0(x.territory_months), territories: n0(x.territories), ach: n(x.ach), growth: n(x.growth) }))
 }
 
 export async function fetchTerritorySummary(r: Range): Promise<TerritoryRow[]> {
@@ -81,7 +81,7 @@ export async function fetchMatrix(r: Range, effort: number, sales: number): Prom
   return rows.map((x) => {
     const g = s(x.grp).toUpperCase() as Group
     return {
-      rep_name: s(x.rep_name), line_name: s(x.line_name), manager_name: s(x.manager_name), territories: n0(x.territories), visits: n0(x.visits), days_pm: n0(x.days_pm),
+      rep_name: s(x.rep_name), line_name: s(x.line_name), manager_name: s(x.manager_name), territories: s(x.territories), visits: n0(x.visits), days_pm: n0(x.days_pm),
       call_rate_pm: n(x.call_rate_pm), target_pm: n(x.target_pm), effort_pct: n(x.effort_pct), s_value: n0(x.s_value), t_value: n0(x.t_value), ach_pct: n(x.ach_pct),
       grp: GROUPS.includes(g) ? g : 'NO_DATA',
     }

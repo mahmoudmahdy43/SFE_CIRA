@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { parseRawVisitsFile, guessLineNumber, planRawUpload, shiftOfAccType, splitMembers, monthsBetween } from '../src/features/uploads/visits/rawVisitsParse.ts'
 import { expandAutoFiles, summarizeByLine } from '../src/features/uploads/visits/pharmacyLines.ts'
-import { normalizeSummary, splitOwnerRejections } from '../src/features/uploads/visits/rawVisitsResult.ts'
+import { normalizeSummary, splitOwnerRejections } from '../src/features/uploads/visits/rawVisitsSummary.ts'
 
 let n = 0
 const t = (name, fn) => { fn(); n++; console.log('ok -', name) }
