@@ -23,8 +23,9 @@ import DataQuality from './pages/DataQuality'
 import Reports from './pages/Reports'
 import ListStrategy from './pages/ListStrategy'
 import Profile from './pages/Profile'
+import DashboardV1 from './pages/DashboardV1'
 
-const BUILT = new Set(['/', '/settings', '/org', '/personnel', '/targets', '/calendar', '/uploads', '/data-quality', '/reports', '/list-strategy', '/360'])
+const BUILT = new Set(['/', '/settings', '/org', '/personnel', '/targets', '/calendar', '/uploads', '/data-quality', '/reports', '/list-strategy', '/360', '/dashboard-v1'])
 
 const Design = lazy(() => import('./pages/Design'))
 
@@ -129,6 +130,7 @@ export default function App() {
             <Route path="reports" element={<Reports />} />
             <Route path="list-strategy" element={<ListStrategy />} />
             <Route path="360" element={<Profile />} />
+            <Route path="dashboard-v1" element={<DashboardV1 />} />
             <Route
               path="design"
               element={
