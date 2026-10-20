@@ -6,6 +6,8 @@ import { lastWhen, sortRows, type SortDir } from './roiMath'
 export interface RoiCol<T> {
   id: string
   header: string
+  /** Tooltip on the header cell. */
+  tip?: string
   numeric?: boolean
   value: (r: T) => string | number | null
   render?: (r: T) => ReactNode
@@ -40,7 +42,7 @@ export function RoiTable<T>({ cols, rows, rowKey, selectedKey, onRowClick, initi
         <thead>
           <tr>
             {cols.map((c) => (
-              <th key={c.id} scope="col" aria-sort={sort?.id === c.id ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+              <th key={c.id} scope="col" title={c.tip} aria-sort={sort?.id === c.id ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                 className={cn('whitespace-nowrap border-b bg-muted px-3 py-2 text-xs font-medium text-muted-foreground', c.numeric ? 'text-right' : 'text-left')}>
                 <button type="button" onClick={() => toggle(c.id)} className={cn('inline-flex items-center gap-1 hover:text-foreground', c.numeric && 'flex-row-reverse')}>
                   {c.header}

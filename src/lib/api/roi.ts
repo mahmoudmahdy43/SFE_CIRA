@@ -140,7 +140,7 @@ export async function fetchRoiProducts(line: number, signal?: AbortSignal): Prom
 export interface RoiScopeTerritory {
   line_id: number; line_name: string; territory_id: number; territory_name: string; rep_name: string | null; manager_name: string | null
   list_doctors: number; visits: number; s_value: number; s_units: number; cost: number; sales_per_visit: number | null; roi: number | null
-  kpi_doctors: number; covered_doctors: number; coverage: number | null; pcf: number | null; low_sample: boolean
+  kpi_doctors: number; covered_doctors: number; valid_visits: number; target_visits: number; coverage: number | null; pcf: number | null; low_sample: boolean
 }
 /** Territories of the scope; the database returns the low-sample rows (visits below p_min_visits) last. */
 export async function fetchRoiScopeTerritories(sel: Selection, from: string, to: string, shift: Shift, minVisits: number, signal?: AbortSignal): Promise<RoiScopeTerritory[]> {
@@ -150,7 +150,7 @@ export async function fetchRoiScopeTerritories(sel: Selection, from: string, to:
     line_id: n0(r.line_id), line_name: String(r.line_name ?? ''), territory_id: n0(r.territory_id), territory_name: String(r.territory_name ?? ''),
     rep_name: r.rep_name ? String(r.rep_name) : null, manager_name: r.manager_name ? String(r.manager_name) : null,
     list_doctors: n0(r.list_doctors), visits: n0(r.visits), s_value: n0(r.s_value), s_units: n0(r.s_units), cost: n0(r.cost),
-    sales_per_visit: num(r.sales_per_visit), roi: num(r.roi), kpi_doctors: n0(r.kpi_doctors), covered_doctors: n0(r.covered_doctors),
+    sales_per_visit: num(r.sales_per_visit), roi: num(r.roi), kpi_doctors: n0(r.kpi_doctors), covered_doctors: n0(r.covered_doctors), valid_visits: n0(r.valid_visits), target_visits: n0(r.target_visits),
     coverage: num(r.coverage), pcf: num(r.pcf), low_sample: r.low_sample === true || r.low_sample === 'true',
   }))
 }

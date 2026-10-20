@@ -92,7 +92,7 @@ export function buildScopeTerritoriesGrid(rows: RoiScopeTerritory[], a: { measur
     ...(a.showLine ? [{ v: 'TOTAL', s: tl }] : []), { v: a.showLine ? '' : 'TOTAL', s: tl }, { v: '', s: tl }, { v: '', s: tl },
     { v: t.list_doctors, z: FMT.int, s: ts }, { v: t.visits, z: FMT.int, s: ts }, { v: t.cost, z: FMT.int, s: ts }, { v: a.measure === 'value' ? t.s_value : t.s_units, z: FMT.int, s: ts },
     t.sales_per_visit === null ? { v: '-', s: ts } : { v: t.sales_per_visit, z: FMT.int, s: ts }, t.roi === null ? { v: '-', s: ts } : { v: t.roi, z: FMT.roi, s: ts },
-    t.coverage === null ? { v: '-', s: ts } : { v: t.coverage, z: '0.0%', s: ts }, { v: '-', s: ts },
+    t.coverage === null ? { v: '-', s: ts } : { v: t.coverage, z: '0.0%', s: ts }, t.pcf === null ? { v: '-', s: ts } : { v: t.pcf, z: '0.0%', s: ts },
   ])
   b.heights.push(24)
   return { name: 'Territories', cells: b.cells, merges: b.merges, heights: b.heights, widths }

@@ -141,17 +141,19 @@ t('low_sample rows go last, in their order, whatever the sort', () => {
   const sorted = r.sortRows([{ n: 'x', v: 1, low: false }, { n: 'y', v: 99, low: true }, { n: 'z', v: 5, low: false }], (x) => x.v, 'desc')
   assert.deepEqual(r.lastWhen(sorted, (x) => x.low).map((x) => x.n), ['z', 'x', 'y'])
 })
-t('Excel total row: sums, ROI = total sales / total cost, coverage from raw sums, no PCF total', () => {
+t('Excel total row: sums, ROI = total sales / total cost, coverage and PCF from raw sums', () => {
   const rows = [
-    { visits: 100, s_value: 600000, s_units: 100, cost: 60000, list_doctors: 20, kpi_doctors: 10, covered_doctors: 9 },
-    { visits: 50, s_value: 30000, s_units: 10, cost: 30000, list_doctors: 10, kpi_doctors: 30, covered_doctors: 3 },
+    { visits: 100, s_value: 600000, s_units: 100, cost: 60000, list_doctors: 20, kpi_doctors: 10, covered_doctors: 9, valid_visits: 90, target_visits: 100 },
+    { visits: 50, s_value: 30000, s_units: 10, cost: 30000, list_doctors: 10, kpi_doctors: 30, covered_doctors: 3, valid_visits: 30, target_visits: 100 },
   ]
   const t1 = r.scopeTotals(rows)
   assert.deepEqual([t1.visits, t1.s_value, t1.s_units, t1.cost, t1.list_doctors], [150, 630000, 110, 90000, 30])
   assert.equal(t1.roi, 7) // 630000 / 90000, not the average of the two ROIs
   assert.equal(t1.coverage, 0.3) // 12 / 40, not the average of 90% and 10%
+  assert.equal(t1.pcf, 0.6) // 120 / 200, not the average of 90% and 30%
   assert.equal(t1.sales_per_visit, 4200)
-  assert.equal(r.scopeTotals([]).roi, null); assert.equal(r.scopeTotals([]).coverage, null)
+  assert.equal(r.scopeTotals([]).roi, null); assert.equal(r.scopeTotals([]).coverage, null); assert.equal(r.scopeTotals([]).pcf, null)
+  assert.match(r.KPI_TIP, /valid visits \/ target visits \(sum of Freq\)/)
 })
 
 console.log(`\n${n} tests passed`)

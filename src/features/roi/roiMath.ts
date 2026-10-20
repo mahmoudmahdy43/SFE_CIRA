@@ -202,7 +202,7 @@ export function ratioTone(v: number | null): RoiTone {
   return v < COVERAGE_THRESHOLDS.amber ? 'red' : v < COVERAGE_THRESHOLDS.green ? 'amber' : 'green'
 }
 export const fmtPct1 = (v: number | null): string => (v === null ? '—' : `${(v * 100).toFixed(1)}%`)
-export const KPI_TIP = 'Coverage = covered / list doctors, PCF = valid visits / visits, for the doctors linked to the selection (Clinic + Poly Clinic)'
+export const KPI_TIP = 'Coverage = covered / list doctors, PCF = valid visits / target visits (sum of Freq), for the doctors linked to the selection (Clinic + Poly Clinic)'
 
 /** Coverage / PCF of a row; "—" (null) when the row has no KPI doctors. */
 export const kpiRatio = (kpiDoctors: number, v: number | null): number | null => (kpiDoctors > 0 ? v : null)
@@ -212,14 +212,15 @@ export function lastWhen<T>(rows: T[], pred: (r: T) => boolean): T[] {
   return [...rows.filter((r) => !pred(r)), ...rows.filter(pred)]
 }
 
-export interface ScopeTotals { visits: number; s_value: number; s_units: number; cost: number; list_doctors: number; sales_per_visit: number | null; roi: number | null; coverage: number | null }
-interface TotalIn { visits: number; s_value: number; s_units: number; cost: number; list_doctors: number; kpi_doctors: number; covered_doctors: number }
-/** Total row: sums; ROI = total sales (value) / total cost; coverage from raw sums. PCF has no total (only a ratio per row). */
+export interface ScopeTotals { visits: number; s_value: number; s_units: number; cost: number; list_doctors: number; sales_per_visit: number | null; roi: number | null; coverage: number | null; pcf: number | null }
+interface TotalIn { visits: number; s_value: number; s_units: number; cost: number; list_doctors: number; kpi_doctors: number; covered_doctors: number; valid_visits: number; target_visits: number }
+/** Total row: sums; ROI = total sales (value) / total cost; coverage = sum covered / sum KPI doctors; PCF = sum valid visits / sum target visits. */
 export function scopeTotals(rows: TotalIn[]): ScopeTotals {
   const sum = (f: (r: TotalIn) => number) => rows.reduce((a, r) => a + f(r), 0)
-  const visits = sum((r) => r.visits), s_value = sum((r) => r.s_value), cost = sum((r) => r.cost), kpi = sum((r) => r.kpi_doctors)
+  const visits = sum((r) => r.visits), s_value = sum((r) => r.s_value), cost = sum((r) => r.cost), kpi = sum((r) => r.kpi_doctors), target = sum((r) => r.target_visits)
   return {
     visits, s_value, cost, s_units: sum((r) => r.s_units), list_doctors: sum((r) => r.list_doctors),
     sales_per_visit: visits > 0 ? s_value / visits : null, roi: cost > 0 ? s_value / cost : null, coverage: kpi > 0 ? sum((r) => r.covered_doctors) / kpi : null,
+    pcf: kpi > 0 && target > 0 ? sum((r) => r.valid_visits) / target : null,
   }
 }

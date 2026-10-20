@@ -47,9 +47,9 @@ export function RoiScopeView({ sel, product, from, to, shift, measure, minVisits
       { id: 'sales', header: measure === 'value' ? 'Sales (EGP)' : 'Sales (units)', numeric: true, value: (r) => (measure === 'value' ? r.s_value : r.s_units), render: (r) => fmtInt(measure === 'value' ? r.s_value : r.s_units), className: dim },
       { id: 'spv', header: 'Sales per visit', numeric: true, value: (r) => r.sales_per_visit, render: (r) => fmtInt(r.sales_per_visit), className: dim },
       { id: 'roi', header: 'ROI', numeric: true, value: (r) => r.roi, render: (r) => (r.low_sample ? <span className="tnum">{fmtRoi(r.roi)}</span> : <RoiBadge roi={r.roi} />), className: dim },
-      { id: 'coverage', header: 'Coverage', numeric: true, value: (r) => kpiRatio(r.kpi_doctors, r.coverage), className: dim,
+      { id: 'coverage', header: 'Coverage', tip: KPI_TIP, numeric: true, value: (r) => kpiRatio(r.kpi_doctors, r.coverage), className: dim,
         render: (r) => { const v = kpiRatio(r.kpi_doctors, r.coverage); return <ToneBadge tone={ratioTone(v)} text={fmtPct1(v)} /> } },
-      { id: 'pcf', header: 'PCF', numeric: true, value: (r) => kpiRatio(r.kpi_doctors, r.pcf), className: dim,
+      { id: 'pcf', header: 'PCF', tip: KPI_TIP, numeric: true, value: (r) => kpiRatio(r.kpi_doctors, r.pcf), className: dim,
         render: (r) => { const v = kpiRatio(r.kpi_doctors, r.pcf); return <ToneBadge tone={ratioTone(v)} text={fmtPct1(v)} /> } },
     ]
     return list
