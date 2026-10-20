@@ -36,8 +36,9 @@ export async function fetchAll<T>(
 }
 
 /** Call an RPC; throws an Error carrying the database's human-readable message. */
-export async function rpc<T = unknown>(name: string, args?: Record<string, unknown>): Promise<T> {
-  const { data, error } = await supabase.rpc(name, args)
+export async function rpc<T = unknown>(name: string, args?: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
+  const call = supabase.rpc(name, args)
+  const { data, error } = await (signal ? call.abortSignal(signal) : call)
   if (error) throw new Error(error.message)
   return data as T
 }

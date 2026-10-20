@@ -4,17 +4,18 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
 import { Badge, Card, Skeleton } from '../../components/ui/misc'
 import { ErrorState } from '../../components/app/states'
+import { PRIORITY, dashQueue, useNearViewport } from './useDash'
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string }
 interface Status { ping: Result<string>; reps: Result<number>; boxes: Result<number>; territories: Result<number> }
 
 async function count(table: string): Promise<Result<number>> {
-  const { count: c, error } = await supabase.from(table).select('id', { count: 'exact', head: true })
+  const { count: c, error } = await dashQueue.run(PRIORITY.lazy, undefined, async () => await supabase.from(table).select('id', { count: 'exact', head: true }))
   return error ? { ok: false, error: error.message } : { ok: true, value: c ?? 0 }
 }
 
 async function load(): Promise<Status> {
-  const [pingRes, reps, boxes, territories] = await Promise.all([supabase.rpc('ping'), count('reps'), count('boxes'), count('territories')])
+  const [pingRes, reps, boxes, territories] = await Promise.all([dashQueue.run(PRIORITY.lazy, undefined, async () => await supabase.rpc('ping')), count('reps'), count('boxes'), count('territories')])
   return {
     ping: pingRes.error ? { ok: false, error: pingRes.error.message } : { ok: true, value: JSON.stringify(pingRes.data) },
     reps, boxes, territories,
@@ -36,6 +37,7 @@ export default function SystemStatus() {
   const { session, role } = useAuth()
   const [status, setStatus] = useState<Status | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
+  const [ref, seen] = useNearViewport() // 4 small calls: only when this card is about to be seen
 
   const refresh = useCallback(() => {
     setStatus(null)
@@ -43,10 +45,11 @@ export default function SystemStatus() {
     load().then(setStatus).catch((e: unknown) => setFailure(e instanceof Error ? e.message : 'Unexpected error'))
   }, [])
   useEffect(() => {
-    refresh()
-  }, [refresh])
+    if (seen) refresh()
+  }, [refresh, seen])
 
   return (
+    <div ref={ref}>
     <Card className="max-w-2xl p-5">
       <h2 className="mb-1 text-sm font-semibold">System status</h2>
       {failure ? (
@@ -66,5 +69,6 @@ export default function SystemStatus() {
         </div>
       )}
     </Card>
+    </div>
   )
 }

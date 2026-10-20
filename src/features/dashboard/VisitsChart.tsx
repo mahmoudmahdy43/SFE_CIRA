@@ -8,7 +8,7 @@ import { Skeleton } from '../../components/ui/misc'
 import { fetchSpecialities, fetchVisitsMonthly } from '../../lib/api/dash'
 import { monthShort, type Resolved } from './periodMath'
 import { fmtMoney } from './rangeKpi'
-import { useAsync } from './useAsync'
+import { PRIORITY, useDash, useDebounced, useNearViewport } from './useDash'
 
 type Kind = 'am' | 'pm' | 'pharmacy'
 const KINDS: { key: Kind; label: string; color: string }[] = [
@@ -21,12 +21,14 @@ const KINDS: { key: Kind; label: string; color: string }[] = [
 export function VisitsChart({ line, fromYM, toYM, r }: { line: number | null; fromYM: string; toYM: string; r: Resolved }) {
   const [on, setOn] = useState<Record<Kind, boolean>>({ am: true, pm: true, pharmacy: true })
   const [specs, setSpecs] = useState<number[]>([])
-  const specOpts = useAsync('opt:specialities', fetchSpecialities)
+  const [ref, seen] = useNearViewport() // the chart asks for its data only when it is near the viewport
+  const dSpecs = useDebounced(specs) // the multi-select waits 400 ms before it calls the database
+  const specOpts = useDash(seen ? 'opt:specialities' : null, PRIORITY.lazy, () => fetchSpecialities())
   // one month selected: show that year's months up to it, for context
   const ctxFrom = r.n === 1 ? `${toYM.slice(0, 4)}-01` : fromYM
   const from = `${ctxFrom}-01`
-  const key = `dash:visits:${from}:${r.to}:${line ?? 'all'}:${specs.join(',')}`
-  const q = useAsync(key, () => fetchVisitsMonthly(from, r.to, line, specs))
+  const key = seen ? `dash:visits:${from}:${r.to}:${line ?? 'all'}:${dSpecs.join(',')}` : null
+  const q = useDash(key, PRIORITY.visits, (signal) => fetchVisitsMonthly(from, r.to, line, dSpecs, signal))
 
   const active = KINDS.filter((k) => on[k.key])
   const top = active[active.length - 1]?.key
@@ -40,8 +42,8 @@ export function VisitsChart({ line, fromYM, toYM, r }: { line: number | null; fr
   const emptyAll = !q.loading && !q.error && data.every((d) => d.total === 0)
 
   return (
+    <div ref={ref} className="xl:col-span-12">
     <ChartCard
-      className="xl:col-span-12"
       title="Visits per month"
       description={r.n === 1 ? 'Company-wide, a double visit counts once. The selected month is highlighted.' : 'Company-wide, a double visit counts once.'}
       actions={<MultiSelect label="Speciality" options={specOpts.data ?? []} value={specs} onChange={setSpecs} allLabel="All" loading={specOpts.loading} />}
@@ -77,5 +79,6 @@ export function VisitsChart({ line, fromYM, toYM, r }: { line: number | null; fr
         </div>
       )}
     </ChartCard>
+    </div>
   )
 }

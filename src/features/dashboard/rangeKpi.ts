@@ -11,6 +11,9 @@ export interface KpiMonth {
   expected_visits: number
 }
 
+/** One month of one line (dash_kpi_months_lines); line_id null = rows without a line. */
+export interface KpiMonthLine extends KpiMonth { line_id: number | null }
+
 export interface RangeKpi extends Omit<KpiMonth, 'month'> {
   coverage: number | null; pcf: number | null; ach_cr: number | null; total_kpi: number | null
   call_rate_am: number | null; call_rate_pm: number | null; planned_share: number | null; missing_days: number
@@ -67,3 +70,22 @@ export function fmtMoney(v: number | null): string {
   return Math.round(v).toLocaleString('en-US')
 }
 export const fmtSigned = (v: number | null): string => (v === null ? '—' : `${v < 0 ? '−' : '+'}${fmtMoney(Math.abs(v))}`)
+
+/* ------------------------------ derive everything from the one per-line call ------------------------------ */
+const NUM_KEYS: Exclude<keyof KpiMonth, 'month'>[] = ['reps', 'list_doctors', 'covered_doctors', 'total_visits', 'valid_visits', 'planned_visits', 'direct_visits', 'visits_am', 'visits_pm', 'pharmacy_visits',
+  'days_am', 'days_pm', 'missing_am', 'missing_pm', 'leave_days', 'ow_days', 'activity_days', 'expected_visits']
+
+/** Company = the sum of all lines, month by month. */
+export function companyMonths(rows: KpiMonthLine[]): KpiMonth[] {
+  const by = new Map<string, KpiMonth>()
+  for (const r of rows) {
+    let m = by.get(r.month)
+    if (!m) { m = { month: r.month } as KpiMonth; for (const k of NUM_KEYS) m[k] = 0; by.set(r.month, m) }
+    for (const k of NUM_KEYS) m[k] += r[k]
+  }
+  return [...by.values()].sort((a, b) => a.month.localeCompare(b.month))
+}
+
+/** One line's months. */
+export const lineMonths = (rows: KpiMonthLine[], lineId: number): KpiMonth[] =>
+  rows.filter((r) => r.line_id === lineId).sort((a, b) => a.month.localeCompare(b.month))

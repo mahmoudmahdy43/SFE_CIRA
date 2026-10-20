@@ -17,6 +17,7 @@
     "test:office-work-raw": "node scripts/rawOfficeWork.test.mjs",
     "test:date-range": "node scripts/dateRange.test.mjs",
     "test:dashboard": "node scripts/dashboardPeriod.test.mjs",
+    "test:dashboard-requests": "node scripts/dashboardRequests.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

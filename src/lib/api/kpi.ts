@@ -105,3 +105,11 @@ export async function fetchWorkingDays(month: string): Promise<number> {
   const days = await rpc<{ day: string }[]>('working_days', { p_shift: 'AM', p_from: month, p_to: addDaysIso(addMonthsIso(month, 1), -1) })
   return days.length
 }
+
+/** Working AM days per month (YYYY-MM -> count) for a whole range in ONE call. */
+export async function fetchWorkingDaysByMonth(from: string, to: string, signal?: AbortSignal): Promise<Map<string, number>> {
+  const days = await rpc<{ day: string }[]>('working_days', { p_shift: 'AM', p_from: from, p_to: to }, signal)
+  const out = new Map<string, number>()
+  for (const d of days) out.set(String(d.day).slice(0, 7), (out.get(String(d.day).slice(0, 7)) ?? 0) + 1)
+  return out
+}

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, BarChart3, RefreshCw } from 'lucide-react'
 import { PageHeader, EmptyState, ErrorState } from '../components/app/states'
@@ -7,8 +7,8 @@ import { PeriodPicker } from '../components/app/PeriodPicker'
 import { Button } from '../components/ui/button'
 import { Card, Skeleton } from '../components/ui/misc'
 import { useMonth } from '../context/MonthContext'
-import { clearKpiCache, fetchCompanySeries, fetchLineSeries, fetchMonthDetail, fetchVacantBoxes, fetchWorkingDays } from '../lib/api/kpi'
-import { fetchKpiMonths, fetchSalesYtd } from '../lib/api/dash'
+import { clearKpiCache, fetchCompanySeries, fetchLineSeries, fetchMonthDetail, fetchVacantBoxes, fetchWorkingDaysByMonth } from '../lib/api/kpi'
+import { fetchKpiMonthsLines, fetchSalesYtd } from '../lib/api/dash'
 import { fetchLineNames } from '../lib/api/reports'
 import { fetchVisitMonths } from '../lib/api/visits'
 import { kpiTone } from '../lib/kpi'
@@ -19,10 +19,10 @@ import { CompanySkillsCard } from '../features/dashboard/CompanySkillsCard'
 import { VisitsChart } from '../features/dashboard/VisitsChart'
 import { SalesChart } from '../features/dashboard/SalesChart'
 import SystemStatus from '../features/dashboard/SystemStatus'
-import { useAsync } from '../features/dashboard/useAsync'
+import { PRIORITY, resetDashCache, useDash, useNearViewport } from '../features/dashboard/useDash'
 import { boxesMissingTargets, buildTree, deltaPts, fmtInt, fmtPct, fmtRate, latestMonth, type TreeNode } from '../features/dashboard/kpiMath'
 import { addYM, monthName, parsePeriod, periodLabel, periodQuery, resolvePeriod, type Period } from '../features/dashboard/periodMath'
-import { aggregate, comparable, fmtMoney, fmtSigned, hasData, ratiosOf, rowsIn, type KpiMonth } from '../features/dashboard/rangeKpi'
+import { aggregate, companyMonths, comparable, fmtMoney, fmtSigned, hasData, lineMonths, ratiosOf, rowsIn, type KpiMonth } from '../features/dashboard/rangeKpi'
 
 const DashboardCharts = lazy(() => import('../features/dashboard/DashboardCharts'))
 
@@ -52,57 +52,67 @@ export default function Dashboard() {
   const [repNode, setRepNode] = useState<TreeNode | null>(null)
 
   // ----- period + line live in the URL (?mode=quarter&from=2026-07&to=2026-09&line=1) -----
-  const period = useMemo(() => parsePeriod((k) => params.get(k), month.slice(0, 7)), [params, month])
   const lineParam = Number(params.get('line'))
   const lineId = Number.isInteger(lineParam) && params.get('line') !== null && lineParam > 0 ? lineParam : null
-  const r = useMemo(() => resolvePeriod(period), [period])
-  const toMonth = `${period.toYM}-01`
   const write = useCallback((p: Period, line: number | null) => {
     setParams(periodQuery(p, line), { replace: true })
     setMonth(`${p.toYM}-01`) // keep the top-bar month in sync for the other pages
   }, [setParams, setMonth])
 
-  const lines = useAsync('lines:names', fetchLineNames)
-  const company = useAsync('kpi:company', fetchCompanySeries)
-  const lineSeries = useAsync('kpi:lines', fetchLineSeries)
-  const visitMonths = useAsync('visits:months', fetchVisitMonths)
+  // Every call goes through one queue (3 in flight at most), is cancelled when stale and is cached by its parameters.
+  const lines = useDash('lines:names', PRIORITY.kpi, () => fetchLineNames())
+  const company = useDash('kpi:company', PRIORITY.kpi, () => fetchCompanySeries())
+  const lineSeries = useDash(lineId !== null ? 'kpi:lines' : null, PRIORITY.other, () => fetchLineSeries())
+  const visitMonths = useDash('visits:months', PRIORITY.other, () => fetchVisitMonths())
 
-  // Default month = latest month with KPIs (once, when the URL has no period and the chosen month has none).
-  const initDone = useRef(false)
+  // Default month = latest month with KPIs (when the URL has no period and the top-bar month has none).
+  const urlHasPeriod = params.get('from') !== null
+  const latestYM = company.data ? latestMonth(company.data.map((c) => c.month))?.slice(0, 7) ?? null : null
+  const defaultYM = !urlHasPeriod && latestYM && company.data && !company.data.some((c) => c.month.slice(0, 7) === month.slice(0, 7)) ? latestYM : month.slice(0, 7)
   useEffect(() => {
-    if (initDone.current || !company.data) return
-    initDone.current = true
-    if (params.get('from') || company.data.some((c) => c.month.slice(0, 7) === month.slice(0, 7))) return
-    const latest = latestMonth(company.data.map((c) => c.month))
-    if (latest) setMonth(latest)
-  }, [company.data, month, setMonth, params])
+    if (!urlHasPeriod && defaultYM !== month.slice(0, 7)) setMonth(`${defaultYM}-01`)
+  }, [urlHasPeriod, defaultYM, month, setMonth])
+  const ready = urlHasPeriod || company.data !== null || company.error !== null // do not ask for a month that is about to change
 
-  // ----- KPI rows: the period (a lone month also loads the 5 months before it for the sparklines) and the previous period -----
-  const fetchFromYM = r.n === 1 ? addYM(period.toYM, -5) : period.fromYM
-  const curQ = useAsync(`dash:kpi:${fetchFromYM}:${period.toYM}:${lineId ?? 'all'}`, () => fetchKpiMonths(`${fetchFromYM}-01`, r.to, lineId))
-  const prevQ = useAsync(`dash:kpi:${r.prevFrom}:${r.prevTo}:${lineId ?? 'all'}`, () => fetchKpiMonths(r.prevFrom, r.prevTo, lineId))
-  const ytd = useAsync(`dash:ytd:${r.to}:${lineId ?? 'all'}`, () => fetchSalesYtd(r.to, lineId))
-  const lineIds = useMemo(() => (lines.data ?? []).map((l) => l.id), [lines.data])
-  const perLine = useAsync(`dash:kpi-lines:${r.from}:${r.to}:${lineIds.join(',')}`, () => Promise.all(lineIds.map((id) => fetchKpiMonths(r.from, r.to, id))))
-  const detail = useAsync(`kpi:detail:${toMonth}`, () => fetchMonthDetail(toMonth))
-  const vacant = useAsync(`vacant:${toMonth}`, () => fetchVacantBoxes(toMonth))
+  const period = useMemo(() => parsePeriod((k) => params.get(k), defaultYM), [params, defaultYM])
+  const r = useMemo(() => resolvePeriod(period), [period])
+  const toMonth = `${period.toYM}-01`
+  const prevFromYM = addYM(period.fromYM, -r.n)
+  const prevToYM = addYM(period.fromYM, -1)
 
-  const inRange = useMemo(() => rowsIn(curQ.data ?? [], period.fromYM, period.toYM), [curQ.data, period.fromYM, period.toYM])
+  // ONE KPI call for company, every line and the previous period (a lone month also gets the 5 months before it for the sparklines).
+  const callFromYM = r.n === 1 ? addYM(period.toYM, -5) : prevFromYM
+  const kpiAll = useDash(ready ? `dash:kpi-lines:${callFromYM}:${period.toYM}` : null, PRIORITY.kpi, (signal) => fetchKpiMonthsLines(`${callFromYM}-01`, r.to, signal))
+  const ytd = useDash(ready ? `dash:ytd:${r.to}:${lineId ?? 'all'}` : null, PRIORITY.ytd, (signal) => fetchSalesYtd(r.to, lineId, signal))
+  const working = useDash(kpiAll.data ? `dash:wd:${r.from}:${r.to}` : null, PRIORITY.other, (signal) => fetchWorkingDaysByMonth(r.from, r.to, signal))
+
+  // the drill-down (7+ small calls) loads when it is about to be seen
+  const [drillRef, drillSeen] = useNearViewport()
+  const detail = useDash(drillSeen ? `kpi:detail:${toMonth}` : null, PRIORITY.lazy, () => fetchMonthDetail(toMonth))
+  const vacant = useDash(drillSeen ? `vacant:${toMonth}` : null, PRIORITY.lazy, () => fetchVacantBoxes(toMonth))
+
+  // company = sum of the lines; a Line filter = that line; previous period = its months; per-line charts = group by line
+  const all = kpiAll.data
+  const scope = useMemo(() => (all === null ? [] : lineId === null ? companyMonths(all) : lineMonths(all, lineId)), [all, lineId])
+  const inRange = useMemo(() => rowsIn(scope, period.fromYM, period.toYM), [scope, period.fromYM, period.toYM])
   const cur = useMemo(() => (inRange.some(hasData) ? aggregate(inRange) : null), [inRange])
-  const prev = useMemo(() => (prevQ.data && comparable(prevQ.data, r.n) ? aggregate(prevQ.data) : null), [prevQ.data, r.n])
-  const sparkRows: KpiMonth[] = useMemo(() => (r.n === 1 ? (curQ.data ?? []) : inRange).filter(hasData), [r.n, curQ.data, inRange])
+  const prev = useMemo(() => {
+    const rows = rowsIn(scope, prevFromYM, prevToYM)
+    return comparable(rows, r.n) ? aggregate(rows) : null
+  }, [scope, prevFromYM, prevToYM, r.n])
+  const sparkRows: KpiMonth[] = useMemo(() => (r.n === 1 ? rowsIn(scope, addYM(period.toYM, -5), period.toYM) : inRange).filter(hasData), [r.n, scope, period.toYM, inRange])
   const spark = (pick: (k: ReturnType<typeof ratiosOf>) => number | null, scale = 1) => sparkRows.map((m) => pick(ratiosOf(m))).filter((v): v is number => v !== null).map((v) => v * scale)
   const sparkRaw = (pick: (m: KpiMonth) => number) => sparkRows.map(pick)
 
   // ----- partial-month banner: a month of the range with visits on fewer days than working days -----
   const dataMonths = useMemo(() => inRange.filter(hasData).map((m) => m.month.slice(0, 7)), [inRange])
-  const working = useAsync(`wd:${dataMonths.join(',')}`, () => Promise.all(dataMonths.map((m) => fetchWorkingDays(`${m}-01`))))
   const partial = useMemo(() => {
     const wd = working.data
     if (!wd) return []
-    return dataMonths.flatMap((m, i) => {
+    return dataMonths.flatMap((m) => {
       const days = visitMonths.data?.find((v) => v.month.slice(0, 7) === m)?.days ?? 0
-      return days < wd[i] ? [{ m, days, wd: wd[i] }] : []
+      const need = wd.get(m) ?? 0
+      return days < need ? [{ m, days, wd: need }] : []
     })
   }, [dataMonths, working.data, visitMonths.data])
 
@@ -122,20 +132,23 @@ export default function Dashboard() {
     return src.map((s) => ({ month: s.month, total_kpi: s.total_kpi, coverage: s.coverage, pcf: s.pcf, ach_cr: s.ach_cr }))
   }, [company.data, lineSeries.data, lineId])
   const lineBars = useMemo(
-    () => (lines.data ?? []).flatMap((l, i) => {
-      const rows = perLine.data?.[i]
-      return rows && rows.some(hasData) && (lineId === null || l.id === lineId) ? [{ name: l.name, kpi: aggregate(rows) }] : []
+    () => (lines.data ?? []).flatMap((l) => {
+      const rows = all === null ? [] : rowsIn(lineMonths(all, l.id), period.fromYM, period.toYM)
+      return rows.some(hasData) && (lineId === null || l.id === lineId) ? [{ name: l.name, kpi: aggregate(rows) }] : []
     }),
-    [lines.data, perLine.data, lineId],
+    [lines.data, all, period.fromYM, period.toYM, lineId],
   )
 
+  // Reload (the button) clears the cache and remounts the charts; "Try again" on an error retries only the call that failed.
+  const [nonce, setNonce] = useState(0)
   const refreshAll = () => {
-    clearKpiCache()
-    lines.reload(); company.reload(); lineSeries.reload(); visitMonths.reload(); curQ.reload(); prevQ.reload(); ytd.reload(); perLine.reload(); detail.reload(); vacant.reload()
+    clearKpiCache(); resetDashCache(); setNonce((n) => n + 1)
+    lines.reload(); company.reload(); lineSeries.reload(); visitMonths.reload(); kpiAll.reload(); ytd.reload(); working.reload(); detail.reload(); vacant.reload()
   }
+  const failed = [kpiAll, company, lines, detail].find((q) => q.error)
 
-  const loading = curQ.loading
-  const fatal = curQ.error ?? company.error ?? detail.error
+  const loading = kpiAll.loading
+  const fatal = kpiAll.error ?? company.error ?? detail.error
   const achOk = cur !== null && cur.expected_visits > 0 && cur.ach_cr !== null
   const comparing = prev !== null
   const pts = (a: number | null | undefined, b: number | null | undefined) => (comparing ? deltaPts(a ?? null, b ?? null) ?? undefined : undefined)
@@ -167,7 +180,7 @@ export default function Dashboard() {
         <PeriodPicker value={period} onChange={(p) => write(p, lineId)} />
       </div>
 
-      {fatal && <Card><ErrorState title="Could not load the dashboard" message={fatal} onRetry={refreshAll} /></Card>}
+      {fatal && <Card><ErrorState title="Could not load the dashboard" message={fatal} onRetry={failed?.reload} /></Card>}
 
       {partial.length > 0 && (
         <div role="status" className="flex items-start gap-2 rounded-card border border-warning/40 bg-warning-soft px-4 py-3 text-sm text-warning">
@@ -219,8 +232,8 @@ export default function Dashboard() {
           </StatGrid>
 
           <div className="grid gap-6 xl:grid-cols-12">
-            <VisitsChart line={lineId} fromYM={period.fromYM} toYM={period.toYM} r={r} />
-            <SalesChart line={lineId} fromYM={period.fromYM} toYM={period.toYM} r={r} />
+            <VisitsChart key={`v${nonce}`} line={lineId} fromYM={period.fromYM} toYM={period.toYM} r={r} />
+            <SalesChart key={`s${nonce}`} line={lineId} fromYM={period.fromYM} toYM={period.toYM} r={r} />
           </div>
 
           <Suspense fallback={<div className="grid gap-6 xl:grid-cols-12"><Skeleton className="h-72 xl:col-span-8" /><Skeleton className="h-72 xl:col-span-4" /></div>}>
@@ -234,7 +247,7 @@ export default function Dashboard() {
             />
           </Suspense>
 
-          <section aria-labelledby="drill">
+          <section aria-labelledby="drill" ref={drillRef}>
             <h2 id="drill" className="mb-1 text-base font-semibold">Drill-down: line → manager → rep</h2>
             <p className="mb-3 text-13 text-muted-foreground">Shows {monthName(period.toYM)} {period.toYM.slice(0, 4)}, the last month of the period.</p>
             {detail.error ? (

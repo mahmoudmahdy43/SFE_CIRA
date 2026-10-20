@@ -2,12 +2,12 @@ import { KpiCard } from '../../components/app/KpiCard'
 import { useAuth } from '../../context/AuthContext'
 import { fetchCoachingTrend } from '../../lib/api/coaching'
 import { fmtScore, monthName } from '../reports/coachingMath'
-import { useAsync } from './useAsync'
+import { PRIORITY, useDash } from './useDash'
 
 const TIP = 'Average coaching score (1-5) of all coaching visits in the latest month with coaching data up to the end of the selected period. The change is against the previous month with data.'
 
 function Inner({ upTo }: { upTo?: string }) {
-  const q = useAsync('coaching:dashboard', () => fetchCoachingTrend('2000-01-01', '2100-01-01'))
+  const q = useDash('coaching:dashboard', PRIORITY.other, () => fetchCoachingTrend('2000-01-01', '2100-01-01'))
   const rows = q.data ?? []
   const scored = rows.filter((r) => r.avg_score !== null && (!upTo || r.month.slice(0, 7) <= upTo.slice(0, 7)))
   const cur = scored[scored.length - 1]

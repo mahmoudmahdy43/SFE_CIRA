@@ -171,14 +171,15 @@ export async function fetchMissingReport(from: string, to: string): Promise<Miss
 }
 
 /* ------------------------------------ Manager Coverage (admin-only database functions) ------------------------------------ */
-interface RpcPage { order: (column: string) => RpcPage; range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }> }
+interface RpcPage { order: (column: string) => RpcPage; abortSignal: (signal: AbortSignal) => RpcPage; range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }> }
 
 /** Call a set-returning function and page past PostgREST's 1000-row cap. `orderBy` must give a stable order. */
-export async function rpcAll(fn: string, args: Record<string, unknown>, orderBy: string[], max = Infinity): Promise<Raw[]> {
+export async function rpcAll(fn: string, args: Record<string, unknown>, orderBy: string[], max = Infinity, signal?: AbortSignal): Promise<Raw[]> {
   const out: Raw[] = []
   for (let from = 0; out.length < max; from += 1000) {
     let q = supabase.rpc(fn, args) as unknown as RpcPage
     for (const o of orderBy) q = q.order(o)
+    if (signal) q = q.abortSignal(signal) // a stale request stops on the wire, not just in the UI
     const { data, error } = await q.range(from, Math.min(from + 999, from + max - out.length - 1))
     if (error) throw new Error(error.message)
     const rows = (data ?? []) as Raw[]

@@ -9,7 +9,7 @@ import { fetchProducts, fetchSalesSeries, type SalesGroup, type SalesPoint } fro
 import { cn } from '../../lib/utils'
 import { monthShort, monthsOf, type Resolved } from './periodMath'
 import { fmtMoney } from './rangeKpi'
-import { useAsync } from './useAsync'
+import { PRIORITY, useDash, useDebounced, useNearViewport } from './useDash'
 
 type Measure = 'value' | 'units'
 const TARGET = '__target'
@@ -41,16 +41,19 @@ const fmtUnits = (v: number) => Math.round(v).toLocaleString('en-US')
 /** Chart B: sales per month, one line per group. Value / Units come from the same call; Products is local to this chart. */
 export function SalesChart({ line, fromYM, toYM, r }: { line: number | null; fromYM: string; toYM: string; r: Resolved }) {
   const [measure, setMeasure] = useState<Measure>('value')
-  const [group, setGroup] = useState<SalesGroup>('company')
+  const [group, setGroup] = useState<SalesGroup>('total')
   const [products, setProducts] = useState<number[]>([])
   const [isolated, setIsolated] = useState<string | null>(null)
-  const prodOpts = useAsync('opt:products', fetchProducts)
+  const [ref, seen] = useNearViewport() // the chart asks for its data only when it is near the viewport
+  const dProducts = useDebounced(products) // the multi-select waits 400 ms before it calls the database
+  const prodOpts = useDash(seen ? 'opt:products' : null, PRIORITY.lazy, () => fetchProducts())
 
   const ctxFromYM = r.n === 1 ? `${toYM.slice(0, 4)}-01` : fromYM
   const from = `${ctxFromYM}-01`
-  const q = useAsync(`dash:sales:${from}:${r.to}:${group}:${line ?? 'all'}:${products.join(',')}`, () => fetchSalesSeries(from, r.to, group, line, products))
+  const key = seen ? `dash:sales:${from}:${r.to}:${group}:${line ?? 'all'}:${dProducts.join(',')}` : null
+  const q = useDash(key, PRIORITY.sales, (signal) => fetchSalesSeries(from, r.to, group, line, dProducts, signal))
   const months = useMemo(() => monthsOf(ctxFromYM, toYM), [ctxFromYM, toYM])
-  const { data, groups } = useMemo(() => pivotSales(q.data ?? [], months, measure, group === 'company'), [q.data, months, measure, group])
+  const { data, groups } = useMemo(() => pivotSales(q.data ?? [], months, measure, group === 'total'), [q.data, months, measure, group])
 
   const colour = (g: string) => CHART[groups.indexOf(g) % CHART.length]
   const fmt = measure === 'value' ? fmtMoney : fmtUnits
@@ -59,14 +62,14 @@ export function SalesChart({ line, fromYM, toYM, r }: { line: number | null; fro
   const hasAny = data.some((d) => groups.some((g) => d[g] !== undefined))
 
   return (
+    <div ref={ref} className="xl:col-span-12">
     <ChartCard
-      className="xl:col-span-12"
       title="Sales per month"
       description={r.n === 1 ? 'From January to the selected month; the selected month is shaded.' : 'One line per group; months without a sales file are gaps.'}
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <Segmented label="Measure" value={measure} onChange={setMeasure} options={[{ value: 'value', label: 'Value' }, { value: 'units', label: 'Units' }]} />
-          <Segmented label="Group by" value={group} onChange={(g) => { setGroup(g); setIsolated(null) }} options={[{ value: 'company', label: 'Company' }, { value: 'line', label: 'Line' }, { value: 'manager', label: 'Manager' }]} />
+          <Segmented label="Group by" value={group} onChange={(g) => { setGroup(g); setIsolated(null) }} options={[{ value: 'total', label: 'Company' }, { value: 'line', label: 'Line' }, { value: 'manager', label: 'Manager' }]} />
           <MultiSelect label="Products" options={prodOpts.data ?? []} value={products} onChange={setProducts} allLabel="All" loading={prodOpts.loading} />
         </div>
       }
@@ -96,7 +99,7 @@ export function SalesChart({ line, fromYM, toYM, r }: { line: number | null; fro
                       ) : <g key={`${g}-${p.index}`} />) : false} />
                   )
                 })}
-                {group === 'company' && <Line dataKey={TARGET} name="Target" stroke="hsl(var(--muted-foreground))" strokeDasharray="5 4" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
+                {group === 'total' && <Line dataKey={TARGET} name="Target" stroke="hsl(var(--muted-foreground))" strokeDasharray="5 4" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -116,5 +119,6 @@ export function SalesChart({ line, fromYM, toYM, r }: { line: number | null; fro
         </div>
       )}
     </ChartCard>
+    </div>
   )
 }
