@@ -100,30 +100,33 @@ t('strategy map suggestion: 7 groups, unmatched stay visible', () => {
 t('scope picks the function and the parameters (chart)', () => {
   const F = '2026-01-01', T = '2026-09-30'
   // a selected group keeps the old function, one group
-  assert.deepEqual(r.monthlyCall({ group: 7, line: 2, product: 5 }, F, T, 'PM'), { fn: 'speciality_roi_monthly', args: { p_group: 7, p_from: F, p_to: T, p_shift: 'PM' } })
-  // nothing chosen = the whole company: line and product both null
-  assert.deepEqual(r.monthlyCall({ group: null, line: null, product: null }, F, T, 'ALL'), { fn: 'speciality_roi_scope_monthly', args: { p_from: F, p_to: T, p_line: null, p_product: null, p_shift: 'ALL' } })
-  // a line only
-  assert.deepEqual(r.monthlyCall({ group: null, line: 3, product: null }, F, T, 'AM').args, { p_from: F, p_to: T, p_line: 3, p_product: null, p_shift: 'AM' })
-  // a product inside a line
-  assert.deepEqual(r.monthlyCall({ group: null, line: 3, product: 41 }, F, T, 'ALL').args, { p_from: F, p_to: T, p_line: 3, p_product: 41, p_shift: 'ALL' })
-  // a product without a line is ignored (it only exists inside a line)
-  assert.equal(r.monthlyCall({ group: null, line: null, product: 41 }, F, T, 'ALL').args.p_product, null)
+  assert.deepEqual(r.monthlyCall({ group: 7, line: 2, products: [5] }, F, T, 'PM'), { fn: 'speciality_roi_monthly', args: { p_group: 7, p_from: F, p_to: T, p_shift: 'PM' } })
+  // nothing chosen = the whole company: line and products both null
+  assert.deepEqual(r.monthlyCall({ group: null, line: null, products: [] }, F, T, 'ALL'), { fn: 'speciality_roi_scope_monthly', args: { p_from: F, p_to: T, p_line: null, p_products: null, p_shift: 'ALL' } })
+  // a line only (no product chosen = all products = null)
+  assert.deepEqual(r.monthlyCall({ group: null, line: 3, products: [] }, F, T, 'AM').args, { p_from: F, p_to: T, p_line: 3, p_products: null, p_shift: 'AM' })
+  // several products inside a line: an array, sorted, no duplicates
+  assert.deepEqual(r.monthlyCall({ group: null, line: 3, products: [41, 9, 41] }, F, T, 'ALL').args, { p_from: F, p_to: T, p_line: 3, p_products: [9, 41], p_shift: 'ALL' })
+  // products without a line are ignored (they only exist inside a line)
+  assert.equal(r.monthlyCall({ group: null, line: null, products: [41] }, F, T, 'ALL').args.p_products, null)
 })
 t('scope picks the function and the parameters (territories, min visits)', () => {
   const F = '2026-01-01', T = '2026-09-30'
-  assert.deepEqual(r.territoriesCall({ group: 7, line: 2, product: null }, F, T, 'ALL', 25), { fn: 'speciality_roi_territories', args: { p_group: 7, p_from: F, p_to: T, p_shift: 'ALL' } })
-  const c = r.territoriesCall({ group: null, line: 2, product: 9 }, F, T, 'PM', 25)
+  assert.deepEqual(r.territoriesCall({ group: 7, line: 2, products: [] }, F, T, 'ALL', 25), { fn: 'speciality_roi_territories', args: { p_group: 7, p_from: F, p_to: T, p_shift: 'ALL' } })
+  const c = r.territoriesCall({ group: null, line: 2, products: [9, 4] }, F, T, 'PM', 25)
   assert.equal(c.fn, 'speciality_roi_territories_scope')
-  assert.deepEqual(c.args, { p_from: F, p_to: T, p_line: 2, p_product: 9, p_shift: 'PM', p_min_visits: 25 })
-  assert.equal(r.territoriesCall({ group: null, line: null, product: null }, F, T, 'ALL', 10).args.p_min_visits, 10)
+  assert.deepEqual(c.args, { p_from: F, p_to: T, p_line: 2, p_products: [4, 9], p_shift: 'PM', p_min_visits: 25 })
+  assert.equal(r.territoriesCall({ group: null, line: null, products: [] }, F, T, 'ALL', 10).args.p_min_visits, 10)
 })
-t('a different scope is a different cache key', () => {
-  const a = r.callKey(r.monthlyCall({ group: null, line: 1, product: null }, '2026-01-01', '2026-09-30', 'ALL'))
-  const b = r.callKey(r.monthlyCall({ group: null, line: 1, product: 4 }, '2026-01-01', '2026-09-30', 'ALL'))
-  const c = r.callKey(r.monthlyCall({ group: null, line: 1, product: null }, '2026-01-01', '2026-09-30', 'PM'))
-  assert.equal(new Set([a, b, c]).size, 3)
-  assert.equal(a, r.callKey(r.monthlyCall({ group: null, line: 1, product: null }, '2026-01-01', '2026-09-30', 'ALL')))
+t('a different scope is a different cache key; the same choice in another order is the same key', () => {
+  const k = (products, shift = 'ALL') => r.callKey(r.monthlyCall({ group: null, line: 1, products }, '2026-01-01', '2026-09-30', shift))
+  assert.equal(new Set([k([]), k([4]), k([4, 5]), k([], 'PM')]).size, 4)
+  assert.equal(k([5, 4]), k([4, 5]))
+})
+t('products in the URL and in titles', () => {
+  assert.deepEqual(r.parseIds('12,5,5,x,-1,0,2.5'), [5, 12]); assert.deepEqual(r.parseIds(null), []); assert.deepEqual(r.parseIds(''), [])
+  assert.equal(r.productsLabel(['Irovast']), 'Irovast'); assert.equal(r.productsLabel(['Irovast', 'Axal']), 'Irovast + Axal')
+  assert.equal(r.productsLabel(['A', 'B', 'C']), '3 products'); assert.equal(r.productsLabel([]), '')
 })
 t('Value / Units and Min visits parsing', () => {
   assert.equal(r.parseMeasure('units'), 'units'); assert.equal(r.parseMeasure('x'), 'value'); assert.equal(r.parseMeasure(null), 'value')

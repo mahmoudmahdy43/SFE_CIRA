@@ -177,19 +177,27 @@ export function parseMinVisits(text: string | null): number {
 }
 
 /** What the chart and the territories table show: one group (old functions) or the scope Line / Product (new functions). */
-export interface Selection { group: number | null; line: number | null; product: number | null }
+export interface Selection { group: number | null; line: number | null; products: number[] }
 export interface RpcCall { fn: string; args: Record<string, unknown> }
 
-/** A product only makes sense inside a line. */
-export const scopeProduct = (line: number | null, product: number | null): number | null => (line === null ? null : product)
+/** Products only make sense inside a line; none chosen = all products = null. The ids are sorted, so the same choice is the same cache key. */
+export const scopeProducts = (line: number | null, products: number[]): number[] | null => (line === null || products.length === 0 ? null : [...new Set(products)].sort((a, b) => a - b))
+
+/** "12,5,5,x" -> [5, 12]: whole positive numbers only, no duplicates. */
+export function parseIds(text: string | null): number[] {
+  if (!text) return []
+  return [...new Set(text.split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0))].sort((a, b) => a - b)
+}
+/** Chosen products in a title: their names, or "3 products" when more than 2. */
+export const productsLabel = (names: string[]): string => (names.length <= 2 ? names.join(' + ') : `${names.length} products`)
 
 export function monthlyCall(sel: Selection, from: string, to: string, shift: Shift): RpcCall {
   if (sel.group !== null) return { fn: 'speciality_roi_monthly', args: { p_group: sel.group, p_from: from, p_to: to, p_shift: shift } }
-  return { fn: 'speciality_roi_scope_monthly', args: { p_from: from, p_to: to, p_line: sel.line, p_product: scopeProduct(sel.line, sel.product), p_shift: shift } }
+  return { fn: 'speciality_roi_scope_monthly', args: { p_from: from, p_to: to, p_line: sel.line, p_products: scopeProducts(sel.line, sel.products), p_shift: shift } }
 }
 export function territoriesCall(sel: Selection, from: string, to: string, shift: Shift, minVisits: number): RpcCall {
   if (sel.group !== null) return { fn: 'speciality_roi_territories', args: { p_group: sel.group, p_from: from, p_to: to, p_shift: shift } }
-  return { fn: 'speciality_roi_territories_scope', args: { p_from: from, p_to: to, p_line: sel.line, p_product: scopeProduct(sel.line, sel.product), p_shift: shift, p_min_visits: minVisits } }
+  return { fn: 'speciality_roi_territories_scope', args: { p_from: from, p_to: to, p_line: sel.line, p_products: scopeProducts(sel.line, sel.products), p_shift: shift, p_min_visits: minVisits } }
 }
 /** Stable cache key for a call (same function + same parameters = same entry). */
 export const callKey = (c: RpcCall): string => c.fn + ':' + Object.keys(c.args).sort().map((k) => String(c.args[k] ?? 'null')).join(':')

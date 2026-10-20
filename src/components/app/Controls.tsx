@@ -40,13 +40,15 @@ export function ChipToggle({ on, onChange, children, color }: { on: boolean; onC
 export interface MultiOption { id: number; name: string }
 
 /** Searchable multi-select; the trigger shows "All" or "n selected". Empty selection = no filter. */
-export function MultiSelect({ label, options, value, onChange, allLabel = 'All', loading }: {
+export function MultiSelect({ label, options, value, onChange, allLabel = 'All', loading, showSelectAll }: {
   label: string
   options: MultiOption[]
   value: number[]
   onChange: (v: number[]) => void
   allLabel?: string
   loading?: boolean
+  /** Adds a "Select all" button next to "Clear". */
+  showSelectAll?: boolean
 }) {
   const [q, setQ] = useState('')
   const shown = useMemo(() => options.filter((o) => o.name.toLowerCase().includes(q.trim().toLowerCase())), [options, q])
@@ -82,7 +84,10 @@ export function MultiSelect({ label, options, value, onChange, allLabel = 'All',
         </ul>
         <div className="flex items-center justify-between border-t px-3 py-2 text-13">
           <span className="text-muted-foreground">{value.length === 0 ? allLabel : `${value.length} selected`}</span>
-          <button type="button" disabled={value.length === 0} onClick={() => onChange([])} className="font-medium text-accent-foreground underline-offset-2 hover:underline disabled:opacity-40 disabled:no-underline">Clear</button>
+          <span className="flex gap-3">
+            {showSelectAll && <button type="button" disabled={value.length === options.length} onClick={() => onChange(options.map((o) => o.id))} className="font-medium text-accent-foreground underline-offset-2 hover:underline disabled:opacity-40 disabled:no-underline">Select all</button>}
+            <button type="button" disabled={value.length === 0} onClick={() => onChange([])} className="font-medium text-accent-foreground underline-offset-2 hover:underline disabled:opacity-40 disabled:no-underline">Clear</button>
+          </span>
         </div>
       </PopoverContent>
     </Popover>

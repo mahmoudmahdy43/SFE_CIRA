@@ -5,7 +5,7 @@ import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis
 import { toast } from 'sonner'
 import { ChartCard } from '../../components/app/ChartCard'
 import { CHART, ChartTip, axisProps } from '../../components/app/charts'
-import { Segmented } from '../../components/app/Controls'
+import { MultiSelect, Segmented } from '../../components/app/Controls'
 import { EmptyState, ErrorState } from '../../components/app/states'
 import { buttonVariants, Button } from '../../components/ui/button'
 import { Card, Skeleton } from '../../components/ui/misc'
@@ -22,7 +22,7 @@ import { RoiDetail } from './RoiDetail'
 import { RoiScopeView } from './RoiScopeView'
 import { RoiTable, type RoiCol } from './RoiTable'
 import { buildMonthlyGrid, buildSummaryGrid, buildTerritoriesGrid, downloadRoiWorkbook } from './roiExport'
-import { costFor, parseLine, parseMeasure, parseMinVisits, parseShift, qualityText, summariseQuality, type Measure, type Selection, type Shift } from './roiMath'
+import { costFor, parseIds, parseLine, parseMeasure, parseMinVisits, parseShift, productsLabel, qualityText, summariseQuality, type Measure, type Selection, type Shift } from './roiMath'
 
 export function SpecialityRoiTab() {
   const dr = useDateRange() // the period is the one in the top bar, widened to whole months
@@ -54,10 +54,11 @@ export function SpecialityRoiTab() {
 
   const rows = useMemo(() => summary.data ?? [], [summary.data])
   const selected = rows.find((x) => x.group_id === groupId) ?? null
-  const product = lineId === null ? null : (products.data ?? []).find((x) => x.product_id === parseLine(params.get('product'))) ?? null
-  const sel: Selection = { group: selected?.group_id ?? null, line: lineId, product: product?.product_id ?? null }
+  const wanted = parseIds(params.get('products'))
+  const chosen = lineId === null ? [] : (products.data ?? []).filter((x) => wanted.includes(x.product_id))
+  const sel: Selection = { group: selected?.group_id ?? null, line: lineId, products: chosen.map((x) => x.product_id) }
   const lineName = lineId === null ? 'All lines' : (lines.data ?? []).find((l) => l.id === lineId)?.name ?? `Line ${lineId}`
-  const scopeName = product ? `${lineName} · ${product.name}` : lineId === null ? 'Whole company' : lineName
+  const scopeName = chosen.length > 0 ? `${lineName} · ${productsLabel(chosen.map((x) => x.name))}` : lineId === null ? 'Whole company' : lineName
   const whole = dr.from !== r.from || dr.to !== r.to
   const periodLine = `${periodLabel(period)}  |  ${lineName}  |  Visits: ${shift === 'ALL' ? 'AM + PM' : shift}`
   const q = useMemo(() => summariseQuality(quality.data ?? []), [quality.data])
@@ -89,7 +90,7 @@ export function SpecialityRoiTab() {
       const k = (g: RoiRow) => `${rev}:${g.group_id}:${r.from}:${r.to}:${shift}`
       const [terr, mon] = await Promise.all([
         Promise.all(rows.map(async (g) => ({ group: g, rows: await dashQueued(`roi:t:${k(g)}`, PRIORITY.lazy, (s) => fetchRoiTerritories(g.group_id, r.from, r.to, shift, s)) }))),
-        Promise.all(rows.map(async (g) => ({ group: g, rows: await dashQueued(`roi:m:${k(g)}`, PRIORITY.lazy, (s) => fetchRoiMonthly({ group: g.group_id, line: null, product: null }, r.from, r.to, shift, s)) }))),
+        Promise.all(rows.map(async (g) => ({ group: g, rows: await dashQueued(`roi:m:${k(g)}`, PRIORITY.lazy, (s) => fetchRoiMonthly({ group: g.group_id, line: null, products: [] }, r.from, r.to, shift, s)) }))),
       ])
       await downloadRoiWorkbook(`speciality-roi-${period.fromYM}_${period.toYM}.xlsx`, [buildSummaryGrid(rows, periodLine), buildTerritoriesGrid(terr, periodLine), buildMonthlyGrid(mon, periodLine)])
     } catch (e) {
@@ -103,7 +104,7 @@ export function SpecialityRoiTab() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Segmented label="Line" value={lineId ?? 0} onChange={(v) => update({ line: v === 0 ? null : v, product: null, group: null })}
+          <Segmented label="Line" value={lineId ?? 0} onChange={(v) => update({ line: v === 0 ? null : v, products: null, group: null })}
             options={[{ value: 0, label: 'All' }, ...(lines.data ?? []).map((l) => ({ value: l.id, label: l.name }))]} />
           <Segmented label="Visits" value={shift} onChange={(s) => update({ shift: s === 'ALL' ? null : s })} options={[{ value: 'ALL' as Shift, label: 'All' }, { value: 'AM' as Shift, label: 'AM' }, { value: 'PM' as Shift, label: 'PM' }]} />
           <Button size="sm" disabled={exporting || rows.length === 0} onClick={() => void exportAll()}>
@@ -166,11 +167,8 @@ export function SpecialityRoiTab() {
             <>
               <span className="text-sm">{lineName}</span>
               {lineId !== null && (
-                <select aria-label="Product" value={product?.product_id ?? ''} disabled={products.loading} onChange={(e) => update({ product: e.target.value || null })}
-                  className="h-8 max-w-[16rem] rounded-control border bg-card px-2 text-13">
-                  <option value="">All products</option>
-                  {(products.data ?? []).map((x) => <option key={x.product_id} value={x.product_id}>{x.name}{x.in_group ? '' : ' (not in a group)'}</option>)}
-                </select>
+                <MultiSelect label="Products" options={(products.data ?? []).map((x) => ({ id: x.product_id, name: x.in_group ? x.name : `${x.name} (not in a group)` }))}
+                  value={chosen.map((x) => x.product_id)} onChange={(ids) => update({ products: ids.length ? [...ids].sort((p, q) => p - q).join(',') : null })} allLabel="All products" loading={products.loading} showSelectAll />
               )}
             </>
           )}
@@ -180,7 +178,7 @@ export function SpecialityRoiTab() {
 
       {selected
         ? <RoiDetail group={selected} from={r.from} to={r.to} shift={shift} rev={rev} periodLine={periodLine} measure={measure} />
-        : <RoiScopeView sel={sel} product={product} from={r.from} to={r.to} shift={shift} measure={measure} minVisits={minVisits} onMinVisits={(t) => update({ min: parseMinVisits(t) === 10 ? null : parseMinVisits(t) })} rev={rev} periodLine={periodLine} scopeName={scopeName} />}
+        : <RoiScopeView sel={sel} chosen={chosen} from={r.from} to={r.to} shift={shift} measure={measure} minVisits={minVisits} onMinVisits={(t) => update({ min: parseMinVisits(t) === 10 ? null : parseMinVisits(t) })} rev={rev} periodLine={periodLine} scopeName={scopeName} />}
     </div>
   )
 }

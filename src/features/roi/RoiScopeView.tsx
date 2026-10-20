@@ -15,8 +15,8 @@ import { buildScopeTerritoriesGrid, downloadRoiWorkbook } from './roiExport'
 import { callKey, DOCTORS_TIP, fmtPct1, fmtRoi, kpiRatio, KPI_TIP, monthlyCall, ratioTone, territoriesCall, type Measure, type Selection, type Shift } from './roiMath'
 
 /** Chart + territories for the scope Line / Product (the whole company when both are empty). */
-export function RoiScopeView({ sel, product, from, to, shift, measure, minVisits, onMinVisits, rev, periodLine, scopeName }: {
-  sel: Selection; product: RoiProduct | null; from: string; to: string; shift: Shift; measure: Measure; minVisits: number
+export function RoiScopeView({ sel, chosen, from, to, shift, measure, minVisits, onMinVisits, rev, periodLine, scopeName }: {
+  sel: Selection; chosen: RoiProduct[]; from: string; to: string; shift: Shift; measure: Measure; minVisits: number
   onMinVisits: (n: string) => void; rev: number; periodLine: string; scopeName: string
 }) {
   const mKey = `roi:sm:${rev}:${callKey(monthlyCall(sel, from, to, shift))}`
@@ -61,12 +61,14 @@ export function RoiScopeView({ sel, product, from, to, shift, measure, minVisits
     catch (e) { toast.error(e instanceof Error ? e.message : 'Export failed') }
     finally { setBusy(false) }
   }
-  const unlinked = product !== null && !product.in_group
+  const unlinked = chosen.filter((x) => !x.in_group)
+  const note = unlinked.length === 0 ? undefined
+    : `${unlinked.map((x) => x.name).join(', ')} ${unlinked.length === 1 ? 'is' : 'are'} not linked to a speciality in the Speciality map, so ${unlinked.length === chosen.length ? 'the visits are 0' : 'no visits are counted for ' + (unlinked.length === 1 ? 'it' : 'them')}.`
 
   return (
     <div className="space-y-4">
       <RoiMonthlyChart title={`Visits and sales by month — ${scopeName}`} rows={monthly.data} measure={measure} loading={monthly.loading} error={monthly.error} onRetry={monthly.reload}
-        note={unlinked ? `${product.name} is not linked to a speciality in the Speciality map, so it has no visits (0).` : undefined} />
+        note={note} />
       <Card className="p-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold">Territories — {scopeName}</h3>

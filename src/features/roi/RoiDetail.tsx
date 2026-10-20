@@ -17,7 +17,7 @@ import { RoiBadge } from './RoiBadge'
 export function RoiDetail({ group, from, to, shift, rev, periodLine, measure }: { group: RoiRow; from: string; to: string; shift: Shift; rev: number; periodLine: string; measure: Measure }) {
   const [ref, seen] = useNearViewport()
   const k = `${rev}:${group.group_id}:${from}:${to}:${shift}`
-  const monthly = useDash(seen ? `roi:m:${k}` : null, PRIORITY.lazy, (s) => fetchRoiMonthly({ group: group.group_id, line: null, product: null }, from, to, shift, s))
+  const monthly = useDash(seen ? `roi:m:${k}` : null, PRIORITY.lazy, (s) => fetchRoiMonthly({ group: group.group_id, line: null, products: [] }, from, to, shift, s))
   const terr = useDash(seen ? `roi:t:${k}` : null, PRIORITY.lazy, (s) => fetchRoiTerritories(group.group_id, from, to, shift, s))
   const link = useDash(seen ? `roi:l:${k}` : null, PRIORITY.lazy, (s) => fetchRoiLink(group.group_id, from, to, shift, s))
 
