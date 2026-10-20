@@ -12,7 +12,7 @@ import { RoiBadge, ToneBadge } from './RoiBadge'
 import { RoiMonthlyChart } from './RoiMonthlyChart'
 import { RoiTable, type RoiCol } from './RoiTable'
 import { buildScopeTerritoriesGrid, downloadRoiWorkbook } from './roiExport'
-import { callKey, fmtPct1, fmtRoi, kpiRatio, KPI_TIP, monthlyCall, ratioTone, territoriesCall, type Measure, type Selection, type Shift } from './roiMath'
+import { callKey, DOCTORS_TIP, fmtPct1, fmtRoi, kpiRatio, KPI_TIP, monthlyCall, ratioTone, territoriesCall, type Measure, type Selection, type Shift } from './roiMath'
 
 /** Chart + territories for the scope Line / Product (the whole company when both are empty). */
 export function RoiScopeView({ sel, product, from, to, shift, measure, minVisits, onMinVisits, rev, periodLine, scopeName }: {
@@ -41,7 +41,7 @@ export function RoiScopeView({ sel, product, from, to, shift, measure, minVisits
         ) },
       { id: 'rep', header: 'Rep', value: (r) => r.rep_name, render: (r) => r.rep_name ?? '—', className: dim },
       { id: 'manager', header: 'Manager', value: (r) => r.manager_name, render: (r) => r.manager_name ?? '—', className: dim },
-      { id: 'docs', header: 'Doctors', numeric: true, value: (r) => r.list_doctors, render: (r) => fmtInt(r.list_doctors), className: dim },
+      { id: 'docs', header: 'Doctors', tip: DOCTORS_TIP, numeric: true, value: (r) => r.list_doctors, render: (r) => fmtInt(r.list_doctors), className: dim },
       { id: 'visits', header: 'Visits', numeric: true, value: (r) => r.visits, render: (r) => fmtInt(r.visits), className: dim },
       { id: 'cost', header: 'Visit cost', numeric: true, value: (r) => r.cost, render: (r) => fmtInt(r.cost), className: dim },
       { id: 'sales', header: measure === 'value' ? 'Sales (EGP)' : 'Sales (units)', numeric: true, value: (r) => (measure === 'value' ? r.s_value : r.s_units), render: (r) => fmtInt(measure === 'value' ? r.s_value : r.s_units), className: dim },
@@ -80,7 +80,7 @@ export function RoiScopeView({ sel, product, from, to, shift, measure, minVisits
             </Button>
           </div>
         </div>
-        <p className="mb-2 text-xs text-muted-foreground">Coverage and PCF: {KPI_TIP}.</p>
+        <p className="mb-2 text-xs text-muted-foreground">Coverage and PCF: {KPI_TIP}. They always use the PM doctors, whatever the AM / PM filter.</p>
         {terr.error ? <ErrorState title="Could not load the territories" message={terr.error} onRetry={terr.reload} className="py-8" />
           : terr.loading ? <Skeleton className="h-40 w-full" />
           : rows.length === 0 ? <EmptyState title="No territory has visits or sales in this scope" className="py-8" />

@@ -153,6 +153,7 @@ t('Excel total row: sums, ROI = total sales / total cost, coverage and PCF from 
   assert.equal(t1.pcf, 0.6) // 120 / 200, not the average of 90% and 30%
   assert.equal(t1.sales_per_visit, 4200)
   assert.equal(r.scopeTotals([]).roi, null); assert.equal(r.scopeTotals([]).coverage, null); assert.equal(r.scopeTotals([]).pcf, null)
+  assert.match(r.DOCTORS_TIP, /PM = Clinic \+ Poly Clinic, AM = other doctor types/)
   assert.match(r.KPI_TIP, /valid visits \/ target visits \(sum of Freq\)/)
 })
 

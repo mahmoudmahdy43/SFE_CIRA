@@ -202,6 +202,7 @@ export function ratioTone(v: number | null): RoiTone {
   return v < COVERAGE_THRESHOLDS.amber ? 'red' : v < COVERAGE_THRESHOLDS.green ? 'amber' : 'green'
 }
 export const fmtPct1 = (v: number | null): string => (v === null ? '—' : `${(v * 100).toFixed(1)}%`)
+export const DOCTORS_TIP = 'List doctors of the selected shift: PM = Clinic + Poly Clinic, AM = other doctor types, All = both; pharmacies excluded; last list month of the period'
 export const KPI_TIP = 'Coverage = covered / list doctors, PCF = valid visits / target visits (sum of Freq), for the doctors linked to the selection (Clinic + Poly Clinic)'
 
 /** Coverage / PCF of a row; "—" (null) when the row has no KPI doctors. */
