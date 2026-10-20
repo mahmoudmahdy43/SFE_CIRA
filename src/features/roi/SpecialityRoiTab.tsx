@@ -6,16 +6,15 @@ import { toast } from 'sonner'
 import { ChartCard } from '../../components/app/ChartCard'
 import { CHART, ChartTip, axisProps } from '../../components/app/charts'
 import { Segmented } from '../../components/app/Controls'
-import { PeriodPicker } from '../../components/app/PeriodPicker'
 import { EmptyState, ErrorState } from '../../components/app/states'
 import { buttonVariants, Button } from '../../components/ui/button'
 import { Card, Skeleton } from '../../components/ui/misc'
-import { useMonth } from '../../context/MonthContext'
+import { useDateRange } from '../../context/DateRangeContext'
 import { fetchRoi, fetchRoiMonthly, fetchRoiQuality, fetchRoiTerritories, fetchVisitCosts, type RoiRow } from '../../lib/api/roi'
 import { fetchLineNames } from '../../lib/api/reports'
 import { cn } from '../../lib/utils'
 import { fmtInt } from '../dashboard/kpiMath'
-import { parsePeriod, periodLabel, periodQuery, resolvePeriod, type Period } from '../dashboard/periodMath'
+import { firstDay, lastDay, periodLabel, type Period } from '../dashboard/periodMath'
 import { dashQueued, PRIORITY, resetDashCache, useDash } from '../dashboard/useDash'
 import { RoiBadge } from './RoiBadge'
 import { RoiCostBox } from './RoiCostBox'
@@ -25,23 +24,23 @@ import { buildMonthlyGrid, buildSummaryGrid, buildTerritoriesGrid, downloadRoiWo
 import { costFor, parseLine, parseShift, qualityText, summariseQuality, type Shift } from './roiMath'
 
 export function SpecialityRoiTab() {
-  const { month } = useMonth()
+  const dr = useDateRange() // the period is the one in the top bar, widened to whole months
   const [params, setParams] = useSearchParams()
   const [rev, setRev] = useState(0)
   const [exporting, setExporting] = useState(false)
 
-  const period = useMemo(() => parsePeriod((k) => params.get(k), month.slice(0, 7)), [params, month])
-  const r = useMemo(() => resolvePeriod(period), [period])
+  const period: Period = useMemo(() => ({ mode: 'custom', fromYM: dr.from.slice(0, 7), toYM: dr.to.slice(0, 7) }), [dr.from, dr.to])
+  const r = useMemo(() => ({ from: firstDay(period.fromYM), to: lastDay(period.toYM) }), [period])
   const lineId = parseLine(params.get('line'))
   const shift = parseShift(params.get('shift'))
   const groupId = parseLine(params.get('group'))
 
-  const write = useCallback((p: Period, line: number | null, s: Shift, group: number | null) => {
-    const q = new URLSearchParams(periodQuery(p, line))
-    if (s !== 'ALL') q.set('shift', s)
-    if (group !== null) q.set('group', String(group))
+  // line / visits / selected group live in the URL next to the top-bar range (?from=&to=), which is kept as it is
+  const write = useCallback((line: number | null, s: Shift, group: number | null) => {
+    const q = new URLSearchParams(params)
+    for (const [k, v] of [['line', line], ['shift', s === 'ALL' ? null : s], ['group', group]] as const) { if (v === null) q.delete(k); else q.set(k, String(v)) }
     setParams(q, { replace: true })
-  }, [setParams])
+  }, [params, setParams])
 
   const lines = useDash('lines:names', PRIORITY.kpi, () => fetchLineNames())
   const base = `${rev}:${r.from}:${r.to}:${lineId ?? 'all'}`
@@ -52,6 +51,7 @@ export function SpecialityRoiTab() {
   const rows = useMemo(() => summary.data ?? [], [summary.data])
   const selected = rows.find((x) => x.group_id === groupId) ?? null
   const lineName = lineId === null ? 'All lines' : (lines.data ?? []).find((l) => l.id === lineId)?.name ?? `Line ${lineId}`
+  const whole = dr.from !== r.from || dr.to !== r.to
   const periodLine = `${periodLabel(period)}  |  ${lineName}  |  Visits: ${shift === 'ALL' ? 'AM + PM' : shift}`
   const q = useMemo(() => summariseQuality(quality.data ?? []), [quality.data])
   const lineIdx = (id: number) => Math.max(0, (lines.data ?? []).findIndex((l) => l.id === id))
@@ -96,17 +96,16 @@ export function SpecialityRoiTab() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Segmented label="Line" value={lineId ?? 0} onChange={(v) => write(period, v === 0 ? null : v, shift, null)}
+          <Segmented label="Line" value={lineId ?? 0} onChange={(v) => write(v === 0 ? null : v, shift, null)}
             options={[{ value: 0, label: 'All' }, ...(lines.data ?? []).map((l) => ({ value: l.id, label: l.name }))]} />
-          <PeriodPicker value={period} onChange={(p) => write(p, lineId, shift, groupId)} />
-          <Segmented label="Visits" value={shift} onChange={(s) => write(period, lineId, s, groupId)} options={[{ value: 'ALL' as Shift, label: 'All' }, { value: 'AM' as Shift, label: 'AM' }, { value: 'PM' as Shift, label: 'PM' }]} />
+          <Segmented label="Visits" value={shift} onChange={(s) => write(lineId, s, groupId)} options={[{ value: 'ALL' as Shift, label: 'All' }, { value: 'AM' as Shift, label: 'AM' }, { value: 'PM' as Shift, label: 'PM' }]} />
           <Button size="sm" disabled={exporting || rows.length === 0} onClick={() => void exportAll()}>
             {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Download className="h-3.5 w-3.5" aria-hidden />}Excel
           </Button>
         </div>
         <RoiCostBox history={costs.data ?? []} toYM={period.toYM} onSaved={afterCostSaved} />
       </div>
-      <p className="text-xs text-muted-foreground">Cost per visit now: <span className="tnum font-medium">{costFor(costs.data ?? [], period.toYM).toLocaleString('en-US')}</span> EGP (month of the period end).</p>
+      <p className="text-xs text-muted-foreground">Period: <span className="font-medium">{periodLabel(period)}</span> ({period.fromYM} → {period.toYM}), from the top bar{whole ? '; widened to whole months, because sales are monthly' : ''}. Cost per visit now: <span className="tnum font-medium">{costFor(costs.data ?? [], period.toYM).toLocaleString('en-US')}</span> EGP (month of the period end).</p>
 
       {quality.error ? <ErrorState title="Could not load the data-quality check" message={quality.error} onRetry={quality.reload} className="py-4" />
         : quality.data && q.visits > 0 && (
@@ -125,7 +124,7 @@ export function SpecialityRoiTab() {
               action={<Link to="/org?tab=specmap" className={cn(buttonVariants({ variant: 'primary' }))}><Settings2 className="h-4 w-4" aria-hidden />Open the speciality map</Link>} />
           ) : (
             <RoiTable label="Speciality ROI" cols={cols} rows={rows} rowKey={(x) => x.group_id} selectedKey={groupId}
-              onRowClick={(x) => write(period, lineId, shift, x.group_id)} initial={{ id: 'roi', dir: 'desc' }} />
+              onRowClick={(x) => write(lineId, shift, x.group_id)} initial={{ id: 'roi', dir: 'desc' }} />
           )}
       </Card>
 

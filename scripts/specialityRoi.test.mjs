@@ -16,10 +16,16 @@ t('period -> p_from (first day) and p_to (last day) for every mode', () => {
   const c = p.resolvePeriod({ mode: 'custom', fromYM: '2026-03', toYM: '2026-11' })
   assert.deepEqual([c.from, c.to], ['2026-03-01', '2026-11-30'])
 })
+t('top-bar day range -> whole months for the RPC (Jan..Sep and a mid-month range)', () => {
+  const m = (from, to) => [p.firstDay(from.slice(0, 7)), p.lastDay(to.slice(0, 7))]
+  assert.deepEqual(m('2026-01-01', '2026-09-30'), ['2026-01-01', '2026-09-30'])
+  assert.deepEqual(m('2026-02-10', '2026-09-05'), ['2026-02-01', '2026-09-30'])
+  assert.deepEqual(m('2026-09-01', '2026-09-30'), ['2026-09-01', '2026-09-30'])
+})
 t('URL: shift and line parsing, period + line query', () => {
   assert.equal(r.parseShift('PM'), 'PM'); assert.equal(r.parseShift('x'), 'ALL'); assert.equal(r.parseShift(null), 'ALL')
   assert.equal(r.parseLine('2'), 2); assert.equal(r.parseLine('0'), null); assert.equal(r.parseLine(null), null); assert.equal(r.parseLine('abc'), null)
-  assert.equal(p.periodQuery({ mode: 'quarter', fromYM: '2026-07', toYM: '2026-09' }, 3), 'mode=quarter&from=2026-07&to=2026-09&line=3')
+  assert.equal(p.periodQuery({ mode: 'quarter', fromYM: '2026-07', toYM: '2026-09' }, 3), 'mode=quarter&pfrom=2026-07&pto=2026-09&line=3')
 })
 t('cost per visit: default, latest entry on or before the month, earlier months keep their value', () => {
   const h = [{ month_from: '2026-01-01', cost: 600 }, { month_from: '2026-07-01', cost: 700 }, { month_from: '2026-10-01', cost: 650 }]

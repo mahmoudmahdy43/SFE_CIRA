@@ -21,7 +21,7 @@ import { SalesChart } from '../features/dashboard/SalesChart'
 import SystemStatus from '../features/dashboard/SystemStatus'
 import { PRIORITY, resetDashCache, useDash, useNearViewport } from '../features/dashboard/useDash'
 import { boxesMissingTargets, buildTree, deltaPts, fmtInt, fmtPct, fmtRate, latestMonth, type TreeNode } from '../features/dashboard/kpiMath'
-import { addYM, monthName, parsePeriod, periodLabel, periodQuery, resolvePeriod, type Period } from '../features/dashboard/periodMath'
+import { addYM, monthName, parsePeriod, periodLabel, resolvePeriod, withPeriodQuery, type Period } from '../features/dashboard/periodMath'
 import { aggregate, companyMonths, comparable, fmtMoney, fmtSigned, hasData, lineMonths, ratiosOf, rowsIn, type KpiMonth } from '../features/dashboard/rangeKpi'
 
 const DashboardCharts = lazy(() => import('../features/dashboard/DashboardCharts'))
@@ -55,9 +55,9 @@ export default function Dashboard() {
   const lineParam = Number(params.get('line'))
   const lineId = Number.isInteger(lineParam) && params.get('line') !== null && lineParam > 0 ? lineParam : null
   const write = useCallback((p: Period, line: number | null) => {
-    setParams(periodQuery(p, line), { replace: true })
+    setParams(withPeriodQuery(params.toString(), p, line), { replace: true })
     setMonth(`${p.toYM}-01`) // keep the top-bar month in sync for the other pages
-  }, [setParams, setMonth])
+  }, [params, setParams, setMonth])
 
   // Every call goes through one queue (3 in flight at most), is cancelled when stale and is cached by its parameters.
   const lines = useDash('lines:names', PRIORITY.kpi, () => fetchLineNames())

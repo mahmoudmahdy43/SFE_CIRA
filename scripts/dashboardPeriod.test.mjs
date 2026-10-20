@@ -25,9 +25,16 @@ t('semester and month and custom', () => {
 t('URL parsing: defaults and invalid values', () => {
   const get = (o) => (key) => o[key] ?? null
   assert.deepEqual(p.parsePeriod(get({}), '2026-09'), { mode: 'month', fromYM: '2026-09', toYM: '2026-09' })
+  assert.deepEqual(p.parsePeriod(get({ mode: 'quarter', pfrom: '2026-07', pto: '2026-09' }), '2026-01'), { mode: 'quarter', fromYM: '2026-07', toYM: '2026-09' })
+  // old links, and the GLOBAL day range (from=2026-02-01) must never be read as a month
   assert.deepEqual(p.parsePeriod(get({ mode: 'quarter', from: '2026-07', to: '2026-09' }), '2026-01'), { mode: 'quarter', fromYM: '2026-07', toYM: '2026-09' })
+  assert.deepEqual(p.parsePeriod(get({ from: '2026-02-01', to: '2026-02-15' }), '2026-03'), { mode: 'month', fromYM: '2026-03', toYM: '2026-03' })
   assert.deepEqual(p.parsePeriod(get({ mode: 'bogus', from: 'x', to: 'y' }), '2026-03'), { mode: 'month', fromYM: '2026-03', toYM: '2026-03' })
-  assert.equal(p.periodQuery({ mode: 'quarter', fromYM: '2026-07', toYM: '2026-09' }, 1), 'mode=quarter&from=2026-07&to=2026-09&line=1')
+  assert.equal(p.periodQuery({ mode: 'quarter', fromYM: '2026-07', toYM: '2026-09' }, 1), 'mode=quarter&pfrom=2026-07&pto=2026-09&line=1')
+  // writing the page period keeps the global day range and other parameters
+  const w = p.withPeriodQuery('from=2026-02-01&to=2026-09-30&shift=PM&mode=month&pfrom=2026-01&pto=2026-01', { mode: 'custom', fromYM: '2026-02', toYM: '2026-09' }, null)
+  assert.equal(w.get('from'), '2026-02-01'); assert.equal(w.get('to'), '2026-09-30'); assert.equal(w.get('shift'), 'PM')
+  assert.deepEqual([w.get('mode'), w.get('pfrom'), w.get('pto')], ['custom', '2026-02', '2026-09'])
   assert.equal(p.periodLabel({ mode: 'quarter', fromYM: '2026-07', toYM: '2026-09' }), 'Q3 2026')
 })
 t('range KPIs are sums over totals, not averages of monthly ratios', () => {

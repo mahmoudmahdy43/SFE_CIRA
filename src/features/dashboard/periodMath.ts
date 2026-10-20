@@ -35,12 +35,16 @@ export function normalizePeriod(p: Period): Period {
   return { mode: 'custom', fromYM: a, toYM: b }
 }
 
-/** Read ?mode=&from=&to= (months). Missing or invalid values fall back to the default month. */
+/**
+ * Read ?mode=&pfrom=&pto= (months). Missing or invalid values fall back to the default month.
+ * `from` / `to` are the GLOBAL day range of the top bar (2026-02-01), so the page period uses its own names; an old
+ * ?from=2026-02 link still works because only a YYYY-MM value is accepted.
+ */
 export function parsePeriod(get: (k: string) => string | null, defaultYM: string): Period {
   const m = get('mode')
   const mode = (MODES as string[]).includes(m ?? '') ? (m as PeriodMode) : null
-  const from = get('from')
-  const to = get('to')
+  const from = get('pfrom') ?? get('from')
+  const to = get('pto') ?? get('to')
   if (!mode && !isYM(from) && !isYM(to)) return { mode: 'month', fromYM: defaultYM, toYM: defaultYM }
   const f = isYM(from) ? from : isYM(to) ? to : defaultYM
   const t = isYM(to) ? to : f
@@ -71,7 +75,17 @@ export function periodLabel(p: Period): string {
 
 /** URL query for a period + line (keeps unrelated parameters out). */
 export function periodQuery(p: Period, line: number | null): string {
-  const q = new URLSearchParams({ mode: p.mode, from: p.fromYM, to: p.toYM })
+  const q = new URLSearchParams({ mode: p.mode, pfrom: p.fromYM, pto: p.toYM })
   if (line !== null) q.set('line', String(line))
   return q.toString()
+}
+
+/** `current` with the period + line replaced; every other parameter (the global from= / to= day range, shift, group…) stays. */
+export function withPeriodQuery(current: string, p: Period, line: number | null): URLSearchParams {
+  const q = new URLSearchParams(current)
+  for (const k of ['mode', 'pfrom', 'pto', 'line']) q.delete(k)
+  if (isYM(q.get('from'))) q.delete('from') // old links
+  if (isYM(q.get('to'))) q.delete('to')
+  for (const [k, v] of new URLSearchParams(periodQuery(p, line))) q.set(k, v)
+  return q
 }
