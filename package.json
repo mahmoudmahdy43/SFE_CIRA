@@ -18,6 +18,7 @@
     "test:date-range": "node scripts/dateRange.test.mjs",
     "test:dashboard": "node scripts/dashboardPeriod.test.mjs",
     "test:dashboard-requests": "node scripts/dashboardRequests.test.mjs",
+    "test:roi": "node scripts/specialityRoi.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

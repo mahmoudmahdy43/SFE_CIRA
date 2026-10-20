@@ -6,6 +6,7 @@ import { PeriodBanner } from '../components/app/PeriodBanner'
 import { periodLabel } from '../lib/dateRange'
 import { fetchLineNames } from '../lib/api/reports'
 import { useAsync } from '../features/dashboard/useAsync'
+import { SpecialityRoiTab } from '../features/roi/SpecialityRoiTab'
 import { CallRateTab } from '../features/reports/CallRateTab'
 import { EmployeePerformanceTab } from '../features/reports/EmployeePerformanceTab'
 import { LeavesTab, MissingTab } from '../features/reports/AbsenceTab'
@@ -47,6 +48,7 @@ export default function Reports() {
           <TabsTrigger value="manager-coverage">Manager Coverage</TabsTrigger>
           <TabsTrigger value="coaching">Coaching</TabsTrigger>
           <TabsTrigger value="sales">Sales</TabsTrigger>
+          <TabsTrigger value="speciality-roi">Speciality ROI</TabsTrigger>
         </TabsList>
         <TabsContent value="employee-performance"><PeriodBanner className="mb-3" /><EmployeePerformanceTab {...shared} /></TabsContent>
         <TabsContent value="call-rate"><PeriodBanner monthly className="mb-3" /><CallRateTab {...shared} /></TabsContent>
@@ -60,6 +62,7 @@ export default function Reports() {
         <TabsContent value="manager-coverage"><PeriodBanner monthly own className="mb-3" /><ManagerCoverageTab {...shared} /></TabsContent>
         <TabsContent value="coaching"><PeriodBanner monthly own className="mb-3" /><CoachingTab {...shared} /></TabsContent>
         <TabsContent value="sales"><SalesTab {...shared} /></TabsContent>
+        <TabsContent value="speciality-roi"><SpecialityRoiTab /></TabsContent>
       </Tabs>
     </div>
   )
