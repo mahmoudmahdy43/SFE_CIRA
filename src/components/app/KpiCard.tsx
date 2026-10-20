@@ -38,6 +38,14 @@ export interface KpiCardProps {
   hint?: ReactNode
   /** Formula / explanation shown in a tooltip next to the label. */
   tooltip?: string
+  /** Text after the change (default "vs prev."). */
+  deltaLabel?: string
+  /** Text when there is no change to show (default "vs prev. month: n/a"). */
+  deltaNa?: string
+  /** Thin progress bar under the value, 0-1 (capped at 100%). */
+  progress?: number
+  /** Shown instead of the value when empty (default "No data for this month"). */
+  emptyText?: ReactNode
 }
 
 export function KpiCard({
@@ -52,6 +60,10 @@ export function KpiCard({
   empty,
   hint,
   tooltip,
+  deltaLabel = 'vs prev.',
+  deltaNa = 'vs prev. month: n/a',
+  progress,
+  emptyText = 'No data for this month',
 }: KpiCardProps) {
   if (loading) {
     return (
@@ -65,7 +77,7 @@ export function KpiCard({
   const DeltaIcon = delta == null || delta === 0 ? Minus : delta > 0 ? ArrowUpRight : ArrowDownRight
   const deltaTone = delta == null || delta === 0 ? 'text-muted-foreground' : delta > 0 ? 'text-success' : 'text-danger'
   return (
-    <Card className="p-4">
+    <Card className={cn('relative overflow-hidden p-4 pl-5', tone === 'neutral' && 'before:bg-transparent', 'before:absolute before:inset-y-0 before:left-0 before:w-1', tone === 'success' && 'before:bg-success', tone === 'warning' && 'before:bg-warning', tone === 'danger' && 'before:bg-danger')}>
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
           {label}
@@ -75,26 +87,23 @@ export function KpiCard({
             </Tooltip>
           )}
         </span>
-        {tone !== 'neutral' && (
-          <span aria-hidden className={cn('h-2 w-2 rounded-full', { success: 'bg-success', warning: 'bg-warning', danger: 'bg-danger' }[tone])} />
-        )}
       </div>
       {empty || value == null ? (
-        <div className="mt-2 text-sm text-muted-foreground">No data for this month</div>
+        <div className="mt-2 text-sm text-muted-foreground">{emptyText}</div>
       ) : (
         <div className="mt-1.5 flex items-end justify-between gap-2">
           <div>
-            <div className={cn('tnum text-2xl font-semibold tracking-tight', toneText[tone])}>{value}</div>
+            <div className={cn('tnum text-kpi font-semibold tracking-tight', toneText[tone])}>{value}</div>
             <div className={cn('mt-1 flex items-center gap-1 text-xs', deltaTone)}>
               <DeltaIcon className="h-3.5 w-3.5" aria-hidden />
               {delta == null ? (
-                <span className="text-muted-foreground">vs prev. month: n/a</span>
+                <span className="text-muted-foreground">{deltaNa}</span>
               ) : (
                 <span className="tnum">
                   {delta > 0 ? '+' : ''}
                   {delta.toFixed(deltaDecimals)}
                   {deltaSuffix}
-                  <span className="ml-1 text-muted-foreground">vs prev.</span>
+                  <span className="ml-1 text-muted-foreground">{deltaLabel}</span>
                 </span>
               )}
             </div>
@@ -102,11 +111,16 @@ export function KpiCard({
           {spark && <Sparkline data={spark} tone={tone} />}
         </div>
       )}
-      {hint && <div className="mt-2 text-xs text-muted-foreground">{hint}</div>}
+      {progress !== undefined && !empty && (
+        <div role="progressbar" aria-label={`${label} progress`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(progress, 1) * 100)} className="mt-2 h-1 overflow-hidden rounded-full bg-muted">
+          <div className={cn('h-full rounded-full', tone === 'danger' ? 'bg-danger' : tone === 'warning' ? 'bg-warning' : 'bg-primary')} style={{ width: `${Math.max(0, Math.min(progress, 1)) * 100}%` }} />
+        </div>
+      )}
+      {hint && <div className="mt-2 text-13 text-muted-foreground">{hint}</div>}
     </Card>
   )
 }
 
 export function StatGrid({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">{children}</div>
+  return <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">{children}</div>
 }

@@ -51,7 +51,7 @@ export default function Layout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="contents print:hidden"><Topbar onOpenPalette={() => setPaletteOpen(true)} onOpenMenu={() => setDrawerOpen(true)} /></div>
         <main className="flex-1 p-4 md:p-6">
-          <div key={pathname} className="mx-auto max-w-7xl animate-fade-in">
+          <div key={pathname} className="mx-auto max-w-[1600px] animate-fade-in">
             <Outlet />
           </div>
         </main>

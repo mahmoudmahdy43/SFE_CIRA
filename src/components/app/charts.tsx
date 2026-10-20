@@ -170,3 +170,30 @@ export function MiniLine({
     </div>
   )
 }
+
+/** Shared axis props (muted text, no lines) for every chart. */
+export const axisProps = axis
+
+/** Shared tooltip: title + one row per series, numbers formatted by `fmt`; rows without a value are skipped. */
+export function ChartTip({ active, payload, label, fmt }: {
+  active?: boolean
+  payload?: { name?: string; value?: number | string | null; color?: string; stroke?: string; fill?: string }[]
+  label?: string | number
+  fmt?: (v: number) => string
+}) {
+  if (!active || !payload?.length) return null
+  const rows = payload.filter((p) => p.value !== null && p.value !== undefined && p.name !== undefined)
+  if (rows.length === 0) return null
+  return (
+    <div className="rounded-control border bg-popover px-3 py-2 text-13 shadow-pop">
+      {label != null && <div className="mb-1 font-medium">{label}</div>}
+      {rows.map((p) => (
+        <div key={String(p.name)} className="flex items-center gap-2">
+          <span aria-hidden className="h-2 w-2 rounded-sm" style={{ background: p.color ?? p.stroke ?? p.fill }} />
+          <span className="text-muted-foreground">{p.name}</span>
+          <span className="tnum ml-auto pl-4 font-medium">{typeof p.value === 'number' && fmt ? fmt(p.value) : p.value}</span>
+        </div>
+      ))}
+    </div>
+  )
+}

@@ -64,7 +64,7 @@ export function Topbar({ onOpenPalette, onOpenMenu }: { onOpenPalette: () => voi
         <Button variant="outline" size="icon" className="lg:hidden" aria-label="Open command palette" onClick={onOpenPalette}>
           <Search className="h-4 w-4" />
         </Button>
-        <MonthPicker />
+        {pathname !== '/' && <MonthPicker />}
         <SyncDot />
       </div>
     </header>

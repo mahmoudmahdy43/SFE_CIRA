@@ -6,7 +6,7 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Inter Variable"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: ['"IBM Plex Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono Variable"', 'ui-monospace', 'monospace'],
       },
       colors: {
@@ -21,7 +21,8 @@ export default {
         info: c('info'), 'info-soft': c('info-soft'),
       },
       borderRadius: { card: '10px', control: '8px' },
-      boxShadow: { pop: '0 8px 30px -6px rgb(0 0 0 / 0.18), 0 2px 8px -2px rgb(0 0 0 / 0.08)' },
+      fontSize: { 13: ['13px', '18px'], kpi: ['30px', '36px'] },
+      boxShadow: { pop: '0 6px 20px -8px rgb(20 34 28 / 0.18)' },
       keyframes: {
         'fade-in': { from: { opacity: '0', transform: 'translateY(4px)' }, to: { opacity: '1', transform: 'none' } },
         'pop-in': { from: { opacity: '0', transform: 'scale(.97)' }, to: { opacity: '1', transform: 'none' } },

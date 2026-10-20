@@ -4,7 +4,6 @@ import {
   Database,
   FileBarChart,
   LayoutDashboard,
-  LineChart,
   Palette,
   PieChart,
   ScanSearch,
@@ -32,7 +31,6 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Analytics',
     items: [
       { to: '/', label: 'Dashboard', description: 'Company overview and system status.', icon: LayoutDashboard },
-      { to: '/dashboard-v1', label: 'Dashboard V1', description: 'Sales linked to field KPIs: effort, coverage, territories and reps.', icon: LineChart },
       { to: '/reports', label: 'Reports', description: 'Coverage and call-rate reports per rep.', icon: FileBarChart },
       { to: '/360', label: '360° View', description: 'Full profile of a rep, manager or box.', icon: ScanSearch },
     ],

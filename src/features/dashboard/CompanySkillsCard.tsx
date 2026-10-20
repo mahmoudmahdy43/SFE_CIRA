@@ -4,12 +4,12 @@ import { fetchCoachingTrend } from '../../lib/api/coaching'
 import { fmtScore, monthName } from '../reports/coachingMath'
 import { useAsync } from './useAsync'
 
-const TIP = 'Average coaching score (1-5) of all coaching visits in the latest month with coaching data. The change is against the previous month with data.'
+const TIP = 'Average coaching score (1-5) of all coaching visits in the latest month with coaching data up to the end of the selected period. The change is against the previous month with data.'
 
-function Inner() {
+function Inner({ upTo }: { upTo?: string }) {
   const q = useAsync('coaching:dashboard', () => fetchCoachingTrend('2000-01-01', '2100-01-01'))
   const rows = q.data ?? []
-  const scored = rows.filter((r) => r.avg_score !== null)
+  const scored = rows.filter((r) => r.avg_score !== null && (!upTo || r.month.slice(0, 7) <= upTo.slice(0, 7)))
   const cur = scored[scored.length - 1]
   if (!cur || q.error) return null // no data (or not allowed): the card stays hidden
   const prev = scored.length > 1 ? scored[scored.length - 2] : null
@@ -29,7 +29,7 @@ function Inner() {
 }
 
 /** Dashboard KPI card (admin only; hidden when there is no coaching data). */
-export function CompanySkillsCard() {
+export function CompanySkillsCard({ upTo }: { upTo?: string } = {}) {
   const { role } = useAuth()
-  return role === 'admin' ? <Inner /> : null
+  return role === 'admin' ? <Inner upTo={upTo} /> : null
 }

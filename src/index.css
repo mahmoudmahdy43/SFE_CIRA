@@ -1,4 +1,6 @@
-@import '@fontsource-variable/inter';
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
 @import '@fontsource-variable/jetbrains-mono';
 @tailwind base;
 @tailwind components;
@@ -6,56 +8,58 @@
 
 @layer base {
   :root {
-    --background: 220 20% 97.5%;
-    --foreground: 224 25% 11%;
+    /* CIRA green on cool paper: page #F3F5F4, surfaces white, ink #14221C, muted #5B6B63, hairline #DDE3E0, brand #0F6B4A */
+    --background: 150 9% 96%;
+    --foreground: 154 26% 11%;
     --card: 0 0% 100%;
     --popover: 0 0% 100%;
-    --muted: 220 16% 94%;
-    --muted-foreground: 220 9% 40%;
-    --border: 220 14% 90%;
-    --ring: 238 80% 58%;
-    --accent: 238 100% 96%;
-    --accent-foreground: 238 70% 42%;
-    --primary: 238 75% 56%;
+    --muted: 150 10% 93%;
+    --muted-foreground: 150 8% 39%;
+    --border: 150 10% 88%;
+    --ring: 158 75% 30%;
+    --accent: 150 35% 92%;
+    --accent-foreground: 158 75% 20%;
+    --primary: 158 75% 24%;
     --primary-foreground: 0 0% 100%;
-    --success: 152 69% 25%; --success-soft: 150 60% 93%;
-    --warning: 32 90% 28%;  --warning-soft: 45 100% 92%;
-    --danger: 0 72% 40%;    --danger-soft: 0 86% 95%;
-    --info: 212 85% 38%;    --info-soft: 212 100% 94%;
-    /* categorical chart palette (colour-blind safe, Okabe-Ito based) */
-    --chart-1: #4f5bd5; --chart-2: #e69f00; --chart-3: #009e73;
-    --chart-4: #d55e00; --chart-5: #56b4e9; --chart-6: #cc79a7;
-    --seq-1: #eef0ff; --seq-2: #c3c8f7; --seq-3: #8f98ec; --seq-4: #5b64d6; --seq-5: #3a3fa8;
-    --div-neg: #d55e00; --div-mid: #f1f1f1; --div-pos: #1b7f9e;
-    --st-worked: #3aa57a; --st-leave: #e0a526; --st-ow: #5b8def; --st-activity: #a66bd6; --st-missing: #e5564e;
+    /* status colours carry meaning only: red #C23B31, amber #C98A00, green #1F8A5B (text tones are slightly deeper for contrast) */
+    --success: 154 63% 30%; --success-soft: 150 45% 92%;
+    --warning: 40 100% 29%;  --warning-soft: 43 100% 92%;
+    --danger: 4 60% 46%;    --danger-soft: 4 70% 95%;
+    --info: 212 55% 36%;    --info-soft: 212 60% 94%;
+    /* categorical chart palette (colour-blind safe) */
+    --chart-1: #0f6b4a; --chart-2: #3d5a80; --chart-3: #c98a00;
+    --chart-4: #8e5572; --chart-5: #5e8c61; --chart-6: #b5543c;
+    --seq-1: #e6f2ec; --seq-2: #bfdccf; --seq-3: #86bba4; --seq-4: #3f8f6e; --seq-5: #0f6b4a;
+    --div-neg: #b5543c; --div-mid: #f1f1f1; --div-pos: #0f6b4a;
+    --st-worked: #1f8a5b; --st-leave: #c98a00; --st-ow: #3d5a80; --st-activity: #8e5572; --st-missing: #c23b31;
     color-scheme: light;
   }
   [data-theme='dark'] {
-    --background: 224 24% 8%;
-    --foreground: 220 15% 93%;
-    --card: 224 22% 11.5%;
-    --popover: 224 22% 14.5%;
-    --muted: 224 18% 16%;
-    --muted-foreground: 220 10% 66%;
-    --border: 224 16% 20%;
-    --ring: 238 90% 70%;
-    --accent: 238 40% 20%;
-    --accent-foreground: 238 100% 84%;
-    --primary: 238 85% 66%;
-    --primary-foreground: 224 30% 8%;
-    --success: 152 55% 62%; --success-soft: 152 40% 15%;
-    --warning: 40 90% 65%;  --warning-soft: 38 50% 16%;
-    --danger: 0 90% 72%;    --danger-soft: 0 45% 17%;
-    --info: 212 95% 72%;    --info-soft: 212 50% 17%;
-    --chart-1: #8c96ff; --chart-2: #f2b84b; --chart-3: #3ecf9e;
-    --chart-4: #f08a4b; --chart-5: #6cc4f5; --chart-6: #e29bc2;
-    --seq-1: #232846; --seq-2: #33397a; --seq-3: #4a52b3; --seq-4: #7480e6; --seq-5: #a9b1ff;
-    --div-neg: #f08a4b; --div-mid: #2a2f3d; --div-pos: #4cb8d6;
-    --st-worked: #3ecf9e; --st-leave: #f2b84b; --st-ow: #7aa5ff; --st-activity: #c395ee; --st-missing: #f0716a;
+    --background: 160 14% 7%;
+    --foreground: 150 12% 92%;
+    --card: 160 12% 10.5%;
+    --popover: 160 12% 13%;
+    --muted: 160 10% 15%;
+    --muted-foreground: 150 8% 65%;
+    --border: 160 9% 20%;
+    --ring: 156 55% 55%;
+    --accent: 158 35% 17%;
+    --accent-foreground: 154 55% 78%;
+    --primary: 156 55% 42%;
+    --primary-foreground: 160 20% 6%;
+    --success: 152 55% 62%; --success-soft: 152 35% 14%;
+    --warning: 42 85% 62%;  --warning-soft: 40 45% 15%;
+    --danger: 4 85% 70%;    --danger-soft: 4 40% 16%;
+    --info: 212 75% 72%;    --info-soft: 212 40% 16%;
+    --chart-1: #3fb98a; --chart-2: #7ba2d4; --chart-3: #e3ac2e;
+    --chart-4: #c88bb0; --chart-5: #8fbf92; --chart-6: #e0866c;
+    --seq-1: #173226; --seq-2: #1f4d3a; --seq-3: #2f7a5b; --seq-4: #4fae86; --seq-5: #8fd9b8;
+    --div-neg: #e0866c; --div-mid: #2a2f2d; --div-pos: #4fae86;
+    --st-worked: #3fb98a; --st-leave: #e3ac2e; --st-ow: #7ba2d4; --st-activity: #c88bb0; --st-missing: #ea7b72;
     color-scheme: dark;
   }
   * { @apply border-border; }
-  html { font-feature-settings: 'cv11', 'ss01'; }
+  html { font-variant-numeric: tabular-nums; }
   body {
     @apply bg-background font-sans text-sm text-foreground antialiased;
   }
