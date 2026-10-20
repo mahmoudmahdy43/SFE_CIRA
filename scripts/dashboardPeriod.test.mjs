@@ -5,7 +5,7 @@ import * as k from '../src/features/dashboard/rangeKpi.ts'
 
 let n = 0
 const t = (name, fn) => { fn(); n++; console.log('ok -', name) }
-const row = (month, o = {}) => ({ month, reps: 10, list_doctors: 100, covered_doctors: 80, total_visits: 500, valid_visits: 400, planned_visits: 300, direct_visits: 100,
+const row = (month, o = {}) => ({ month, reps: 10, list_doctors: 100, covered_doctors: 80, total_visits: 500, valid_visits: 400, target_visits: 800, planned_visits: 300, direct_visits: 100,
   visits_am: 100, visits_pm: 400, pharmacy_visits: 20, days_am: 50, days_pm: 100, missing_am: 1, missing_pm: 2, leave_days: 3, ow_days: 4, activity_days: 5, expected_visits: 600, ...o })
 
 t('quarter snaps to its boundary and derives day range + previous quarter', () => {
@@ -43,10 +43,21 @@ t('range KPIs are sums over totals, not averages of monthly ratios', () => {
   assert.equal(a.coverage, (90 + 150 + 80) / (100 + 300 + 100))
   const avg = (0.9 + 0.5 + 0.8) / 3
   assert.notEqual(a.coverage, avg)
-  assert.equal(a.pcf, 1200 / 1500); assert.equal(a.ach_cr, 1500 / 1800)
+  assert.equal(a.pcf, 1200 / 2400); assert.equal(a.ach_cr, 1500 / 1800)
   assert.equal(a.call_rate_pm, 1200 / 300); assert.equal(a.call_rate_am, 300 / 150)
   assert.equal(a.planned_share, 900 / 1200); assert.equal(a.missing_days, 9)
   assert.ok(Math.abs(a.total_kpi - (a.pcf * 0.5 + a.coverage * 0.35 + a.ach_cr * 0.15)) < 1e-12)
+})
+t('PCF = valid / target visits (not / total visits); months and lines are summed raw', () => {
+  // two doctors, Freq 2 each, each visited once: valid 2 / target 4 = 50%
+  assert.equal(k.ratiosOf(row('2026-07-01', { valid_visits: 2, target_visits: 4, total_visits: 2 })).pcf, 0.5)
+  assert.equal(k.ratiosOf(row('2026-07-01', { valid_visits: 2, target_visits: 4, total_visits: 10 })).pcf, 0.5) // non-list visits do not matter
+  assert.equal(k.ratiosOf(row('2026-07-01', { valid_visits: 5, target_visits: 0 })).pcf, null)
+  const a = k.aggregate([row('2026-07-01', { valid_visits: 10, target_visits: 100 }), row('2026-08-01', { valid_visits: 90, target_visits: 300 })])
+  assert.equal(a.pcf, 100 / 400); assert.notEqual(a.pcf, (0.1 + 0.3) / 2)
+  const lines = [{ ...row('2026-07-01', { valid_visits: 10, target_visits: 40 }), line_id: 1 }, { ...row('2026-07-01', { valid_visits: 30, target_visits: 40 }), line_id: 2 }]
+  const c = k.companyMonths(lines)[0]
+  assert.deepEqual([c.valid_visits, c.target_visits], [40, 80]); assert.equal(k.ratiosOf(c).pcf, 0.5)
 })
 t('empty / zero denominators give null, previous period comparability', () => {
   assert.equal(k.aggregate([]).coverage, null)

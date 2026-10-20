@@ -29,7 +29,7 @@ const DashboardCharts = lazy(() => import('../features/dashboard/DashboardCharts
 const TIPS = {
   total: 'Total KPI = PCF × 50% + Coverage × 35% + Ach CR × 15%, recomputed from the sums of the whole period.',
   coverage: 'Coverage = list doctors visited at least once ÷ list doctors, summed over the months of the period.',
-  pcf: 'PCF = Σ min(visits to a doctor, its frequency) ÷ all rep visits. Visits to doctors outside the list count in the denominator only.',
+  pcf: 'PCF = Σ min(visits to a doctor, its frequency) ÷ target visits (Σ Freq of the Clinic + Poly Clinic list doctors), summed over the whole period.',
   achCr: 'Clinic + Poly Clinic visits ÷ (PM target × PM field days). AM Center and Pharmacy are not included.',
   am: 'Call rate AM = AM visits ÷ actual AM days (working days − leave − office work − activity).',
   pm: 'Call rate PM = PM visits ÷ actual PM days.',
@@ -209,7 +209,7 @@ export default function Dashboard() {
           <StatGrid>
             <KpiCard loading={loading} label="Total KPI" tooltip={TIPS.total} value={naPct(cur?.total_kpi ?? null)} tone={toneOf(cur?.total_kpi ?? null)} delta={pts(cur?.total_kpi, prev?.total_kpi)} deltaNa={NA_PREV} spark={spark((k) => k.total_kpi, 100)} />
             <KpiCard loading={loading} label="Coverage" tooltip={TIPS.coverage} value={naPct(cur?.coverage ?? null)} tone={toneOf(cur?.coverage ?? null)} delta={pts(cur?.coverage, prev?.coverage)} deltaNa={NA_PREV} spark={spark((k) => k.coverage, 100)} hint={cur ? `${fmtInt(cur.covered_doctors)} of ${fmtInt(cur.list_doctors)} doctors` : undefined} />
-            <KpiCard loading={loading} label="PCF" tooltip={TIPS.pcf} value={naPct(cur?.pcf ?? null)} tone={toneOf(cur?.pcf ?? null)} delta={pts(cur?.pcf, prev?.pcf)} deltaNa={NA_PREV} spark={spark((k) => k.pcf, 100)} hint={cur ? `${fmtInt(cur.valid_visits)} valid of ${fmtInt(cur.total_visits)}` : undefined} />
+            <KpiCard loading={loading} label="PCF" tooltip={TIPS.pcf} value={naPct(cur?.pcf ?? null)} tone={toneOf(cur?.pcf ?? null)} delta={pts(cur?.pcf, prev?.pcf)} deltaNa={NA_PREV} spark={spark((k) => k.pcf, 100)} hint={cur ? `${fmtInt(cur.valid_visits)} valid of ${fmtInt(cur.target_visits)} target` : undefined} />
             <KpiCard loading={loading} label="Ach CR · PM only" tooltip={TIPS.achCr} value={achOk ? naPct(cur?.ach_cr ?? null) : 'n/a'} tone={achOk ? toneOf(cur?.ach_cr ?? null) : 'neutral'} delta={achOk ? pts(cur?.ach_cr, prev?.ach_cr) : undefined} deltaNa={NA_PREV} spark={spark((k) => k.ach_cr, 100)} hint={achOk ? undefined : 'Needs call-rate targets'} />
             <KpiCard loading={loading} label="Call rate AM" tooltip={TIPS.am} value={cur?.call_rate_am == null ? 'n/a' : fmtRate(cur.call_rate_am)} delta={pctChange(cur?.call_rate_am, prev?.call_rate_am)} deltaSuffix="%" deltaNa={NA_PREV} hint={cur ? `${fmtInt(cur.visits_am)} visits ÷ ${fmtInt(cur.days_am)} days` : undefined} />
             <KpiCard loading={loading} label="Call rate PM" tooltip={TIPS.pm} value={cur?.call_rate_pm == null ? 'n/a' : fmtRate(cur.call_rate_pm)} delta={pctChange(cur?.call_rate_pm, prev?.call_rate_pm)} deltaSuffix="%" deltaNa={NA_PREV} hint={cur ? `${fmtInt(cur.visits_pm)} visits ÷ ${fmtInt(cur.days_pm)} days` : undefined} />

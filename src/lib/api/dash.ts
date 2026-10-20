@@ -13,7 +13,7 @@ export async function fetchKpiMonthsLines(from: string, to: string, signal?: Abo
   const rows = await rpcAll('dash_kpi_months_lines', { p_from: from, p_to: to }, ['month', 'line_id'], Infinity, signal)
   return rows.map((r: Raw) => ({
     month: day(r.month), line_id: num(r.line_id), reps: n0(r.reps), list_doctors: n0(r.list_doctors), covered_doctors: n0(r.covered_doctors),
-    total_visits: n0(r.total_visits), valid_visits: n0(r.valid_visits), planned_visits: n0(r.planned_visits), direct_visits: n0(r.direct_visits),
+    total_visits: n0(r.total_visits), valid_visits: n0(r.valid_visits), target_visits: n0(r.target_visits), planned_visits: n0(r.planned_visits), direct_visits: n0(r.direct_visits),
     visits_am: n0(r.visits_am), visits_pm: n0(r.visits_pm), pharmacy_visits: n0(r.pharmacy_visits),
     days_am: n0(r.days_am), days_pm: n0(r.days_pm), missing_am: n0(r.missing_am), missing_pm: n0(r.missing_pm),
     leave_days: n0(r.leave_days), ow_days: n0(r.ow_days), activity_days: n0(r.activity_days), expected_visits: n0(r.expected_visits),

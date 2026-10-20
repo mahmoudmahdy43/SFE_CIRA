@@ -5,7 +5,7 @@
 
 export interface KpiMonth {
   month: string
-  reps: number; list_doctors: number; covered_doctors: number; total_visits: number; valid_visits: number
+  reps: number; list_doctors: number; covered_doctors: number; total_visits: number; valid_visits: number; target_visits: number
   planned_visits: number; direct_visits: number; visits_am: number; visits_pm: number; pharmacy_visits: number
   days_am: number; days_pm: number; missing_am: number; missing_pm: number; leave_days: number; ow_days: number; activity_days: number
   expected_visits: number
@@ -21,7 +21,7 @@ export interface RangeKpi extends Omit<KpiMonth, 'month'> {
 
 const div = (a: number, b: number): number | null => (b > 0 ? a / b : null)
 const SUM_KEYS: Exclude<keyof KpiMonth, 'month' | 'reps'>[] = [
-  'list_doctors', 'covered_doctors', 'total_visits', 'valid_visits', 'planned_visits', 'direct_visits', 'visits_am', 'visits_pm', 'pharmacy_visits',
+  'list_doctors', 'covered_doctors', 'total_visits', 'valid_visits', 'target_visits', 'planned_visits', 'direct_visits', 'visits_am', 'visits_pm', 'pharmacy_visits',
   'days_am', 'days_pm', 'missing_am', 'missing_pm', 'leave_days', 'ow_days', 'activity_days', 'expected_visits',
 ]
 
@@ -32,7 +32,7 @@ export const totalKpi = (pcf: number | null, coverage: number | null, achCr: num
 /** One row's ratios from its own totals. */
 export function ratiosOf(s: Omit<KpiMonth, 'month' | 'reps'>): Pick<RangeKpi, 'coverage' | 'pcf' | 'ach_cr' | 'total_kpi' | 'call_rate_am' | 'call_rate_pm' | 'planned_share' | 'missing_days'> {
   const coverage = div(s.covered_doctors, s.list_doctors)
-  const pcf = div(s.valid_visits, s.total_visits)
+  const pcf = div(s.valid_visits, s.target_visits) // target = Σ Freq of the C/PC list doctors, not total visits
   const ach_cr = div(s.total_visits, s.expected_visits)
   return {
     coverage, pcf, ach_cr, total_kpi: totalKpi(pcf, coverage, ach_cr),
@@ -72,7 +72,7 @@ export function fmtMoney(v: number | null): string {
 export const fmtSigned = (v: number | null): string => (v === null ? '—' : `${v < 0 ? '−' : '+'}${fmtMoney(Math.abs(v))}`)
 
 /* ------------------------------ derive everything from the one per-line call ------------------------------ */
-const NUM_KEYS: Exclude<keyof KpiMonth, 'month'>[] = ['reps', 'list_doctors', 'covered_doctors', 'total_visits', 'valid_visits', 'planned_visits', 'direct_visits', 'visits_am', 'visits_pm', 'pharmacy_visits',
+const NUM_KEYS: Exclude<keyof KpiMonth, 'month'>[] = ['reps', 'list_doctors', 'covered_doctors', 'total_visits', 'valid_visits', 'target_visits', 'planned_visits', 'direct_visits', 'visits_am', 'visits_pm', 'pharmacy_visits',
   'days_am', 'days_pm', 'missing_am', 'missing_pm', 'leave_days', 'ow_days', 'activity_days', 'expected_visits']
 
 /** Company = the sum of all lines, month by month. */
