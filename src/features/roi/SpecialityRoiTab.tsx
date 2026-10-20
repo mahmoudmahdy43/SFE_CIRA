@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { AlertTriangle, Download, Loader2, Settings2 } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Download, Loader2, Settings2 } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { toast } from 'sonner'
 import { ChartCard } from '../../components/app/ChartCard'
@@ -10,7 +10,7 @@ import { EmptyState, ErrorState } from '../../components/app/states'
 import { buttonVariants, Button } from '../../components/ui/button'
 import { Card, Skeleton } from '../../components/ui/misc'
 import { useDateRange } from '../../context/DateRangeContext'
-import { fetchRoi, fetchRoiMonthly, fetchRoiQuality, fetchRoiTerritories, fetchVisitCosts, type RoiRow } from '../../lib/api/roi'
+import { fetchRoi, fetchRoiMonthly, fetchRoiProducts, fetchRoiQuality, fetchRoiTerritories, fetchVisitCosts, type RoiRow } from '../../lib/api/roi'
 import { fetchLineNames } from '../../lib/api/reports'
 import { cn } from '../../lib/utils'
 import { fmtInt } from '../dashboard/kpiMath'
@@ -19,9 +19,10 @@ import { dashQueued, PRIORITY, resetDashCache, useDash } from '../dashboard/useD
 import { RoiBadge } from './RoiBadge'
 import { RoiCostBox } from './RoiCostBox'
 import { RoiDetail } from './RoiDetail'
+import { RoiScopeView } from './RoiScopeView'
 import { RoiTable, type RoiCol } from './RoiTable'
 import { buildMonthlyGrid, buildSummaryGrid, buildTerritoriesGrid, downloadRoiWorkbook } from './roiExport'
-import { costFor, parseLine, parseShift, qualityText, summariseQuality, type Shift } from './roiMath'
+import { costFor, parseLine, parseMeasure, parseMinVisits, parseShift, qualityText, summariseQuality, type Measure, type Selection, type Shift } from './roiMath'
 
 export function SpecialityRoiTab() {
   const dr = useDateRange() // the period is the one in the top bar, widened to whole months
@@ -34,11 +35,13 @@ export function SpecialityRoiTab() {
   const lineId = parseLine(params.get('line'))
   const shift = parseShift(params.get('shift'))
   const groupId = parseLine(params.get('group'))
+  const measure = parseMeasure(params.get('measure'))
+  const minVisits = parseMinVisits(params.get('min'))
 
-  // line / visits / selected group live in the URL next to the top-bar range (?from=&to=), which is kept as it is
-  const write = useCallback((line: number | null, s: Shift, group: number | null) => {
+  // line / product / visits / measure / selected group live in the URL next to the top-bar range (?from=&to=), which is kept as it is
+  const update = useCallback((patch: Record<string, string | number | null>) => {
     const q = new URLSearchParams(params)
-    for (const [k, v] of [['line', line], ['shift', s === 'ALL' ? null : s], ['group', group]] as const) { if (v === null) q.delete(k); else q.set(k, String(v)) }
+    for (const [k, v] of Object.entries(patch)) { if (v === null || v === '') q.delete(k); else q.set(k, String(v)) }
     setParams(q, { replace: true })
   }, [params, setParams])
 
@@ -46,11 +49,15 @@ export function SpecialityRoiTab() {
   const base = `${rev}:${r.from}:${r.to}:${lineId ?? 'all'}`
   const quality = useDash(`roi:q:${base}`, PRIORITY.kpi, (s) => fetchRoiQuality(r.from, r.to, lineId, s))
   const summary = useDash(`roi:s:${base}:${shift}`, PRIORITY.kpi, (s) => fetchRoi(r.from, r.to, lineId, shift, s))
+  const products = useDash(lineId !== null ? `roi:prod:${rev}:${lineId}` : null, PRIORITY.other, (s) => fetchRoiProducts(lineId as number, s))
   const costs = useDash(`roi:costs:${rev}`, PRIORITY.other, (s) => fetchVisitCosts(s))
 
   const rows = useMemo(() => summary.data ?? [], [summary.data])
   const selected = rows.find((x) => x.group_id === groupId) ?? null
+  const product = lineId === null ? null : (products.data ?? []).find((x) => x.product_id === parseLine(params.get('product'))) ?? null
+  const sel: Selection = { group: selected?.group_id ?? null, line: lineId, product: product?.product_id ?? null }
   const lineName = lineId === null ? 'All lines' : (lines.data ?? []).find((l) => l.id === lineId)?.name ?? `Line ${lineId}`
+  const scopeName = product ? `${lineName} · ${product.name}` : lineId === null ? 'Whole company' : lineName
   const whole = dr.from !== r.from || dr.to !== r.to
   const periodLine = `${periodLabel(period)}  |  ${lineName}  |  Visits: ${shift === 'ALL' ? 'AM + PM' : shift}`
   const q = useMemo(() => summariseQuality(quality.data ?? []), [quality.data])
@@ -82,7 +89,7 @@ export function SpecialityRoiTab() {
       const k = (g: RoiRow) => `${rev}:${g.group_id}:${r.from}:${r.to}:${shift}`
       const [terr, mon] = await Promise.all([
         Promise.all(rows.map(async (g) => ({ group: g, rows: await dashQueued(`roi:t:${k(g)}`, PRIORITY.lazy, (s) => fetchRoiTerritories(g.group_id, r.from, r.to, shift, s)) }))),
-        Promise.all(rows.map(async (g) => ({ group: g, rows: await dashQueued(`roi:m:${k(g)}`, PRIORITY.lazy, (s) => fetchRoiMonthly(g.group_id, r.from, r.to, shift, s)) }))),
+        Promise.all(rows.map(async (g) => ({ group: g, rows: await dashQueued(`roi:m:${k(g)}`, PRIORITY.lazy, (s) => fetchRoiMonthly({ group: g.group_id, line: null, product: null }, r.from, r.to, shift, s)) }))),
       ])
       await downloadRoiWorkbook(`speciality-roi-${period.fromYM}_${period.toYM}.xlsx`, [buildSummaryGrid(rows, periodLine), buildTerritoriesGrid(terr, periodLine), buildMonthlyGrid(mon, periodLine)])
     } catch (e) {
@@ -96,9 +103,9 @@ export function SpecialityRoiTab() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Segmented label="Line" value={lineId ?? 0} onChange={(v) => write(v === 0 ? null : v, shift, null)}
+          <Segmented label="Line" value={lineId ?? 0} onChange={(v) => update({ line: v === 0 ? null : v, product: null, group: null })}
             options={[{ value: 0, label: 'All' }, ...(lines.data ?? []).map((l) => ({ value: l.id, label: l.name }))]} />
-          <Segmented label="Visits" value={shift} onChange={(s) => write(lineId, s, groupId)} options={[{ value: 'ALL' as Shift, label: 'All' }, { value: 'AM' as Shift, label: 'AM' }, { value: 'PM' as Shift, label: 'PM' }]} />
+          <Segmented label="Visits" value={shift} onChange={(s) => update({ shift: s === 'ALL' ? null : s })} options={[{ value: 'ALL' as Shift, label: 'All' }, { value: 'AM' as Shift, label: 'AM' }, { value: 'PM' as Shift, label: 'PM' }]} />
           <Button size="sm" disabled={exporting || rows.length === 0} onClick={() => void exportAll()}>
             {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Download className="h-3.5 w-3.5" aria-hidden />}Excel
           </Button>
@@ -124,7 +131,7 @@ export function SpecialityRoiTab() {
               action={<Link to="/org?tab=specmap" className={cn(buttonVariants({ variant: 'primary' }))}><Settings2 className="h-4 w-4" aria-hidden />Open the speciality map</Link>} />
           ) : (
             <RoiTable label="Speciality ROI" cols={cols} rows={rows} rowKey={(x) => x.group_id} selectedKey={groupId}
-              onRowClick={(x) => write(lineId, shift, x.group_id)} initial={{ id: 'roi', dir: 'desc' }} />
+              onRowClick={(x) => update({ group: x.group_id })} initial={{ id: 'roi', dir: 'desc' }} />
           )}
       </Card>
 
@@ -147,8 +154,33 @@ export function SpecialityRoiTab() {
         </ChartCard>
       )}
 
-      {selected ? <RoiDetail group={selected} from={r.from} to={r.to} shift={shift} rev={rev} periodLine={periodLine} />
-        : rows.length > 0 && <p className="text-sm text-muted-foreground">Click a group above to see its months, territories and the visits ↔ sales link.</p>}
+      <Card className="p-3">
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Scope of the chart and the territories">
+          <span className="text-13 font-medium text-muted-foreground">Scope</span>
+          {selected ? (
+            <>
+              <span className="text-sm">Group: <span className="font-medium">{selected.line_name} · {selected.group_name}</span></span>
+              <Button size="sm" onClick={() => update({ group: null })}><ArrowLeft className="h-3.5 w-3.5" aria-hidden />Back to company view</Button>
+            </>
+          ) : (
+            <>
+              <span className="text-sm">{lineName}</span>
+              {lineId !== null && (
+                <select aria-label="Product" value={product?.product_id ?? ''} disabled={products.loading} onChange={(e) => update({ product: e.target.value || null })}
+                  className="h-8 max-w-[16rem] rounded-control border bg-card px-2 text-13">
+                  <option value="">All products</option>
+                  {(products.data ?? []).map((x) => <option key={x.product_id} value={x.product_id}>{x.name}{x.in_group ? '' : ' (not in a group)'}</option>)}
+                </select>
+              )}
+            </>
+          )}
+          <Segmented label="Sales measure" value={measure} onChange={(m: Measure) => update({ measure: m === 'value' ? null : m })} options={[{ value: 'value' as Measure, label: 'Value' }, { value: 'units' as Measure, label: 'Units' }]} />
+        </div>
+      </Card>
+
+      {selected
+        ? <RoiDetail group={selected} from={r.from} to={r.to} shift={shift} rev={rev} periodLine={periodLine} measure={measure} />
+        : <RoiScopeView sel={sel} product={product} from={r.from} to={r.to} shift={shift} measure={measure} minVisits={minVisits} onMinVisits={(t) => update({ min: parseMinVisits(t) === 10 ? null : parseMinVisits(t) })} rev={rev} periodLine={periodLine} scopeName={scopeName} />}
     </div>
   )
 }

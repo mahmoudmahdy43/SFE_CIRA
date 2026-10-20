@@ -97,4 +97,61 @@ t('strategy map suggestion: 7 groups, unmatched stay visible', () => {
   assert.equal(sug[1].specialities.find((s) => s.wanted === 'Surg').matched, null)
 })
 
+t('scope picks the function and the parameters (chart)', () => {
+  const F = '2026-01-01', T = '2026-09-30'
+  // a selected group keeps the old function, one group
+  assert.deepEqual(r.monthlyCall({ group: 7, line: 2, product: 5 }, F, T, 'PM'), { fn: 'speciality_roi_monthly', args: { p_group: 7, p_from: F, p_to: T, p_shift: 'PM' } })
+  // nothing chosen = the whole company: line and product both null
+  assert.deepEqual(r.monthlyCall({ group: null, line: null, product: null }, F, T, 'ALL'), { fn: 'speciality_roi_scope_monthly', args: { p_from: F, p_to: T, p_line: null, p_product: null, p_shift: 'ALL' } })
+  // a line only
+  assert.deepEqual(r.monthlyCall({ group: null, line: 3, product: null }, F, T, 'AM').args, { p_from: F, p_to: T, p_line: 3, p_product: null, p_shift: 'AM' })
+  // a product inside a line
+  assert.deepEqual(r.monthlyCall({ group: null, line: 3, product: 41 }, F, T, 'ALL').args, { p_from: F, p_to: T, p_line: 3, p_product: 41, p_shift: 'ALL' })
+  // a product without a line is ignored (it only exists inside a line)
+  assert.equal(r.monthlyCall({ group: null, line: null, product: 41 }, F, T, 'ALL').args.p_product, null)
+})
+t('scope picks the function and the parameters (territories, min visits)', () => {
+  const F = '2026-01-01', T = '2026-09-30'
+  assert.deepEqual(r.territoriesCall({ group: 7, line: 2, product: null }, F, T, 'ALL', 25), { fn: 'speciality_roi_territories', args: { p_group: 7, p_from: F, p_to: T, p_shift: 'ALL' } })
+  const c = r.territoriesCall({ group: null, line: 2, product: 9 }, F, T, 'PM', 25)
+  assert.equal(c.fn, 'speciality_roi_territories_scope')
+  assert.deepEqual(c.args, { p_from: F, p_to: T, p_line: 2, p_product: 9, p_shift: 'PM', p_min_visits: 25 })
+  assert.equal(r.territoriesCall({ group: null, line: null, product: null }, F, T, 'ALL', 10).args.p_min_visits, 10)
+})
+t('a different scope is a different cache key', () => {
+  const a = r.callKey(r.monthlyCall({ group: null, line: 1, product: null }, '2026-01-01', '2026-09-30', 'ALL'))
+  const b = r.callKey(r.monthlyCall({ group: null, line: 1, product: 4 }, '2026-01-01', '2026-09-30', 'ALL'))
+  const c = r.callKey(r.monthlyCall({ group: null, line: 1, product: null }, '2026-01-01', '2026-09-30', 'PM'))
+  assert.equal(new Set([a, b, c]).size, 3)
+  assert.equal(a, r.callKey(r.monthlyCall({ group: null, line: 1, product: null }, '2026-01-01', '2026-09-30', 'ALL')))
+})
+t('Value / Units and Min visits parsing', () => {
+  assert.equal(r.parseMeasure('units'), 'units'); assert.equal(r.parseMeasure('x'), 'value'); assert.equal(r.parseMeasure(null), 'value')
+  assert.equal(r.parseMinVisits(null), 10); assert.equal(r.parseMinVisits(''), 10); assert.equal(r.parseMinVisits('25'), 25); assert.equal(r.parseMinVisits('0'), 0)
+  assert.equal(r.parseMinVisits('-3'), 10); assert.equal(r.parseMinVisits('2.5'), 10); assert.equal(r.parseMinVisits('abc'), 10)
+})
+t('coverage / PCF colours: <70 red, 70-<85 amber, >=85 green; no KPI doctors = dash', () => {
+  assert.deepEqual([null, 0.69, 0.7, 0.849, 0.85, 1].map(r.ratioTone), ['none', 'red', 'amber', 'amber', 'green', 'green'])
+  assert.equal(r.kpiRatio(0, 0.9), null); assert.equal(r.kpiRatio(12, 0.9), 0.9)
+  assert.equal(r.fmtPct1(0.8512), '85.1%'); assert.equal(r.fmtPct1(null), '—')
+})
+t('low_sample rows go last, in their order, whatever the sort', () => {
+  const rows = [{ n: 'a', low: true }, { n: 'b', low: false }, { n: 'c', low: true }, { n: 'd', low: false }]
+  assert.deepEqual(r.lastWhen(rows, (x) => x.low).map((x) => x.n), ['b', 'd', 'a', 'c'])
+  const sorted = r.sortRows([{ n: 'x', v: 1, low: false }, { n: 'y', v: 99, low: true }, { n: 'z', v: 5, low: false }], (x) => x.v, 'desc')
+  assert.deepEqual(r.lastWhen(sorted, (x) => x.low).map((x) => x.n), ['z', 'x', 'y'])
+})
+t('Excel total row: sums, ROI = total sales / total cost, coverage from raw sums, no PCF total', () => {
+  const rows = [
+    { visits: 100, s_value: 600000, s_units: 100, cost: 60000, list_doctors: 20, kpi_doctors: 10, covered_doctors: 9 },
+    { visits: 50, s_value: 30000, s_units: 10, cost: 30000, list_doctors: 10, kpi_doctors: 30, covered_doctors: 3 },
+  ]
+  const t1 = r.scopeTotals(rows)
+  assert.deepEqual([t1.visits, t1.s_value, t1.s_units, t1.cost, t1.list_doctors], [150, 630000, 110, 90000, 30])
+  assert.equal(t1.roi, 7) // 630000 / 90000, not the average of the two ROIs
+  assert.equal(t1.coverage, 0.3) // 12 / 40, not the average of 90% and 10%
+  assert.equal(t1.sales_per_visit, 4200)
+  assert.equal(r.scopeTotals([]).roi, null); assert.equal(r.scopeTotals([]).coverage, null)
+})
+
 console.log(`\n${n} tests passed`)

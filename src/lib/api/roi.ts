@@ -2,7 +2,7 @@ import { supabase } from '../supabase'
 import { fetchAll, rpc } from './core'
 import { rpcAll } from './reports'
 import { num } from '../../features/dashboard/kpiMath'
-import type { CostRow, QualityRow, Shift } from '../../features/roi/roiMath'
+import { monthlyCall, territoriesCall, type CostRow, type QualityRow, type Selection, type Shift } from '../../features/roi/roiMath'
 
 /** Speciality ROI RPCs (76_speciality_roi.sql): admin only. `line` null = all lines. Every read takes an AbortSignal. */
 const n0 = (v: unknown): number => num(v) ?? 0
@@ -35,8 +35,10 @@ export async function fetchRoi(from: string, to: string, line: number | null, sh
   }))
 }
 
-export async function fetchRoiMonthly(group: number, from: string, to: string, shift: Shift, signal?: AbortSignal): Promise<RoiMonth[]> {
-  const rows = await rpcAll('speciality_roi_monthly', { p_group: group, p_from: from, p_to: to, p_shift: shift }, ['month'], Infinity, signal)
+/** Months for a group (speciality_roi_monthly) or for the scope Line / Product (speciality_roi_scope_monthly, 77_*.sql). */
+export async function fetchRoiMonthly(sel: Selection, from: string, to: string, shift: Shift, signal?: AbortSignal): Promise<RoiMonth[]> {
+  const c = monthlyCall(sel, from, to, shift)
+  const rows = await rpcAll(c.fn, c.args, ['month'], Infinity, signal)
   return rows.map((r) => ({ month: day(r.month), visits: n0(r.visits), s_value: n0(r.s_value), s_units: n0(r.s_units), cost: n0(r.cost), sales_per_visit: num(r.sales_per_visit), roi: num(r.roi) }))
 }
 
@@ -126,4 +128,29 @@ export async function replaceLineGroups(lineIds: number[], groups: GroupDraft[])
     sortOf.set(g.line_id, sort)
     await saveMapGroup({ ...g, id: undefined, sort })
   }
+}
+
+/* ------------------------------ scope: products and territories (77_*.sql / 78_*.sql, run by the user) ------------------------------ */
+export interface RoiProduct { product_id: number; name: string; in_group: boolean }
+export async function fetchRoiProducts(line: number, signal?: AbortSignal): Promise<RoiProduct[]> {
+  const rows = await rpcAll('speciality_roi_products', { p_line: line }, ['name'], Infinity, signal)
+  return rows.map((r) => ({ product_id: n0(r.product_id), name: String(r.name ?? ''), in_group: r.in_group === true || r.in_group === 'true' }))
+}
+
+export interface RoiScopeTerritory {
+  line_id: number; line_name: string; territory_id: number; territory_name: string; rep_name: string | null; manager_name: string | null
+  list_doctors: number; visits: number; s_value: number; s_units: number; cost: number; sales_per_visit: number | null; roi: number | null
+  kpi_doctors: number; covered_doctors: number; coverage: number | null; pcf: number | null; low_sample: boolean
+}
+/** Territories of the scope; the database returns the low-sample rows (visits below p_min_visits) last. */
+export async function fetchRoiScopeTerritories(sel: Selection, from: string, to: string, shift: Shift, minVisits: number, signal?: AbortSignal): Promise<RoiScopeTerritory[]> {
+  const c = territoriesCall({ ...sel, group: null }, from, to, shift, minVisits)
+  const rows = await rpcAll(c.fn, c.args, [], Infinity, signal)
+  return rows.map((r) => ({
+    line_id: n0(r.line_id), line_name: String(r.line_name ?? ''), territory_id: n0(r.territory_id), territory_name: String(r.territory_name ?? ''),
+    rep_name: r.rep_name ? String(r.rep_name) : null, manager_name: r.manager_name ? String(r.manager_name) : null,
+    list_doctors: n0(r.list_doctors), visits: n0(r.visits), s_value: n0(r.s_value), s_units: n0(r.s_units), cost: n0(r.cost),
+    sales_per_visit: num(r.sales_per_visit), roi: num(r.roi), kpi_doctors: n0(r.kpi_doctors), covered_doctors: n0(r.covered_doctors),
+    coverage: num(r.coverage), pcf: num(r.pcf), low_sample: r.low_sample === true || r.low_sample === 'true',
+  }))
 }

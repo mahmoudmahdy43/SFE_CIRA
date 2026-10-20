@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import { sortRows, type SortDir } from './roiMath'
+import { lastWhen, sortRows, type SortDir } from './roiMath'
 
 export interface RoiCol<T> {
   id: string
@@ -13,7 +13,7 @@ export interface RoiCol<T> {
 }
 
 /** Small sortable table (click a header; nulls always last). `onRows` reports the rows in their sorted order, for export. */
-export function RoiTable<T>({ cols, rows, rowKey, selectedKey, onRowClick, initial, label }: {
+export function RoiTable<T>({ cols, rows, rowKey, selectedKey, onRowClick, initial, label, pinLast, rowClass }: {
   cols: RoiCol<T>[]
   rows: T[]
   rowKey: (r: T) => string | number
@@ -21,12 +21,16 @@ export function RoiTable<T>({ cols, rows, rowKey, selectedKey, onRowClick, initi
   onRowClick?: (r: T) => void
   initial?: { id: string; dir: SortDir }
   label: string
+  /** Rows matching this stay at the bottom whatever the sort (low-sample rows). */
+  pinLast?: (r: T) => boolean
+  rowClass?: (r: T) => string | undefined
 }) {
   const [sort, setSort] = useState<{ id: string; dir: SortDir } | null>(initial ?? null)
   const shown = useMemo(() => {
     const c = cols.find((x) => x.id === sort?.id)
-    return c && sort ? sortRows(rows, c.value, sort.dir) : rows
-  }, [rows, cols, sort])
+    const sorted = c && sort ? sortRows(rows, c.value, sort.dir) : rows
+    return pinLast ? lastWhen(sorted, pinLast) : sorted
+  }, [rows, cols, sort, pinLast])
   const toggle = (id: string) => setSort((s) => (s?.id === id ? { id, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { id, dir: 'desc' }))
   const icon = (id: string) => (sort?.id !== id ? <ArrowUpDown className="h-3 w-3 opacity-40" aria-hidden /> : sort.dir === 'asc' ? <ArrowUp className="h-3 w-3" aria-hidden /> : <ArrowDown className="h-3 w-3" aria-hidden />)
 
@@ -52,7 +56,7 @@ export function RoiTable<T>({ cols, rows, rowKey, selectedKey, onRowClick, initi
             const on = selectedKey !== undefined && selectedKey !== null && selectedKey === k
             return (
               <tr key={k} onClick={onRowClick ? () => onRowClick(r) : undefined} aria-selected={onRowClick ? on : undefined}
-                className={cn('border-b', onRowClick && 'cursor-pointer hover:bg-muted/60', on && 'bg-accent')}>
+                className={cn('border-b', onRowClick && 'cursor-pointer hover:bg-muted/60', on && 'bg-accent', rowClass?.(r))}>
                 {cols.map((c) => (
                   <td key={c.id} className={cn('px-3 py-2 align-top', c.numeric ? 'tnum whitespace-nowrap text-right' : 'text-left', c.className?.(r))}>
                     {c.render ? c.render(r) : (c.value(r) ?? '—')}

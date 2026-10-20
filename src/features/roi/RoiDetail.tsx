@@ -1,32 +1,25 @@
 import { useMemo, useState } from 'react'
-import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Download, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { ChartCard } from '../../components/app/ChartCard'
-import { CHART, ChartTip, axisProps } from '../../components/app/charts'
 import { EmptyState, ErrorState } from '../../components/app/states'
 import { Button } from '../../components/ui/button'
 import { Card, Skeleton } from '../../components/ui/misc'
 import { fetchRoiLink, fetchRoiMonthly, fetchRoiTerritories, type RoiRow, type RoiTerritory } from '../../lib/api/roi'
 import { fmtInt } from '../dashboard/kpiMath'
-import { monthShort } from '../dashboard/periodMath'
-import { fmtMoney } from '../dashboard/rangeKpi'
 import { PRIORITY, useDash, useNearViewport } from '../dashboard/useDash'
 import { RoiTable, type RoiCol } from './RoiTable'
 import { buildTerritoriesGrid, downloadRoiWorkbook } from './roiExport'
-import { corrWord, fmtRoi, type Shift } from './roiMath'
+import { corrWord, fmtRoi, type Measure, type Shift } from './roiMath'
+import { RoiMonthlyChart } from './RoiMonthlyChart'
 import { RoiBadge } from './RoiBadge'
 
 /** Section for the selected group. Its three calls start only when it is near the viewport. */
-export function RoiDetail({ group, from, to, shift, rev, periodLine }: { group: RoiRow; from: string; to: string; shift: Shift; rev: number; periodLine: string }) {
+export function RoiDetail({ group, from, to, shift, rev, periodLine, measure }: { group: RoiRow; from: string; to: string; shift: Shift; rev: number; periodLine: string; measure: Measure }) {
   const [ref, seen] = useNearViewport()
   const k = `${rev}:${group.group_id}:${from}:${to}:${shift}`
-  const monthly = useDash(seen ? `roi:m:${k}` : null, PRIORITY.lazy, (s) => fetchRoiMonthly(group.group_id, from, to, shift, s))
+  const monthly = useDash(seen ? `roi:m:${k}` : null, PRIORITY.lazy, (s) => fetchRoiMonthly({ group: group.group_id, line: null, product: null }, from, to, shift, s))
   const terr = useDash(seen ? `roi:t:${k}` : null, PRIORITY.lazy, (s) => fetchRoiTerritories(group.group_id, from, to, shift, s))
   const link = useDash(seen ? `roi:l:${k}` : null, PRIORITY.lazy, (s) => fetchRoiLink(group.group_id, from, to, shift, s))
-
-  const chart = useMemo(() => (monthly.data ?? []).map((m) => ({ ...m, label: monthShort(m.month.slice(0, 7)) })), [monthly.data])
-  const hasSales = chart.some((m) => m.s_value > 0 || m.visits > 0)
 
   const cols: RoiCol<RoiTerritory>[] = useMemo(() => [
     { id: 'territory', header: 'Territory', value: (r) => r.territory_name },
@@ -51,37 +44,7 @@ export function RoiDetail({ group, from, to, shift, rev, periodLine }: { group: 
     <div ref={ref} className="space-y-4" aria-label={`Selected group: ${group.group_name}`}>
       <h2 className="text-base font-semibold">{group.line_name} · {group.group_name}</h2>
 
-      <ChartCard title="Visits and sales by month" description="Columns = visits (left axis); line = sales in EGP (right axis).">
-        {monthly.error ? <ErrorState title="Could not load the months" message={monthly.error} onRetry={monthly.reload} className="py-8" />
-          : monthly.loading ? <Skeleton className="h-64 w-full" />
-          : !hasSales ? <EmptyState title="No visits or sales for this group in the period" className="py-8" />
-          : (
-            <>
-              <div role="img" aria-label="Visits and sales by month" className="h-64">
-                <ResponsiveContainer>
-                  <ComposedChart data={chart} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
-                    <XAxis dataKey="label" {...axisProps} />
-                    <YAxis yAxisId="v" {...axisProps} />
-                    <YAxis yAxisId="s" orientation="right" {...axisProps} tickFormatter={(v: number) => fmtMoney(v)} />
-                    <Tooltip content={<ChartTip fmt={(v) => Math.round(v).toLocaleString('en-US')} />} cursor={{ fill: 'hsl(var(--muted))' }} />
-                    <Bar yAxisId="v" dataKey="visits" name="Visits" fill={CHART[0]} radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={false} />
-                    <Line yAxisId="s" dataKey="s_value" name="Sales (EGP)" stroke={CHART[1]} strokeWidth={2} dot={{ r: 2.5 }} isAnimationActive={false} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="mt-3 overflow-x-auto">
-                <table className="w-full min-w-max text-13" aria-label="Sales per visit and ROI by month">
-                  <thead><tr><th className="py-1 pr-3 text-left text-xs font-medium text-muted-foreground" />{chart.map((m) => <th key={m.month} className="px-2 py-1 text-right text-xs font-medium text-muted-foreground">{m.label}</th>)}</tr></thead>
-                  <tbody>
-                    <tr><th className="py-1 pr-3 text-left text-xs font-medium">Sales per visit</th>{chart.map((m) => <td key={m.month} className="tnum px-2 py-1 text-right">{fmtInt(m.sales_per_visit)}</td>)}</tr>
-                    <tr><th className="py-1 pr-3 text-left text-xs font-medium">ROI</th>{chart.map((m) => <td key={m.month} className="px-2 py-1 text-right"><RoiBadge roi={m.roi} /></td>)}</tr>
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-      </ChartCard>
+      <RoiMonthlyChart rows={monthly.data} measure={measure} loading={monthly.loading} error={monthly.error} onRetry={monthly.reload} />
 
       <Card className="p-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

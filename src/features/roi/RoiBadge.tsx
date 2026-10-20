@@ -14,3 +14,8 @@ export function RoiBadge({ roi }: { roi: number | null }) {
   const t = roiTone(roi)
   return <span title={`ROI ${WORD[t]}`} className={cn('tnum inline-block rounded-full px-2 py-0.5 text-xs font-semibold', CLS[t])}>{fmtRoi(roi)}</span>
 }
+
+/** Any value shown as a coloured pill (coverage / PCF); tone 'none' is plain text. */
+export function ToneBadge({ tone, text, title }: { tone: RoiTone; text: string; title?: string }) {
+  return <span title={title} className={cn('tnum inline-block rounded-full px-2 py-0.5 text-xs font-semibold', CLS[tone])}>{text}</span>
+}

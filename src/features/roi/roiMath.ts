@@ -164,3 +164,62 @@ export function suggestMap(map: SuggestedGroup[], specialities: string[], produc
     products: g.products.map((w) => { const m = matchProduct(w, products, g.line); return { wanted: w, matched: m.name, how: m.how } }),
   }))
 }
+
+/* ------------------------------ scope (company / line / product) ------------------------------ */
+export type Measure = 'value' | 'units'
+export const parseMeasure = (v: string | null): Measure => (v === 'units' ? 'units' : 'value')
+export const DEFAULT_MIN_VISITS = 10
+/** Min-visits box -> whole number >= 0; empty or invalid falls back to the default. */
+export function parseMinVisits(text: string | null): number {
+  if (text === null || text.trim() === '') return DEFAULT_MIN_VISITS
+  const n = Number(text)
+  return Number.isInteger(n) && n >= 0 ? n : DEFAULT_MIN_VISITS
+}
+
+/** What the chart and the territories table show: one group (old functions) or the scope Line / Product (new functions). */
+export interface Selection { group: number | null; line: number | null; product: number | null }
+export interface RpcCall { fn: string; args: Record<string, unknown> }
+
+/** A product only makes sense inside a line. */
+export const scopeProduct = (line: number | null, product: number | null): number | null => (line === null ? null : product)
+
+export function monthlyCall(sel: Selection, from: string, to: string, shift: Shift): RpcCall {
+  if (sel.group !== null) return { fn: 'speciality_roi_monthly', args: { p_group: sel.group, p_from: from, p_to: to, p_shift: shift } }
+  return { fn: 'speciality_roi_scope_monthly', args: { p_from: from, p_to: to, p_line: sel.line, p_product: scopeProduct(sel.line, sel.product), p_shift: shift } }
+}
+export function territoriesCall(sel: Selection, from: string, to: string, shift: Shift, minVisits: number): RpcCall {
+  if (sel.group !== null) return { fn: 'speciality_roi_territories', args: { p_group: sel.group, p_from: from, p_to: to, p_shift: shift } }
+  return { fn: 'speciality_roi_territories_scope', args: { p_from: from, p_to: to, p_line: sel.line, p_product: scopeProduct(sel.line, sel.product), p_shift: shift, p_min_visits: minVisits } }
+}
+/** Stable cache key for a call (same function + same parameters = same entry). */
+export const callKey = (c: RpcCall): string => c.fn + ':' + Object.keys(c.args).sort().map((k) => String(c.args[k] ?? 'null')).join(':')
+
+/* ------------------------------ coverage / PCF colours ------------------------------ */
+/** Coverage and PCF: below `amber` red, from `amber` to below `green` amber, `green` and above green (ratios 0..1). */
+export const COVERAGE_THRESHOLDS = { amber: 0.7, green: 0.85 } as const
+export function ratioTone(v: number | null): RoiTone {
+  if (v === null) return 'none'
+  return v < COVERAGE_THRESHOLDS.amber ? 'red' : v < COVERAGE_THRESHOLDS.green ? 'amber' : 'green'
+}
+export const fmtPct1 = (v: number | null): string => (v === null ? '—' : `${(v * 100).toFixed(1)}%`)
+export const KPI_TIP = 'Coverage = covered / list doctors, PCF = valid visits / visits, for the doctors linked to the selection (Clinic + Poly Clinic)'
+
+/** Coverage / PCF of a row; "—" (null) when the row has no KPI doctors. */
+export const kpiRatio = (kpiDoctors: number, v: number | null): number | null => (kpiDoctors > 0 ? v : null)
+
+/** Rows that fail `pred` first (in their order), the ones that pass last: low-sample rows stay at the bottom whatever the sort. */
+export function lastWhen<T>(rows: T[], pred: (r: T) => boolean): T[] {
+  return [...rows.filter((r) => !pred(r)), ...rows.filter(pred)]
+}
+
+export interface ScopeTotals { visits: number; s_value: number; s_units: number; cost: number; list_doctors: number; sales_per_visit: number | null; roi: number | null; coverage: number | null }
+interface TotalIn { visits: number; s_value: number; s_units: number; cost: number; list_doctors: number; kpi_doctors: number; covered_doctors: number }
+/** Total row: sums; ROI = total sales (value) / total cost; coverage from raw sums. PCF has no total (only a ratio per row). */
+export function scopeTotals(rows: TotalIn[]): ScopeTotals {
+  const sum = (f: (r: TotalIn) => number) => rows.reduce((a, r) => a + f(r), 0)
+  const visits = sum((r) => r.visits), s_value = sum((r) => r.s_value), cost = sum((r) => r.cost), kpi = sum((r) => r.kpi_doctors)
+  return {
+    visits, s_value, cost, s_units: sum((r) => r.s_units), list_doctors: sum((r) => r.list_doctors),
+    sales_per_visit: visits > 0 ? s_value / visits : null, roi: cost > 0 ? s_value / cost : null, coverage: kpi > 0 ? sum((r) => r.covered_doctors) / kpi : null,
+  }
+}
