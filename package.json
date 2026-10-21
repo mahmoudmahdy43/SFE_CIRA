@@ -19,6 +19,7 @@
     "test:dashboard": "node scripts/dashboardPeriod.test.mjs",
     "test:dashboard-requests": "node scripts/dashboardRequests.test.mjs",
     "test:roi": "node scripts/specialityRoi.test.mjs",
+    "test:daily": "node scripts/dailyReporting.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -36,6 +37,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.4.0",
+    "fflate": "^0.3.11",
     "lucide-react": "^1.54.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

@@ -1,6 +1,7 @@
 import {
   Building2,
   CalendarDays,
+  ClipboardCheck,
   Database,
   FileBarChart,
   LayoutDashboard,
@@ -32,6 +33,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/', label: 'Dashboard', description: 'Company overview and system status.', icon: LayoutDashboard },
       { to: '/reports', label: 'Reports', description: 'Coverage and call-rate reports per rep.', icon: FileBarChart },
+      { to: '/daily-reporting', label: 'Daily Reporting', description: 'Daily rep performance per line from the CRM Daily Report files.', icon: ClipboardCheck },
       { to: '/360', label: '360° View', description: 'Full profile of a rep, manager or box.', icon: ScanSearch },
     ],
   },
