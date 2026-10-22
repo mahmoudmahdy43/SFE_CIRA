@@ -73,3 +73,27 @@ t('numbers keep halves; yesterday; comment key', () => {
   assert.equal(d.commentKey('2026-10-19', 2, 'sam lee'), 'daily-reporting:2026-10-19:2:sam lee')
 })
 console.log(`${n} tests passed`)
+
+const pros = new Set(['ali new'])
+t('Prospection rep: zero visits => Reported Day, comment filled, other reps unchanged', () => {
+  const rows = d.buildLineRows(1, [f('Ali  New', 0), f('Bob', 0), f('Cy', 3)], [], [], pros)
+  const by = Object.fromEntries(rows.map((r) => [r.norm, r]))
+  assert.equal(by['ali new'].reporting, 'Reported Day'); assert.equal(by['ali new'].prospection, true)
+  assert.equal(d.defaultComment(by['ali new']), 'Prospection Phase')
+  assert.equal(d.defaultComment(by['bob']), ''); assert.equal(by['bob'].reporting, 'Unreported Day'); assert.equal(by['cy'].reporting, 'Follow Up Required')
+})
+t('Prospection beats the 6-visit rule, also under 6 visits and vacation counts normally', () => {
+  const rows = d.buildLineRows(1, [f('Ali New', 4), f('Bob', 0, 1)], [], [], pros)
+  assert.equal(rows.find((r) => r.norm === 'ali new').reporting, 'Reported Day')
+  assert.equal(d.computeCards(rows).vacations, 1)
+})
+t('Prospection rep with zero visits counts as a working rep (lowers the averages)', () => {
+  const rows = d.buildLineRows(1, [f('Ali New', 0), f('Bob', 10)], [], [], pros)
+  const c = d.computeCards(rows)
+  assert.equal(c.active, 2); assert.equal(c.reported, 2); assert.equal(c.working, 2); assert.equal(c.avgPm, 5)
+})
+t('names in the list but not in the files are counted as unseen', () => {
+  const rows = d.buildLineRows(1, [f('Ali New', 0)], [], [], pros)
+  assert.deepEqual(d.unseenProspection(['Ali  New', 'Gone Rep', 'Other'], rows), ['Gone Rep', 'Other'])
+})
+console.log(`${n} tests passed (incl. prospection)`)

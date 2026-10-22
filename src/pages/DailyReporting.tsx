@@ -1,17 +1,18 @@
 import { useMemo, useRef, useState, type DragEvent } from 'react'
 import { format, parseISO } from 'date-fns'
-import { AlertTriangle, Download, FileSpreadsheet, Trash2, Upload } from 'lucide-react'
+import { AlertTriangle, Download, FileSpreadsheet, ListChecks, Plus, Trash2, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { ErrorState, PageHeader } from '../components/app/states'
 import { Button } from '../components/ui/button'
-import { Card } from '../components/ui/misc'
+import { Card, Input } from '../components/ui/misc'
+import { Dialog, DialogContent, DialogTrigger } from '../components/ui/overlay'
 import { downloadDailyWorkbook } from '../features/daily/dailyExport'
 import {
-  NOT_IN_SYSTEM, STATUS_COLORS, buildLineRows, commentKey, computeCards, detectFromName, fmtAvg, fmtNum, parseReportRows, yesterdayIso,
+  NOT_IN_SYSTEM, STATUS_COLORS, buildLineRows, commentKey, computeCards, defaultComment, detectFromName, fmtAvg, fmtNum, normName, parseReportRows, unseenProspection, yesterdayIso,
   type DailyRow, type FileRep, type ParsedFile, type Shift,
 } from '../features/daily/dailyMath'
 import { useAsync } from '../features/dashboard/useAsync'
-import { fetchDailyReps } from '../lib/api/daily'
+import { fetchDailyReps, fetchProspection, saveProspection } from '../lib/api/daily'
 import { cn } from '../lib/utils'
 
 const LINES = [1, 2, 3] as const
@@ -34,8 +35,65 @@ async function readFile(file: File): Promise<LoadedFile> {
 
 const merge = (files: LoadedFile[]): FileRep[] => files.flatMap((f) => f.parsed.reps)
 
-const readComment = (k: string): string => {
-  try { return localStorage.getItem(k) ?? '' } catch { return '' }
+/** null = nothing typed yet (an empty string means the comment was cleared on purpose). */
+const readComment = (k: string): string | null => {
+  try { return localStorage.getItem(k) } catch { return null }
+}
+
+/* ------------------------------ Prospection Phase list ------------------------------ */
+function ProspectionDialog({ saved, suggestions, unseen, onSaved }: {
+  saved: string[]; suggestions: string[]; unseen: number; onSaved: (names: string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState<string[]>(saved)
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const add = () => {
+    const name = text.replace(/\s+/g, ' ').trim()
+    if (name === '') return
+    if (!draft.some((d) => normName(d) === normName(name))) setDraft((cur) => [...cur, name])
+    setText('')
+  }
+  const save = async () => {
+    setBusy(true)
+    try {
+      const n = await saveProspection(draft)
+      onSaved(draft)
+      toast.success(`Prospection Phase list saved: ${n} name${n === 1 ? '' : 's'}`)
+      setOpen(false)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) { setDraft(saved); setText('') } }}>
+      <DialogTrigger asChild>
+        <Button><ListChecks className="h-4 w-4" aria-hidden /> Prospection Phase list ({saved.length})</Button>
+      </DialogTrigger>
+      <DialogContent title="Prospection Phase list" description="These reps always show as Reported Day with the comment Prospection Phase. The list is saved once and applies to every day.">
+        <div className="mt-4 flex gap-2">
+          <Input list="daily-prospection-names" value={text} placeholder="Rep name" aria-label="Rep name" onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+          <datalist id="daily-prospection-names">{suggestions.map((n) => <option key={n} value={n} />)}</datalist>
+          <Button onClick={add} disabled={text.trim() === ''}><Plus className="h-4 w-4" aria-hidden /> Add</Button>
+        </div>
+        <ul className="mt-3 max-h-64 divide-y overflow-y-auto rounded-control border text-sm">
+          {draft.length === 0 && <li className="px-3 py-3 text-muted-foreground">The list is empty.</li>}
+          {draft.map((n) => (
+            <li key={normName(n)} className="flex items-center justify-between gap-2 px-3 py-1.5">
+              {n}
+              <button aria-label={`Remove ${n}`} className="rounded-control p-1 text-muted-foreground hover:bg-muted" onClick={() => setDraft((cur) => cur.filter((d) => d !== n))}><X className="h-4 w-4" aria-hidden /></button>
+            </li>
+          ))}
+        </ul>
+        {unseen > 0 && <p className="mt-2 text-xs text-muted-foreground">{unseen} name{unseen === 1 ? '' : 's'} in the saved list {unseen === 1 ? 'is' : 'are'} not in today's files.</p>}
+        <div className="mt-4 flex justify-end">
+          <Button variant="primary" onClick={() => void save()} disabled={busy}>Save</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 /* ------------------------------ upload ------------------------------ */
@@ -106,7 +164,7 @@ function StatCard({ label, value, color }: { label: string; value: string; color
 
 function LineView({ line, date, rows, comment, setComment }: {
   line: number; date: string; rows: DailyRow[]
-  comment: (k: string) => string; setComment: (k: string, v: string) => void
+  comment: (k: string, r: DailyRow) => string; setComment: (k: string, v: string) => void
 }) {
   const c = computeCards(rows)
   const missing = rows.filter((r) => !r.inSystem).length
@@ -155,7 +213,7 @@ function LineView({ line, date, rows, comment, setComment }: {
               return (
                 <tr key={r.key} style={tint}>
                   <td className={cell}>{r.districtManager}</td>
-                  <td className={cell}>{r.rep}</td>
+                  <td className={cell}>{r.rep}{r.prospection && <span className="ml-2 rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 ring-1 ring-emerald-300">Prospection</span>}</td>
                   <td className={cn(cell, 'text-center')}>
                     {r.inSystem
                       ? <><span aria-hidden style={{ color: r.reporting === 'Follow Up Required' ? '#ED7D31' : '#000' }}>●</span> {r.status}</>
@@ -170,7 +228,7 @@ function LineView({ line, date, rows, comment, setComment }: {
                   <td className={cn(cell, 'p-0')}>
                     <input
                       aria-label={`Comment for ${r.rep}`}
-                      value={comment(commentKey(date, line, r.norm))}
+                      value={comment(commentKey(date, line, r.norm), r)}
                       onChange={(e) => setComment(commentKey(date, line, r.norm), e.target.value)}
                       className="h-full w-full min-w-[180px] bg-transparent px-2 py-1 outline-none focus:bg-white/70"
                       style={{ color: 'inherit' }}
@@ -196,6 +254,10 @@ export default function DailyReporting() {
 
   const month = `${date.slice(0, 7)}-01`
   const reps = useAsync(`daily:reps:${month}`, () => fetchDailyReps(month))
+  const prosLoad = useAsync('daily:prospection', fetchProspection)
+  const [prosSaved, setProsSaved] = useState<string[] | null>(null)
+  const prosNames = useMemo(() => prosSaved ?? (prosLoad.data ?? []).map((p) => p.rep_name), [prosSaved, prosLoad.data])
+  const prosSet = useMemo(() => new Set(prosNames.map(normName)), [prosNames])
 
   const addFiles = async (list: File[]) => {
     for (const f of list) {
@@ -213,12 +275,12 @@ export default function DailyReporting() {
     for (const l of LINES) {
       const pick = (s: Shift) => merge(files.filter((f) => f.line === l && f.shift === s))
       const pm = pick('PM'), ph = pick('PHARMA')
-      if (pm.length + ph.length > 0) out.set(l, buildLineRows(l, pm, ph, reps.data ?? []))
+      if (pm.length + ph.length > 0) out.set(l, buildLineRows(l, pm, ph, reps.data ?? [], prosSet))
     }
     return out
-  }, [files, reps.data])
+  }, [files, reps.data, prosSet])
 
-  const comment = (k: string) => edited[k] ?? readComment(k)
+  const comment = (k: string, r: DailyRow) => edited[k] ?? readComment(k) ?? defaultComment(r)
   const setComment = (k: string, v: string) => {
     setEdited((cur) => ({ ...cur, [k]: v }))
     try { localStorage.setItem(k, v) } catch { /* storage unavailable: kept in memory only */ }
@@ -229,7 +291,7 @@ export default function DailyReporting() {
     try {
       const sheets = LINES.map((l) => {
         const rows = byLine.get(l) ?? []
-        return { line: l, rows, comments: Object.fromEntries(rows.map((r) => [r.key, comment(commentKey(date, l, r.norm))])) }
+        return { line: l, rows, comments: Object.fromEntries(rows.map((r) => [r.key, comment(commentKey(date, l, r.norm), r)])) }
       })
       await downloadDailyWorkbook(date, sheets, LOGO)
     } catch (e) {
@@ -239,6 +301,9 @@ export default function DailyReporting() {
     }
   }
 
+  const allRows = [...byLine.values()].flat()
+  const unseen = files.length === 0 ? 0 : unseenProspection(prosNames, allRows).length
+  const suggestions = useMemo(() => [...new Set([...files.flatMap((f) => f.parsed.reps.map((r) => r.name)), ...(reps.data ?? []).map((r) => r.rep_name)])].sort(), [files, reps.data])
   const unrecognised = files.filter((f) => f.line === null || f.shift === null).length
   const rows = byLine.get(line)
 
@@ -253,6 +318,7 @@ export default function DailyReporting() {
               Date
               <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} className="h-8 rounded-control border bg-card px-2 text-sm" />
             </label>
+            <ProspectionDialog saved={prosNames} suggestions={suggestions} unseen={unseen} onSaved={setProsSaved} />
             <Button onClick={() => void download()} disabled={busy || byLine.size === 0}><Download className="h-4 w-4" aria-hidden /> Download Excel</Button>
           </>
         }
@@ -264,6 +330,7 @@ export default function DailyReporting() {
         onRemove={(id) => setFiles((cur) => cur.filter((f) => f.id !== id))}
       />
       {unrecognised > 0 && <p className="text-sm text-destructive">{unrecognised} file{unrecognised === 1 ? '' : 's'} could not be identified — choose the line and type above.</p>}
+      {prosLoad.error && <ErrorState className="py-4" title="Could not load the Prospection Phase list" message={prosLoad.error} onRetry={prosLoad.reload} />}
       {reps.error && <ErrorState className="py-4" title="Could not load the reps from the system" message={`${reps.error} — every rep will show as Not in system.`} onRetry={reps.reload} />}
 
       <div role="tablist" className="flex gap-1">

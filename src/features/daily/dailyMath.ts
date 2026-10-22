@@ -88,23 +88,28 @@ export function reportingStatus(pm: number, vacations: number, office: number, a
 export interface DailyRow {
   key: string // line|norm, also the comment key
   rep: string; norm: string; districtManager: string; status: string; inSystem: boolean
+  /** In the Prospection Phase list: always Reported Day, comment pre-filled. */
+  prospection: boolean
   reporting: ReportingStatus; pm: number; pharmacy: number; vacations: number; office: number; activities: number
 }
 
-/** One line: PM file (+ Pharmacy file) joined by normalised name, matched to the system, sorted by manager then rep. */
-export function buildLineRows(line: number, pm: FileRep[], pharmacy: FileRep[], sys: SystemRep[]): DailyRow[] {
+export const PROSPECTION_COMMENT = 'Prospection Phase'
+
+/** One line: PM file (+ Pharmacy file) joined by normalised name, matched to the system, sorted by manager then rep. `prospection` = normalised names of the Prospection Phase list. */
+export function buildLineRows(line: number, pm: FileRep[], pharmacy: FileRep[], sys: SystemRep[], prospection: ReadonlySet<string> = new Set()): DailyRow[] {
   const ph = new Map(pharmacy.map((r) => [r.norm, r]))
   const seen = new Set<string>()
   const rows: DailyRow[] = []
   const add = (name: string, norm: string, p: FileRep | undefined, h: FileRep | undefined) => {
     seen.add(norm)
     const s = matchSystemRep(sys, line, norm)
+    const pros = prospection.has(norm)
     const vac = p?.vacations ?? 0, off = p?.office ?? 0, act = p?.activities ?? 0, visits = p?.visits ?? 0
     rows.push({
       key: `${line}|${norm}`, rep: name, norm,
       districtManager: s ? (s.district_manager?.trim() || UNASSIGNED) : UNASSIGNED,
       status: s ? s.status : NOT_IN_SYSTEM, inSystem: s !== null,
-      reporting: reportingStatus(visits, vac, off, act), pm: visits, pharmacy: h?.visits ?? 0, vacations: vac, office: off, activities: act,
+      prospection: pros, reporting: pros ? 'Reported Day' : reportingStatus(visits, vac, off, act), pm: visits, pharmacy: h?.visits ?? 0, vacations: vac, office: off, activities: act,
     })
   }
   for (const p of pm) add(p.name, p.norm, p, ph.get(p.norm))
@@ -143,6 +148,15 @@ export const STATUS_COLORS: Record<ReportingStatus, { bg: string; fg: string }> 
   'Reported Day': { bg: 'C6EFCE', fg: '006100' },
   'Unreported Day': { bg: 'FFC7CE', fg: '9C0006' },
   'Follow Up Required': { bg: 'FFEB9C', fg: '9C6500' },
+}
+
+/** Comment shown for a row: what was typed (even empty), else "Prospection Phase" for a prospection rep. */
+export const defaultComment = (r: Pick<DailyRow, 'prospection'>): string => (r.prospection ? PROSPECTION_COMMENT : '')
+
+/** Names in the Prospection list that appear in none of the rows. */
+export function unseenProspection(list: string[], rows: Pick<DailyRow, 'norm'>[]): string[] {
+  const seen = new Set(rows.map((r) => r.norm))
+  return list.filter((n) => !seen.has(normName(n)))
 }
 
 export const commentKey = (date: string, line: number, norm: string): string => `daily-reporting:${date}:${line}:${norm}`
