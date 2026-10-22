@@ -155,9 +155,9 @@ function UploadZone({ files, onFiles, onChange, onRemove }: {
 /* ------------------------------ one line ------------------------------ */
 function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div className="overflow-hidden rounded-card border bg-card shadow-sm">
-      <div className="px-2 py-1 text-center text-[10px] font-bold leading-tight text-white" style={{ background: color }}>{label}</div>
-      <div className="tnum py-3 text-center text-2xl font-bold">{value}</div>
+    <div className="flex h-28 flex-col">
+      <div className="flex h-[26px] items-center justify-center px-1 text-center text-[10px] font-bold leading-none text-white" style={{ background: color }}>{label}</div>
+      <div className="tnum mt-[3px] flex flex-1 items-center justify-center rounded-xl border border-[#ddd] bg-white text-2xl font-bold shadow-[3px_3px_0_#b0b0b0]">{value}</div>
     </div>
   )
 }
@@ -169,16 +169,16 @@ function LineView({ line, date, rows, comment, setComment }: {
   const c = computeCards(rows)
   const missing = rows.filter((r) => !r.inSystem).length
   return (
-    <div className="space-y-3">
-      <div className="flex items-stretch gap-3 rounded-card px-3 py-2 text-white" style={{ background: GREEN }}>
-        <img src={LOGO} alt="" className="h-14 w-14 rounded bg-white object-contain p-0.5" />
+    <div>
+      <div className="flex h-[90px] items-center gap-3 rounded-2xl px-[14px] text-white" style={{ background: GREEN }}>
+        <img src={LOGO} alt="" className="h-[70px] w-[70px] shrink-0 rounded-xl bg-white object-contain p-[5px]" />
         <h2 className="flex flex-1 items-center justify-center text-center text-lg font-bold">CIRA {line} - MEDICAL REP DAILY PERFORMANCE</h2>
-        <div className="self-center overflow-hidden rounded border-2 border-black bg-white text-center text-black">
-          <div className="px-3 text-[10px] font-bold text-white" style={{ background: GREEN }}>Date</div>
-          <div className="px-3 py-0.5 text-sm font-bold">{format(parseISO(date), 'EEEE, MMMM d, yyyy')}</div>
+        <div className="shrink-0 text-center">
+          <div className="text-[10px] font-bold">Date</div>
+          <div className="border-2 border-black bg-white px-3 py-1 text-sm text-black">{format(parseISO(date), 'EEEE, MMMM d, yyyy')}</div>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-9">
+      <div className="grid grid-cols-2 gap-[10px] bg-[#C5E0B3] py-4 sm:grid-cols-3 lg:grid-cols-9">
         <StatCard label="ACTIVE REPS" value={String(c.active)} color="#2E8B57" />
         <StatCard label="REPORTED DAY" value={String(c.reported)} color="#2E8B57" />
         <StatCard label="UNREPORTED DAY" value={String(c.unreported)} color="#C00000" />
@@ -190,7 +190,7 @@ function LineView({ line, date, rows, comment, setComment }: {
         <StatCard label="TOTAL ACTIVITIES" value={String(c.activities)} color="#4A90A4" />
       </div>
       {missing > 0 && (
-        <p className="flex items-center gap-2 rounded-control border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <p className="my-3 flex items-center gap-2 rounded-control border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden /> {missing} rep{missing === 1 ? '' : 's'} in the files {missing === 1 ? 'is' : 'are'} not in the system (District Manager shown as Unassigned).
         </p>
       )}
