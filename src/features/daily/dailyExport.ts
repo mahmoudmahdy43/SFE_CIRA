@@ -1,4 +1,5 @@
-import { STATUS_COLORS, computeCards, type DailyRow } from './dailyMath'
+import { CARDS_GROUP } from './cardsTemplate'
+import { STATUS_COLORS, computeCards, fmtAvg, type Cards, type DailyRow } from './dailyMath'
 
 export interface DailySheetInput { line: number; rows: DailyRow[]; comments: Record<string, string> }
 
@@ -8,6 +9,7 @@ interface Cell { v: string | number | null; s?: Style; z?: string }
 const WIDTHS = [29.8, 34, 17, 22.7, 15.2, 21.9, 15.7, 17.7, 14.7, 31.2]
 const HEADERS = ['District Manager', 'Medical Rep', 'Status', 'Reporting Status', 'PM Visits', 'Pharmacy Visits', 'Vacations', 'Office Work', 'Activities', 'Comment']
 const GREEN = '1B5E42'
+const STRIP = 'C5E0B3'
 const thin = { style: 'thin', color: { rgb: '000000' } }
 const med = { style: 'medium', color: { rgb: '000000' } }
 const fill = (rgb: string) => ({ patternType: 'solid', fgColor: { rgb } })
@@ -19,26 +21,13 @@ export const excelSerial = (iso: string): number => {
   return Date.UTC(y, m - 1, d) / 86400000 + 25569
 }
 
-interface Card { label: string; color: string; value: (c: ReturnType<typeof computeCards>) => number | string; avg?: boolean; cols: [number, number] }
-const CARDS: Card[] = [
-  { label: 'ACTIVE REPS', color: '2E8B57', value: (c) => c.active, cols: [0, 0] },
-  { label: 'REPORTED DAY', color: '2E8B57', value: (c) => c.reported, cols: [1, 1] },
-  { label: 'UNREPORTED DAY', color: 'C00000', value: (c) => c.unreported, cols: [2, 3] },
-  { label: 'FOLLOW UP REQ.', color: 'ED7D31', value: (c) => c.followUp, cols: [4, 4] },
-  { label: 'AVG. PM CALL RATE', color: '4A90A4', value: (c) => (c.avgPm === null ? '—' : c.avgPm), avg: true, cols: [5, 5] },
-  { label: 'AVG. PHARMACIES C. RATE', color: '339933', value: (c) => (c.avgPharmacy === null ? '—' : c.avgPharmacy), avg: true, cols: [6, 6] },
-  { label: 'TOTAL VACATIONS', color: 'C0392B', value: (c) => c.vacations, cols: [7, 7] },
-  { label: 'TOTAL OFFICE WORK', color: '339933', value: (c) => c.office, cols: [8, 8] },
-  { label: 'TOTAL ACTIVITIES', color: '4A90A4', value: (c) => c.activities, cols: [9, 9] },
-]
-
-const HEIGHTS = [24, 20, 20, 28, 20, 20, 16, 8, 24]
+// rows 1-3 title band, rows 4-8 light green strip under the floating cards, row 9 table header
+const HEIGHTS = [24, 20, 20, 34.5, 14.4, 14.4, 14.4, 14.4, 24]
 const HEADER_ROW = 8
 
 /** One CIRA sheet laid out like "MRs Reporting Status": logo, title band, date box, nine cards, then the table. */
 export function buildDailySheet(date: string, input: DailySheetInput) {
   const { line, rows, comments } = input
-  const cards = computeCards(rows)
   const cells: Cell[][] = []
   const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = []
   const put = (r: number, c: number, cell: Cell) => {
@@ -60,28 +49,9 @@ export function buildDailySheet(date: string, input: DailySheetInput) {
   put(0, 9, { v: 'Date', s: { fill: fill(GREEN), font: font(10, { bold: true, rgb: 'FFFFFF' }), alignment: { horizontal: 'center', vertical: 'center' } } })
   put(1, 9, { v: excelSerial(date), z: 'dddd, mmmm d, yyyy', s: { fill: fill('FFFFFF'), font: font(11), alignment: { horizontal: 'center', vertical: 'center' }, border: box } })
 
-  // light green strip behind the cards
-  const strip = { fill: fill('C6E0B4') }
+  // light green strip (rows 4-8); the nine cards float over it as a drawing group
+  const strip = { fill: fill(STRIP) }
   for (let r = 3; r <= 7; r++) for (let c = 0; c < 10; c++) put(r, c, { v: null, s: strip })
-  // cards: coloured label row, then a 3-row merged value box
-  const edge = { style: 'thin', color: { rgb: 'DDDDDD' } }
-  const white = { style: 'medium', color: { rgb: 'FFFFFF' } }
-  for (const k of CARDS) {
-    const [c0, c1] = k.cols
-    const val = k.value(cards)
-    for (let c = c0; c <= c1; c++) {
-      put(3, c, { v: c === c0 ? k.label : null, s: { fill: fill(k.color), font: font(k.label.length > 18 ? 8 : 9, { bold: true, rgb: 'FFFFFF' }), alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: { left: white, right: white } } })
-      for (let r = 4; r <= 6; r++) {
-        put(r, c, {
-          v: r === 4 && c === c0 ? val : null,
-          z: k.avg && typeof val === 'number' ? '0.0' : undefined,
-          s: { fill: fill('FFFFFF'), font: font(20, { bold: true }), alignment: { horizontal: 'center', vertical: 'center' }, border: { left: c === c0 ? edge : undefined, right: c === c1 ? edge : undefined, top: r === 4 ? edge : undefined, bottom: r === 6 ? edge : undefined } },
-        })
-      }
-    }
-    if (c1 > c0) merges.push({ s: { r: 3, c: c0 }, e: { r: 3, c: c1 } })
-    merges.push({ s: { r: 4, c: c0 }, e: { r: 6, c: c1 } })
-  }
 
   // table header
   HEADERS.forEach((h, c) =>
@@ -122,8 +92,20 @@ const XML_HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
 const RELS_NS = 'xmlns="http://schemas.openxmlformats.org/package/2006/relationships"'
 const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 
-const drawingXml = () =>
-  `${XML_HEAD}<xdr:wsDr ${NS_DRAWING}><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>${4 * EMU}</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>${3 * EMU}</xdr:rowOff></xdr:from><xdr:ext cx="${LOGO_EMU}" cy="${LOGO_EMU}"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="2" name="CIRA logo"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${LOGO_EMU}" cy="${LOGO_EMU}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor></xdr:wsDr>`
+/** Card values by the placeholder names in cardsTemplate. */
+export function cardValues(c: Cards): Record<string, string> {
+  return { A6: String(c.active), C6: String(c.reported), C5: String(c.unreported), D5: String(c.followUp), B5: fmtAvg(c.avgPm), J5: fmtAvg(c.avgPharmacy), D6: String(c.vacations), F6: String(c.office), H6: String(c.activities) }
+}
+
+const CARDS_FROM_TO = '<xdr:from><xdr:col>0</xdr:col><xdr:colOff>77469</xdr:colOff><xdr:row>3</xdr:row><xdr:rowOff>73659</xdr:rowOff></xdr:from><xdr:to><xdr:col>9</xdr:col><xdr:colOff>1933914</xdr:colOff><xdr:row>7</xdr:row><xdr:rowOff>65784</xdr:rowOff></xdr:to>'
+
+const cardsAnchor = (c: Cards) => `<xdr:twoCellAnchor>${CARDS_FROM_TO}${CARDS_GROUP.replace(/\{\{(\w+)\}\}/g, (_m, k: string) => cardValues(c)[k] ?? '')}</xdr:twoCellAnchor>`
+
+const logoAnchor = () =>
+  `<xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>${4 * EMU}</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>${3 * EMU}</xdr:rowOff></xdr:from><xdr:ext cx="${LOGO_EMU}" cy="${LOGO_EMU}"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="2" name="CIRA logo"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${LOGO_EMU}" cy="${LOGO_EMU}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>`
+
+/** Logo (when there is one) and the nine cards in the same drawing. */
+const drawingXml = (c: Cards, withLogo: boolean) => `${XML_HEAD}<xdr:wsDr ${NS_DRAWING}>${withLogo ? logoAnchor() : ''}${cardsAnchor(c)}</xdr:wsDr>`
 
 /** Hide gridlines, landscape fit-to-width, and point the sheet at its drawing (the logo). */
 export function patchSheetXml(xml: string, withDrawing: boolean): string {
@@ -175,13 +157,12 @@ export async function buildDailyWorkbook(date: string, sheets: DailySheetInput[]
     files['xl/media/cira-logo.png'] = new Uint8Array(logo)
     if (!/Extension="png"/.test(types)) types = types.replace('<Override', '<Default Extension="png" ContentType="image/png"/><Override')
   }
-  sheets.forEach((_, i) => {
+  sheets.forEach((input, i) => {
     const n = i + 1
     const path = `xl/worksheets/sheet${n}.xml`
-    files[path] = strToU8(patchSheetXml(strFromU8(files[path]), withLogo))
-    if (!withLogo) return
-    files[`xl/drawings/drawing${n}.xml`] = strToU8(drawingXml())
-    files[`xl/drawings/_rels/drawing${n}.xml.rels`] = strToU8(`${XML_HEAD}<Relationships ${RELS_NS}><Relationship Id="rId1" Type="${REL}/image" Target="../media/cira-logo.png"/></Relationships>`)
+    files[path] = strToU8(patchSheetXml(strFromU8(files[path]), true))
+    files[`xl/drawings/drawing${n}.xml`] = strToU8(drawingXml(computeCards(input.rows), withLogo))
+    if (withLogo) files[`xl/drawings/_rels/drawing${n}.xml.rels`] = strToU8(`${XML_HEAD}<Relationships ${RELS_NS}><Relationship Id="rId1" Type="${REL}/image" Target="../media/cira-logo.png"/></Relationships>`)
     files[`xl/worksheets/_rels/sheet${n}.xml.rels`] = strToU8(`${XML_HEAD}<Relationships ${RELS_NS}><Relationship Id="rId1" Type="${REL}/drawing" Target="../drawings/drawing${n}.xml"/></Relationships>`)
     types = types.replace('</Types>', `<Override PartName="/xl/drawings/drawing${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>`)
   })
