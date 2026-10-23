@@ -24,8 +24,9 @@ import Reports from './pages/Reports'
 import ListStrategy from './pages/ListStrategy'
 import Profile from './pages/Profile'
 import DailyReporting from './pages/DailyReporting'
+import MonthlyPlan from './pages/MonthlyPlan'
 
-const BUILT = new Set(['/', '/settings', '/org', '/personnel', '/targets', '/calendar', '/uploads', '/data-quality', '/reports', '/list-strategy', '/360', '/daily-reporting'])
+const BUILT = new Set(['/', '/settings', '/org', '/personnel', '/targets', '/calendar', '/uploads', '/data-quality', '/reports', '/list-strategy', '/360', '/daily-reporting', '/monthly-plan'])
 
 const Design = lazy(() => import('./pages/Design'))
 
@@ -131,6 +132,7 @@ export default function App() {
             <Route path="list-strategy" element={<ListStrategy />} />
             <Route path="360" element={<Profile />} />
             <Route path="daily-reporting" element={<DailyReporting />} />
+            <Route path="monthly-plan" element={<MonthlyPlan />} />
             <Route
               path="design"
               element={

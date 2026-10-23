@@ -21,6 +21,7 @@
     "test:dashboard-requests": "node scripts/dashboardRequests.test.mjs",
     "test:roi": "node scripts/specialityRoi.test.mjs",
     "test:daily": "node scripts/dailyReporting.test.mjs",
+    "test:planner": "node scripts/planner.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
