@@ -40,7 +40,7 @@ export function expandAutoFiles(files: AutoFile[], map: OwnerLineMap | null): { 
       byLine.set(line, g)
     })
     for (const [line, g] of [...byLine].sort((a, b) => a[0] - b[0])) {
-      out.push({ file: summarize({ ...f, rows: g.rows, rowNumbers: g.nums }), line, pharmacy: true })
+      out.push({ file: summarize({ ...f, rows: g.rows, rowNumbers: g.nums }), line, pharmacy: pf.pharmacy ?? true })
     }
   }
   const unresolved = [...lost].map(([owner, rows]) => ({ owner, rows })).sort((a, b) => b.rows - a.rows || a.owner.localeCompare(b.owner))

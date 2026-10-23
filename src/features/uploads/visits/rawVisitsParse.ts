@@ -145,9 +145,22 @@ function parsePharmacyCells(cells: string[]): RawVisitRow | null {
   }
 }
 
-export function parseRawVisitsFile(name: string, text: string): RawVisitsFile {
-  const pharmacyLayout = /Last\s*Order/i.test(text)
-  const pieces = text.split(/<tr\s+align=['"]center['"]\s+valign=['"]top['"]/i).slice(1) // piece 0 = header
+/** Text of one report section: from its legend to the next legend (or the end); '' when the legend is absent. */
+export function sectionOf(text: string, word: string): string {
+  const m = new RegExp(`<legend[^>]*>\\s*${word}\\s*<\\/legend>`, 'i').exec(text)
+  if (!m) return ''
+  const rest = text.slice(m.index + m[0].length)
+  const next = rest.search(/<legend\b/i)
+  return next < 0 ? rest : rest.slice(0, next)
+}
+
+/**
+ * `only` reads a single section of a multi-section Territory visits report ('Visits' = clinics, 'Pharmacies Visits' = pharmacy
+ * layout); without it the whole text is read, as in the one-section c_L_M.xls files.
+ */
+export function parseRawVisitsFile(name: string, text: string, only?: 'Visits' | 'Pharmacies Visits'): RawVisitsFile {
+  const pharmacyLayout = only ? only === 'Pharmacies Visits' : /Last\s*Order/i.test(text)
+  const pieces = (only ? sectionOf(text, only) : text).split(/<tr\s+align=['"]center['"]\s+valign=['"]top['"]/i).slice(1) // piece 0 = header
   const rows: RawVisitRow[] = []
   const rowNumbers: number[] = []
   const errors: { row: number; reason: string }[] = []
@@ -208,7 +221,7 @@ export function parseRawVisitsFile(name: string, text: string): RawVisitsFile {
     types.set(accType, (types.get(accType) ?? 0) + 1)
   })
   const accTypes = [...types].map(([type, n]) => ({ type, rows: n, shift: shiftOfAccType(type) })).sort((a, b) => b.rows - a.rows || a.type.localeCompare(b.type))
-  return { name, titleRange: titleRangeOf(text), rows, rowNumbers, errors, totalRows: pieces.length, shortRows, pharmacy: rows.length > 0 && rows.every((r) => r.acc_type.trim().toUpperCase() === 'P'), single, double, owners: owners.size, accTypes }
+  return { name, titleRange: titleRangeOf(text), rows, rowNumbers, errors, totalRows: pieces.length, shortRows, pharmacy: only ? rows.length > 0 && only === 'Pharmacies Visits' : rows.length > 0 && rows.every((r) => r.acc_type.trim().toUpperCase() === 'P'), single, double, owners: owners.size, accTypes }
 }
 
 /* ---------------------------------- planning ---------------------------------- */

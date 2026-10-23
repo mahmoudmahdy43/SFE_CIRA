@@ -15,6 +15,7 @@
     "test:leaves-raw": "node scripts/rawLeaves.test.mjs",
     "test:activities-raw": "node scripts/rawActivities.test.mjs",
     "test:office-work-raw": "node scripts/rawOfficeWork.test.mjs",
+    "test:territory": "node scripts/territoryUpload.test.mjs",
     "test:date-range": "node scripts/dateRange.test.mjs",
     "test:dashboard": "node scripts/dashboardPeriod.test.mjs",
     "test:dashboard-requests": "node scripts/dashboardRequests.test.mjs",
