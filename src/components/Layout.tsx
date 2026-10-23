@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { Dialog, DialogContent } from './ui/overlay'
 import { Brand, Sidebar, SidebarNav } from './app/Sidebar'
 import { Topbar } from './app/Topbar'
+import { ErrorBoundary } from './app/ErrorBoundary'
 import { UserMenu } from './app/UserMenu'
 import { CommandPalette } from './app/CommandPalette'
 import { BuildStamp, UpdateNotifier } from './app/BuildStamp'
@@ -52,7 +53,7 @@ export default function Layout() {
         <div className="contents print:hidden"><Topbar onOpenPalette={() => setPaletteOpen(true)} onOpenMenu={() => setDrawerOpen(true)} /></div>
         <main className="flex-1 p-4 md:p-6">
           <div key={pathname} className="mx-auto max-w-[1600px] animate-fade-in">
-            <Outlet />
+            <ErrorBoundary resetKey={pathname}><Outlet /></ErrorBoundary>
           </div>
         </main>
       </div>
