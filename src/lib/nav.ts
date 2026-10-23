@@ -2,10 +2,8 @@ import {
   Building2,
   CalendarDays,
   ClipboardCheck,
-  Database,
   FileBarChart,
   LayoutDashboard,
-  Palette,
   PieChart,
   ScanSearch,
   Settings,
@@ -65,8 +63,6 @@ export const NAV_GROUPS: NavGroup[] = [
 export const ALL_NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.items)
 
 export const EXTRA_TITLES: Record<string, string> = { '/design': 'Design preview' }
-
-export const SOON_ICONS = { Database, Palette }
 
 export function titleFor(pathname: string): string {
   return ALL_NAV.find((n) => n.to === pathname)?.label ?? EXTRA_TITLES[pathname] ?? 'SFE Hub'

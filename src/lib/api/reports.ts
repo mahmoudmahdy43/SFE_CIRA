@@ -9,22 +9,12 @@ import { toCapacityRow, type CapacityRow } from '../../features/reports/capacity
 import { toJointRow, type JointRow } from '../../features/reports/jointMath'
 import { normalizeShares, toCoverRow, toDocRow, toSpecRow, type CoverRow, type CoverShift, type DocRow, type SpecRow } from '../../features/reports/coverageMath'
 import {
-  numOrNull, toCallRateRow, toCoverageRow, type CallRateRow, type CoverageRow,
+  numOrNull, toCallRateRow, type CallRateRow,
 } from '../../features/reports/reportMath'
 
 export type Raw = Record<string, unknown>
 
 const IDENT = 'month,line_id,manager_id,box,rep_code,rep_name,manager,hire_date,rep_id'
-
-export async function fetchCoverageReport(month: string): Promise<CoverageRow[]> {
-  const rows = await fetchAll<Raw>(
-    'v_coverage_report',
-    `${IDENT},list_doctors,fully_covered,partially_covered,not_visited,coverage`,
-    ['rep_id'],
-    (q) => q.eq('month', month),
-  )
-  return rows.map(toCoverageRow)
-}
 
 const CALL_COLS = ['working', 'field', 'leave', 'ow', 'activity', 'missing', 'visits']
   .flatMap((g) => [`${g}_am`, `${g}_pm`, `${g}_total`])

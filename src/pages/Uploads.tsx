@@ -1,29 +1,24 @@
 import { useState } from 'react'
-import { DollarSign } from 'lucide-react'
+import { ClipboardList, DollarSign } from 'lucide-react'
 import { PageHeader } from '../components/app/states'
 import { Badge, Card } from '../components/ui/misc'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/overlay'
 import UploadWizard from '../features/uploads/UploadWizard'
 import { listConfig } from '../features/uploads/list/listConfig'
-import { visitsConfig } from '../features/uploads/visits/visitsConfig'
-import ActivitiesUploadEntry from '../features/uploads/absence/ActivitiesUploadEntry'
-import OfficeWorkUploadEntry from '../features/uploads/absence/OfficeWorkUploadEntry'
 import LeavesUploadEntry from '../features/uploads/absence/LeavesUploadEntry'
-import VisitsUploadEntry from '../features/uploads/visits/VisitsUploadEntry'
+import TerritoryWizard, { TERRITORY_DESCRIPTION, TERRITORY_LABEL } from '../features/uploads/visits/TerritoryWizard'
 import { coachingConfig } from '../features/uploads/coaching/coachingConfig'
 import SalesUploadWizard, { SALES_DESCRIPTION, SALES_LABEL } from '../features/uploads/sales/SalesUploadWizard'
-import { activitiesConfig, leavesConfig, officeWorkConfig } from '../features/uploads/absence/absenceConfigs'
+import { leavesConfig } from '../features/uploads/absence/absenceConfigs'
 import HistoryTab from './uploads/HistoryTab'
 import MonthsTab from './uploads/MonthsTab'
 
-type Key = 'list' | 'visits' | 'leaves' | 'office_work' | 'activities' | 'coaching' | 'sales'
+type Key = 'list' | 'visits' | 'leaves' | 'coaching' | 'sales'
 
 const AVAILABLE: { key: Key; label: string; description: string; icon: typeof DollarSign }[] = [
   { key: 'list', ...listConfig },
-  { key: 'visits', ...visitsConfig },
+  { key: 'visits', label: TERRITORY_LABEL, description: TERRITORY_DESCRIPTION, icon: ClipboardList },
   { key: 'leaves', ...leavesConfig },
-  { key: 'office_work', ...officeWorkConfig },
-  { key: 'activities', ...activitiesConfig },
   { key: 'coaching', ...coachingConfig },
   { key: 'sales', label: SALES_LABEL, description: SALES_DESCRIPTION, icon: DollarSign },
 ]
@@ -51,13 +46,9 @@ export default function Uploads() {
             {wizard === 'list' ? (
               <UploadWizard config={listConfig} onExit={exit} onViewChanges={(m) => { setMonth(m); setTab('months') }} />
             ) : wizard === 'visits' ? (
-              <VisitsUploadEntry onExit={exit} onViewChanges={noop} />
+              <TerritoryWizard onExit={exit} />
             ) : wizard === 'leaves' ? (
               <LeavesUploadEntry onExit={exit} onViewChanges={noop} />
-            ) : wizard === 'office_work' ? (
-              <OfficeWorkUploadEntry onExit={exit} onViewChanges={noop} />
-            ) : wizard === 'activities' ? (
-              <ActivitiesUploadEntry onExit={exit} onViewChanges={noop} />
             ) : wizard === 'coaching' ? (
               <UploadWizard config={coachingConfig} onExit={exit} onViewChanges={noop} />
             ) : wizard === 'sales' ? (

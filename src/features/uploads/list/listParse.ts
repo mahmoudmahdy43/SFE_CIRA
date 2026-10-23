@@ -53,9 +53,6 @@ export const LIST_COLUMNS: ColumnSpec[] = [
   { key: 'active_from', label: 'Active From', required: false },
 ]
 
-/** Columns that exist in the company export but are deliberately never read. */
-export const IGNORED_HEADERS = ['USERNAME', 'District', 'DM', 'Emp. Name', 'No of Visits']
-
 /** "Freq." / " freq " / "Emp. Code" / "emp_code" -> "freq" / "empcode". */
 export function normHeader(h: unknown): string {
   return String(h ?? '')

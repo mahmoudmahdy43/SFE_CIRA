@@ -5,23 +5,6 @@ import type { ProcessResult } from './visits'
 
 export const monthRange = (month: string) => ({ from: month, to: addDaysIso(addMonthsIso(month, 1), -1) })
 
-/** code -> name for reps and managers; the `in` filter is chunked to keep URLs short. */
-export async function ownerNames(codes: string[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>()
-  const unique = [...new Set(codes)]
-  for (let i = 0; i < unique.length; i += 100) {
-    const part = unique.slice(i, i + 100)
-    const [reps, mgrs] = await Promise.all([
-      supabase.from('reps').select('code,name').in('code', part),
-      supabase.from('managers').select('code,name').in('code', part),
-    ])
-    if (reps.error) throw new Error(reps.error.message)
-    if (mgrs.error) throw new Error(mgrs.error.message)
-    for (const r of [...(reps.data ?? []), ...(mgrs.data ?? [])] as { code: string; name: string }[]) out.set(r.code, r.name)
-  }
-  return out
-}
-
 /** Rows of the month on the Pharmacy shift (outside Total Visits / Call Rate AM-PM / Coverage / PCF). */
 export async function fetchPharmacyCount(month: string): Promise<number> {
   const { from, to } = monthRange(month)
@@ -206,11 +189,6 @@ export async function fetchNoTerritory(month: string): Promise<NoTerritoryGroup[
 /* -------------------------------- missing days -------------------------------- */
 export interface MissingRow { code: string; name: string; rep_id: number; day: string; shift: string }
 export interface OrgRepInfo { rep_id: number; line_id: number | null; manager_id: number | null }
-
-export async function fetchMissing(month: string): Promise<MissingRow[]> {
-  const { from, to } = monthRange(month)
-  return fetchAll<MissingRow>('v_missing_days', 'code,name,rep_id,day,shift', ['rep_id', 'day', 'shift'], (q) => q.gte('day', from).lte('day', to))
-}
 
 export async function fetchOrgForMonth(month: string): Promise<Map<number, OrgRepInfo>> {
   const rows = await fetchAll<OrgRepInfo & { territory_id: number }>('org_month', 'rep_id,line_id,manager_id,territory_id', ['territory_id'], (q) => q.eq('month', month))

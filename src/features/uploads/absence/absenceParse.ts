@@ -66,11 +66,6 @@ export const ABSENCE_COLUMNS: Record<AbsenceKind, AbsenceColumn[]> = {
   ],
 }
 
-/** Present in the company exports but deliberately never read. */
-export const LEAVES_IGNORED = ['Line', 'Employee', 'Flow', 'DIRECT MANAGER', 'APPROVAL DATE', 'Insertion Date']
-
-export const dateKeyOf = (kind: AbsenceKind): 'start_date' | 'day' => (kind === 'leaves' ? 'start_date' : 'day')
-
 /** The date a row is replaced / ranged by: start date for leaves, the day otherwise. */
 export function rowDate(row: AbsenceRow): string {
   return 'start_date' in row ? row.start_date : row.day

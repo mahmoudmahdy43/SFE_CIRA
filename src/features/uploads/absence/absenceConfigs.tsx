@@ -1,4 +1,4 @@
-import { CalendarOff, Clock, Plane, type LucideIcon } from 'lucide-react'
+import { Plane, type LucideIcon } from 'lucide-react'
 import { fetchAll, rpc } from '../../../lib/api/core'
 import { fetchListMonths } from '../../../lib/api/lists'
 import { fetchAbsenceMonths } from '../../../lib/api/absence'
@@ -10,7 +10,7 @@ import { RowsPerDay } from '../visits/RowsPerDay'
 import { dateRangeByMonth } from '../visits/visitsParse'
 import {
   ABSENCE_COLUMNS, monthsTouched, parseAbsenceShift, rowDate,
-  type AbsenceKind, type AbsenceRow, type LeaveRow,
+  type AbsenceRow, type LeaveRow,
 } from './absenceParse'
 import type { ParsedAbsence } from './absenceSheet'
 import { Breakdown, type BreakdownGroup } from './Breakdown'
@@ -31,7 +31,7 @@ interface Meta {
   createWorker: () => Worker
 }
 
-const META: Record<AbsenceKind, Meta> = {
+const META: Record<'leaves', Meta> = {
   leaves: {
     label: 'Leaves',
     description: 'Approved and pending leave ranges per person and shift. Only Approved leaves count in KPIs.',
@@ -41,26 +41,6 @@ const META: Record<AbsenceKind, Meta> = {
     clearRpc: 'clear_leaves_range',
     chunkRpc: 'load_leaves_chunk',
     createWorker: () => new Worker(new URL('./leaves.worker.ts', import.meta.url), { type: 'module' }),
-  },
-  office_work: {
-    label: 'Office Work',
-    description: 'Office-work days per person and shift (AM / PM / Full).',
-    icon: CalendarOff,
-    templateFile: 'office_work_template.xlsx',
-    startKind: 'office_work',
-    clearRpc: 'clear_office_work_range',
-    chunkRpc: 'load_office_work_chunk',
-    createWorker: () => new Worker(new URL('./officeWork.worker.ts', import.meta.url), { type: 'module' }),
-  },
-  activities: {
-    label: 'Activities',
-    description: 'Meetings and activities with time of day, per person and shift.',
-    icon: Clock,
-    templateFile: 'activities_template.xlsx',
-    startKind: 'activities',
-    clearRpc: 'clear_activities_range',
-    chunkRpc: 'load_activities_chunk',
-    createWorker: () => new Worker(new URL('./activities.worker.ts', import.meta.url), { type: 'module' }),
   },
 }
 
@@ -75,7 +55,7 @@ const typeOf = (r: AbsenceRow): string | null => ('leave_type' in r ? r.leave_ty
 /** Date ranges per month group, using the date each type is replaced by (leaves: start date). */
 const ranges = (rows: AbsenceRow[]) => dateRangeByMonth(rows.map((r) => ({ month: r.month, visit_date: rowDate(r) })))
 
-function makeConfig(kind: AbsenceKind): UploadTypeConfig<AbsenceRow, ParsedAbsence> {
+function makeConfig(kind: 'leaves'): UploadTypeConfig<AbsenceRow, ParsedAbsence> {
   const meta = META[kind]
   const columns = ABSENCE_COLUMNS[kind]
 
@@ -131,7 +111,7 @@ function makeConfig(kind: AbsenceKind): UploadTypeConfig<AbsenceRow, ParsedAbsen
     const shifts = tally(p.rows.map((r) => parseAbsenceShift(r.shift)?.kind ?? r.shift))
     const groups: BreakdownGroup[] = [
       { title: 'By shift', items: shifts.map((s) => ({ ...s, label: s.label === 'FULL' ? 'Full' : s.label })) },
-      { title: kind === 'leaves' ? 'By leave type' : kind === 'office_work' ? 'By office-work type' : 'By activity type', items: tally(p.rows.map(typeOf)) },
+      { title: 'By leave type', items: tally(p.rows.map(typeOf)) },
     ]
     let notApproved = 0
     if (kind === 'leaves') {
@@ -277,5 +257,3 @@ function makeConfig(kind: AbsenceKind): UploadTypeConfig<AbsenceRow, ParsedAbsen
 }
 
 export const leavesConfig = makeConfig('leaves')
-export const officeWorkConfig = makeConfig('office_work')
-export const activitiesConfig = makeConfig('activities')

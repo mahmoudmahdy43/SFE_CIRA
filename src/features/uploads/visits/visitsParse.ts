@@ -1,65 +1,4 @@
-import { normHeader, serialToIso, type Cell } from '../list/listParse'
-
-/** A visits row as the RPC expects it (plus `month`, used only client-side for grouping). */
-export interface VisitRow {
-  month: string
-  territory: string | null
-  acc_type: string | null
-  account_id: string | null
-  doctor_id: string | null
-  code: string
-  shift: 'AM' | 'PM'
-  visit_type: 'S' | 'D'
-  acc_name: string | null
-  doctor_name: string
-  visit_date: string
-  members: string | null
-  notes: string | null
-  visit_root: string | null
-  source: string | null
-}
-
-export interface VisitColumn {
-  key: keyof VisitRow | 'territory'
-  label: string
-  required: boolean
-}
-
-export const VISIT_COLUMNS: VisitColumn[] = [
-  { key: 'territory', label: 'Territory', required: true },
-  { key: 'code', label: 'CODE', required: true },
-  { key: 'shift', label: 'SHIFT', required: true },
-  { key: 'visit_date', label: 'Date', required: true },
-  { key: 'doctor_name', label: 'Doctor Name', required: true },
-  { key: 'acc_name', label: 'Acc. Name', required: true },
-  { key: 'visit_type', label: 'Visit Type', required: true },
-  { key: 'visit_root', label: 'Visit Root', required: true },
-  { key: 'acc_type', label: 'Acc. Type', required: false },
-  { key: 'account_id', label: 'Account ID', required: false },
-  { key: 'doctor_id', label: 'Doctor ID', required: false },
-  { key: 'members', label: 'Members', required: false },
-  { key: 'notes', label: 'Notes', required: false },
-  { key: 'source', label: 'Source', required: false },
-]
-
-/** Present in the company export but deliberately never read. */
-export const VISIT_IGNORED = ['Link status', 'Time', 'Spec.', 'Class', 'No. of Docs', 'Visit ID', 'Brick', 'Owner Name']
-
-export function matchVisitHeaders(headers: string[]): { index: Partial<Record<VisitColumn['key'], number>>; missing: string[] } {
-  const byNorm = new Map<string, number>()
-  headers.forEach((h, i) => {
-    const n = normHeader(h)
-    if (n && !byNorm.has(n)) byNorm.set(n, i)
-  })
-  const index: Partial<Record<VisitColumn['key'], number>> = {}
-  const missing: string[] = []
-  for (const c of VISIT_COLUMNS) {
-    const hit = byNorm.get(normHeader(c.label))
-    if (hit !== undefined) index[c.key] = hit
-    else if (c.required) missing.push(c.label)
-  }
-  return { index, missing }
-}
+import { serialToIso, type Cell } from '../list/listParse'
 
 export type DateOrder = 'dmy' | 'mdy'
 
@@ -118,25 +57,6 @@ export function parseShift(v: Cell): 'AM' | 'PM' | null {
   return s === 'AM' || s === 'PM' ? s : null
 }
 
-export function parseVisitType(v: Cell): 'S' | 'D' | null {
-  if (v === null) return null
-  const s = String(v).trim().toLowerCase()
-  if (s === 's' || s === 'single') return 'S'
-  if (s === 'd' || s === 'double') return 'D'
-  return null
-}
-
-/** Planned / Direct are normalised; any other value is kept as written (and counted by the caller). */
-export function parseVisitRoot(v: Cell): { value: string | null; known: boolean } {
-  if (v === null) return { value: null, known: true }
-  const s = String(v).trim()
-  if (s === '') return { value: null, known: true }
-  const l = s.toLowerCase()
-  if (l === 'planned') return { value: 'Planned', known: true }
-  if (l === 'direct') return { value: 'Direct', known: true }
-  return { value: s, known: false }
-}
-
 /** Text kept exactly as written (only surrounding whitespace removed; Arabic and inner spacing untouched). */
 export function keepText(v: Cell): string | null {
   if (v === null) return null
@@ -155,13 +75,6 @@ export function idText(v: Cell): string | null {
   const n = Number(s)
   if (Number.isFinite(n) && Number.isInteger(n)) return n.toLocaleString('fullwide', { useGrouping: false })
   return s
-}
-
-export function codeText(v: Cell): string | null {
-  if (v === null) return null
-  if (typeof v === 'number') return Number.isInteger(v) ? v.toLocaleString('fullwide', { useGrouping: false }) : String(v)
-  const s = v.trim()
-  return s === '' ? null : s
 }
 
 /** First and last visit date per month in the file: the exact range a "Replace" may clear. */
