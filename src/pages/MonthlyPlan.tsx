@@ -7,7 +7,7 @@ import { Button } from '../components/ui/button'
 import { Card, Input, Skeleton } from '../components/ui/misc'
 import { BacktestPanel } from '../features/plan/BacktestPanel'
 import { downloadPlanWorkbook } from '../features/plan/planExport'
-import { DEFAULT_PARAMS, generatePlan, type PlanDoctor, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary } from '../features/plan/planner'
+import { DEFAULT_PARAMS, MAX_PER_DAY, generatePlan, type PlanDoctor, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary } from '../features/plan/planner'
 import { useAsync } from '../features/dashboard/useAsync'
 import {
   addPlanRequest, approvePlan, deletePlanRequest, fetchPlanInputs, fetchPlanReps, fetchPlanRequests, fetchSavedPlan, savePlan,
@@ -113,8 +113,8 @@ function WarningCards({ s, params }: { s: PlanSummary; params: PlanParams }) {
       <Warn tone={s.pcf.ok ? 'green' : 'red'} title={`Expected PCF: ${(s.pcf.pct * 100).toFixed(1)}%`}>Required {Math.round(params.minPcf * 100)}% at least.</Warn>
       {s.noGps.length > 0 && <Warn tone="yellow" title={`${s.noGps.length} doctor${s.noGps.length === 1 ? '' : 's'} without GPS`}>{names(s.noGps)}</Warn>}
       {s.noTime.length > 0 && <Warn tone="yellow" title={`${s.noTime.length} doctor${s.noTime.length === 1 ? '' : 's'} without a known usual time`}>{names(s.noTime, 8)}</Warn>}
-      {s.moved.length > 0 && <Warn tone="yellow" title={`${s.moved.length} confirmed-time visit${s.moved.length === 1 ? '' : 's'} moved because the usual day is closed`}>{s.moved.slice(0, 8).map((m) => `${m.name} ${m.from} → ${m.to}`).join('; ')}</Warn>}
-      {s.dropped.length > 0 && <Warn tone="yellow" title={`${s.dropped.length} doctor${s.dropped.length === 1 ? '' : 's'} left out of the plan (${s.dropped.reduce((a, d) => a + d.missing, 0)} visits)`}>{s.dropped.slice(0, 8).map((d) => `${d.name} (-${d.missing}, ${d.reason})`).join('; ')}</Warn>}
+      {s.moved.length > 0 && <Warn tone="yellow" title={`${s.moved.length} confirmed-time visit${s.moved.length === 1 ? '' : 's'} moved (usual day closed or full)`}>{s.moved.slice(0, 8).map((m) => `${m.name} ${m.from} → ${m.to} (${m.reason})`).join('; ')}</Warn>}
+      {s.dropped.length > 0 && <Warn tone="yellow" title={`Shortfall: ${s.shortfall.visits} visit${s.shortfall.visits === 1 ? '' : 's'} of ${s.dropped.length} doctor${s.dropped.length === 1 ? '' : 's'} not placed`}>{s.dropped.slice(0, 10).map((d) => `${d.name} ${d.visits.join(', ')}`).join('; ')}{s.dropped.length > 10 ? ` and ${s.dropped.length - 10} more` : ''}. Placing them would add {s.shortfall.firstVisits} doctor{s.shortfall.firstVisits === 1 ? '' : 's'} to coverage ({s.shortfall.covLossPts.toFixed(1)} pts) and {s.shortfall.pcfLossPts.toFixed(1)} pts to PCF; no day goes above {MAX_PER_DAY} visits.</Warn>}
       {s.timeOverflow.length > 0 && <Warn tone="yellow" title={`${s.timeOverflow.length} day${s.timeOverflow.length === 1 ? '' : 's'} may not fit the usual PM hours`}>{s.timeOverflow.join(', ')}</Warn>}
       {s.warnings.filter((w) => w.startsWith('No open') || w.includes('no PM call-rate')).map((w) => <Warn key={w} tone="red" title={w} />)}
       <Warn tone="grey" title="Summary">
@@ -141,7 +141,7 @@ function PlanTable({ rows, doctors, target }: { rows: PlanRow[]; doctors: Map<nu
         <tbody>
           {days.map(([day, list]) => {
             const n = list.length
-            const color = n >= 13 ? 'bg-red-100 text-red-900' : n > target ? 'bg-amber-100 text-amber-900' : 'bg-green-50 text-green-900'
+            const color = n >= MAX_PER_DAY ? 'bg-red-100 text-red-900' : n > target ? 'bg-amber-100 text-amber-900' : 'bg-green-50 text-green-900'
             return (
               <FragmentDay key={day} head={<tr className={cn('border-t-2', color)}><td colSpan={7} className="px-2 py-1.5 font-semibold">{day} <span className="font-normal">{dayName(day)}</span> — {n} visit{n === 1 ? '' : 's'} / target {target}{n > target ? ' (above target)' : ''}</td></tr>}>
                 {list.map((r) => {

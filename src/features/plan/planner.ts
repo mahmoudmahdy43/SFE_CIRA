@@ -3,7 +3,7 @@
  *
  * How a plan is built:
  *  1. Capacity per open day: the box's PM target. When the list is bigger than target x open days, the fewest possible days are
- *     opened above the target (11, then 12, then at most 13), early in the month and not back to back when possible.
+ *     opened above the target (11, then at most 12 - a hard cap nothing can exceed), early in the month and not back to back when possible.
  *  2. Geography: the doctors with GPS are put on one closed route (nearest-neighbour + 2-opt) and the route is cut at its longest
  *     edge. A day is a consecutive chunk of that route, so a day is one compact area and the next day is the neighbouring area.
  *     Doctors without GPS are slotted next to a doctor of the same brick (then division) and flagged.
@@ -24,15 +24,20 @@ export interface PlanInputs {
   rep: { id: number; name: string; code: string } | null
   month: string; list_month: string | null; box_id: number | null
   daily_target: number | null; days: PlanDay[]; doctors: PlanDoctor[]
+  /** The rep's own PM window in minutes (first / last visit start, from his last 3 months); absent = default window. */
+  window?: { start: number; end: number } | null
 }
 export interface PlanParams {
   coverageDay: number; minCoverage: number; minPcf: number; maxDay: number; extraLevels: number[]
   visitMinutes: number; speedKmh: number; fixedMinVisits: number; minGapDays: number
-  defaultStart: string; defaultEnd: string; fallbackTarget: number
+  defaultStart: string; defaultEnd: string; fallbackTarget: number; minHistory: number
 }
+/** Hard cap: no day of any plan has more visits than this, whatever the constraint (confirmed times included). */
+export const MAX_PER_DAY = 12
+
 export const DEFAULT_PARAMS: PlanParams = {
-  coverageDay: 15, minCoverage: 0.9, minPcf: 0.9, maxDay: 13, extraLevels: [11, 12, 13],
-  visitMinutes: 15, speedKmh: 25, fixedMinVisits: 3, minGapDays: 5, defaultStart: '14:00', defaultEnd: '20:00', fallbackTarget: 8,
+  coverageDay: 15, minCoverage: 0.9, minPcf: 0.9, maxDay: MAX_PER_DAY, extraLevels: [11, 12],
+  visitMinutes: 15, speedKmh: 25, fixedMinVisits: 3, minGapDays: 5, defaultStart: '14:00', defaultEnd: '22:00', fallbackTarget: 8, minHistory: 30,
 }
 
 export interface PlanRow { day: string; seq: number; doctor_id: number; planned_time: string | null; fixed: boolean; visit_no: number; note: string | null }
@@ -46,8 +51,9 @@ export interface PlanSummary {
   pcf: { pct: number; ok: boolean }
   dayCounts: { day: string; count: number }[]
   noGps: Named[]; noTime: Named[]
-  moved: { id: number; name: string; from: string; to: string }[]
-  dropped: { id: number; name: string; missing: number; reason: string }[]
+  moved: { id: number; name: string; from: string; to: string; reason: string }[]
+  dropped: { id: number; name: string; missing: number; visits: string[]; reason: string }[]
+  shortfall: { visits: number; firstVisits: number; covLossPts: number; pcfLossPts: number }
   timeOverflow: string[]; avgDailyKm: number
   warnings: string[]
 }
@@ -217,10 +223,9 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
   const D = docs.length
   const N = docs.reduce((a, d) => a + d.freq, 0)
 
-  // time window of the PM from the doctors' usual hours
-  const hours = docs.map((d) => toMin(d.usual_hour)).filter((h): h is number => h !== null)
-  const wStart = hours.length > 0 ? Math.max(12 * 60, Math.min(...hours)) : (toMin(p.defaultStart) as number)
-  const wEnd = hours.length > 0 ? Math.min(23 * 60, Math.max(...hours) + 60) : (toMin(p.defaultEnd) as number)
+  // PM time window: the rep's own history (see windowFromTimes), else the default
+  const wStart = inputs.window ? inputs.window.start : (toMin(p.defaultStart) as number)
+  const wEnd = inputs.window ? inputs.window.end + p.visitMinutes : (toMin(p.defaultEnd) as number)
   const windowMin = Math.max(60, wEnd - wStart)
   // average hop between neighbouring doctors -> time a visit really takes
   const geo = docs.filter(hasGps)
@@ -241,6 +246,7 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
   interface Placed { doc: PlanDoctor; di: number; fixed: boolean; note: string | null; time: number | null; round: number }
   const dayItems: Placed[][] = open.map(() => [])
   const visitDays = new Map<number, number[]>()
+  const onDayId = (id: number, di: number): boolean => dayItems[di].some((x) => x.doc.doctor_id === id)
   const addVisit = (id: number, di: number) => { const a = visitDays.get(id) ?? []; a.push(di); visitDays.set(id, a) }
   const flexLeft = new Map<number, number>() // visits of a doctor that are not pinned
   const moved: PlanSummary['moved'] = []
@@ -256,26 +262,37 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
     const taken = new Set<number>()
     let nFixed = 0
     for (let v = 0; v < k; v++) {
-      let o = Math.min(v * step, occ.length - 1)
+      const o = Math.min(v * step, occ.length - 1)
       let moveNote: string | null = null
       const wanted = occ[o].day
-      const free = (i: number) => !occ[i].closed && !taken.has(i)
+      const room = (day: string): boolean => { const x = dayIdx.get(day); return x !== undefined && dayItems[x].length < p.maxDay && !onDayId(d.doctor_id, x) }
+      const free = (i: number) => !occ[i].closed && !taken.has(i) && room(occ[i].day)
+      let di = -1
       let pick = -1
       for (let i = o; i < occ.length; i++) if (free(i)) { pick = i; break }
       if (pick < 0) for (let i = o - 1; i >= 0; i--) if (free(i)) { pick = i; break }
-      if (pick < 0) break
-      o = pick
-      taken.add(o)
-      if (occ[o].day !== wanted) { moveNote = `usual day ${wanted} is closed`; moved.push({ id: d.doctor_id, name: d.name, from: wanted, to: occ[o].day }) }
-      const di = dayIdx.get(occ[o].day)
-      if (di === undefined) continue
+      if (pick >= 0) { di = dayIdx.get(occ[pick].day) as number; taken.add(pick) }
+      else {
+        // the weekday has no room: nearest open day with room
+        const from = dayIdx.get(wanted) ?? open.findIndex((x) => x.day >= wanted)
+        const base = from < 0 ? open.length - 1 : from
+        for (let dist = 0; dist < open.length && di < 0; dist++) {
+          for (const c of [base + dist, base - dist]) if (c >= 0 && c < open.length && dayItems[c].length < p.maxDay && !onDayId(d.doctor_id, c)) { di = c; break }
+        }
+      }
+      if (di < 0) break // no room anywhere under the cap: this visit stays unplaced (shortfall)
+      const placedOn = open[di].day
+      if (placedOn !== wanted) {
+        moveNote = occ[o].closed ? `usual day ${wanted} is closed` : 'Moved because the day is full'
+        moved.push({ id: d.doctor_id, name: d.name, from: wanted, to: placedOn, reason: occ[o].closed ? 'closed' : 'full' })
+      }
       dayItems[di].push({ doc: d, di, fixed: true, note: moveNote, time: toMin(d.usual_hour), round: v + 1 })
       addVisit(d.doctor_id, di)
       nFixed++
     }
     flexLeft.set(d.doctor_id, d.freq - nFixed)
   }
-  for (let i = 0; i < open.length; i++) if (dayItems[i].length > caps[i]) caps[i] = Math.min(Math.max(caps[i], dayItems[i].length), Math.max(p.maxDay, dayItems[i].length))
+  for (let i = 0; i < open.length; i++) caps[i] = Math.min(p.maxDay, Math.max(caps[i], dayItems[i].length))
 
   /* ---- 2. rounds over the route ---- */
   const maxFreq = docs.reduce((a, d) => Math.max(a, d.freq), 0)
@@ -367,8 +384,11 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
   const dropped: PlanSummary['dropped'] = []
   for (const d of docs) {
     const miss = d.freq - (planned.get(d.doctor_id) ?? 0)
-    if (miss > 0) dropped.push({ id: d.doctor_id, name: d.name, missing: miss, reason: (planned.get(d.doctor_id) ?? 0) === 0 ? 'no capacity left for the first visit' : 'no capacity left for the later visits' })
+    const got = planned.get(d.doctor_id) ?? 0
+    if (miss > 0) dropped.push({ id: d.doctor_id, name: d.name, missing: miss, visits: Array.from({ length: miss }, (_, i) => `${got + i + 1}/${d.freq}`), reason: got === 0 ? 'no room under the daily cap for the first visit' : 'no room under the daily cap for the later visits' })
   }
+  const missingVisits = dropped.reduce((a, d) => a + d.missing, 0)
+  const missingFirst = dropped.filter((d) => !planned.has(d.id)).length
   const listTooBig = N > T * W
   const covPct = D > 0 ? cov15 / D : 0
   const warnings: string[] = []
@@ -386,26 +406,42 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
     covEnd: { done: covEnd, total: D, pct: D > 0 ? covEnd / D : 0 },
     pcf: { pct: pcf, ok: pcf >= p.minPcf },
     dayCounts, noGps, noTime, moved, dropped, timeOverflow,
+    shortfall: { visits: missingVisits, firstVisits: missingFirst, covLossPts: D > 0 ? (missingFirst / D) * 100 : 0, pcfLossPts: N > 0 ? (missingVisits / N) * 100 : 0 },
     avgDailyKm: dailyKm.length > 0 ? dailyKm.reduce((a, b) => a + b, 0) / dailyKm.length : 0,
     warnings,
   }
+  assertWithinCap(rows, p.maxDay)
   return { rows, summary, params: p }
+}
+
+/** Throws when any day of the plan has more visits than the hard cap: such a plan must never reach the screen. */
+export function assertWithinCap(rows: { day: string }[], max: number = MAX_PER_DAY): void {
+  const per = new Map<string, number>()
+  for (const r of rows) per.set(r.day, (per.get(r.day) ?? 0) + 1)
+  for (const [day, n] of per) if (n > max) throw new Error(`Plan error: ${day} has ${n} visits, above the daily cap of ${max}`)
+}
+
+/** The rep's PM window from his visit start times (HH:MM): 5th to 95th percentile, so outliers are ignored. null when there are too few visits. */
+export function windowFromTimes(times: (string | null)[], minVisits: number = DEFAULT_PARAMS.minHistory): { start: number; end: number } | null {
+  const m = times.map((t) => toMin(t)).filter((x): x is number => x !== null).sort((a, b) => a - b)
+  if (m.length < minVisits) return null
+  const at = (q: number) => m[Math.min(m.length - 1, Math.max(0, Math.round(q * (m.length - 1))))]
+  const start = at(0.05)
+  const end = at(0.95)
+  return end > start ? { start, end } : null
 }
 
 /* ------------------------------------ backtest ------------------------------------ */
 export interface ActualVisit { day: string; doctor_id: number; visit_time: string | null }
-export interface Metrics { cov15: number; pcf: number; avgKm: number; daysOver: number; days: number }
-export interface Backtest { plan: Metrics; actual: Metrics; closedFromActuals: number }
+export interface Metrics { cov15: number; pcf: number; avgKm: number; daysOver: number; days: number; maxDay: number }
+export interface Backtest { plan: Metrics; actual: Metrics }
 
-/** Plans the month with the days the rep really worked (open days with no PM visit count as closed) and compares with what he did. */
+/** Plans the month with the days that were really closed (leaves and registered PM requests, as plan_inputs gives them) and compares with what he did. A day with no visits stays open. */
 export function backtest(inputs: PlanInputs, actuals: ActualVisit[], over: Partial<PlanParams> = {}): Backtest {
   const p: PlanParams = { ...DEFAULT_PARAMS, ...over }
   const inList = new Set(inputs.doctors.map((d) => d.doctor_id))
   const act = actuals.filter((a) => inList.has(a.doctor_id))
-  const worked = new Set(actuals.map((a) => a.day))
-  let extraClosed = 0
-  const days = inputs.days.map((d) => { if (!d.closed && !worked.has(d.day)) { extraClosed++; return { ...d, closed: true, reason: 'no visits' } } return d })
-  const res = generatePlan({ ...inputs, days }, over)
+  const res = generatePlan(inputs, over)
   const T = res.summary.target
   const byDoc = new Map(inputs.doctors.map((d) => [d.doctor_id, d]))
   const D = inputs.doctors.length
@@ -429,12 +465,11 @@ export function backtest(inputs: PlanInputs, actuals: ActualVisit[], over: Parti
     const kms = [...perDay.values()].map((ids) => routeKm(ids.map((id) => byDoc.get(id))))
     return {
       cov15: D > 0 ? cov / D : 0, pcf: N > 0 ? pcfNum / N : 0, avgKm: kms.length > 0 ? kms.reduce((a, b) => a + b, 0) / kms.length : 0,
-      daysOver: [...perDay.values()].filter((ids) => ids.length > T).length, days: perDay.size,
+      daysOver: [...perDay.values()].filter((ids) => ids.length > T).length, days: perDay.size, maxDay: Math.max(0, ...[...perDay.values()].map((ids) => ids.length)),
     }
   }
   return {
     plan: metrics(res.rows.map((r) => ({ day: r.day, doctor_id: r.doctor_id, time: toMin(r.planned_time) ?? 0 }))),
     actual: metrics(act.map((a) => ({ day: a.day, doctor_id: a.doctor_id, time: toMin(a.visit_time) ?? 0 }))),
-    closedFromActuals: extraClosed,
   }
 }

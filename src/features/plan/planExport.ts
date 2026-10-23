@@ -54,7 +54,7 @@ export async function downloadPlanWorkbook(book: PlanBook, logoUrl: string): Pro
       put(r, 7, `${row.visit_no}/${d?.freq ?? '?'}`, base({ alignment: { horizontal: 'center' } }))
       put(r, 8, row.fixed ? 'Yes' : '', base({ alignment: { horizontal: 'center' } }))
       put(r, 9, [row.note, d && d.lat === null ? 'no GPS' : null].filter(Boolean).join(' - '), base())
-      put(r, 10, i === 0 ? `${list.length} / ${book.target}` : '', base({ alignment: { horizontal: 'center' }, ...(i === 0 && over ? { fill: fill(list.length >= 13 ? 'FECACA' : 'FDE68A') } : {}), font: font(10, { bold: i === 0 }) }))
+      put(r, 10, i === 0 ? `${list.length} / ${book.target}` : '', base({ alignment: { horizontal: 'center' }, ...(i === 0 && over ? { fill: fill(list.length >= 12 ? 'FECACA' : 'FDE68A') } : {}), font: font(10, { bold: i === 0 }) }))
       r++
     })
   })
@@ -71,7 +71,7 @@ export async function downloadPlanWorkbook(book: PlanBook, logoUrl: string): Pro
       ['Open PM days', s.openDays], ['Closed days', s.closedDays], ['Daily target', s.target], ['Total capacity', s.capacity], ['Target visits (list)', s.targetVisits], ['Visits in the plan', s.plannedVisits],
       ['Days above target', s.overDays], ['Highest day', s.peak], ['Coverage by day 15', `${s.cov15.done} of ${s.cov15.total} (needs ${s.cov15.required})`], ['Expected PCF', `${(s.pcf.pct * 100).toFixed(1)}%`],
       ['Average daily km', Number(s.avgDailyKm.toFixed(1))], ['', ''], ['Warnings', ''], ...s.warnings.map((w) => ['', w]),
-      ['', ''], ['Doctors without GPS', s.noGps.map((d) => d.name).join(', ')], ['Doctors without a usual time', s.noTime.length], ['Doctors left out', s.dropped.map((d) => `${d.name} (-${d.missing})`).join(', ')],
+      ['', ''], ['Doctors without GPS', s.noGps.map((d) => d.name).join(', ')], ['Doctors without a usual time', s.noTime.length], ['Doctors left out', s.dropped.map((d) => `${d.name} ${d.visits.join(', ')}`).join(', ')],
     ]
     const sh = XLSX.utils.aoa_to_sheet(rows)
     sh['!cols'] = [{ wch: 30 }, { wch: 90 }]

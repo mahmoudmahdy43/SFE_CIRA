@@ -68,7 +68,7 @@ export function BacktestPanel({ reps, selected }: { reps: PlanRep[]; selected: P
   const avg = useMemo(() => {
     if (ok.length === 0) return null
     const m = (f: (b: Backtest) => number) => ok.reduce((a, r) => a + f(r.bt as Backtest), 0) / ok.length
-    return { cp: m((b) => b.plan.cov15), ca: m((b) => b.actual.cov15), pp: m((b) => b.plan.pcf), pa: m((b) => b.actual.pcf), kp: m((b) => b.plan.avgKm), ka: m((b) => b.actual.avgKm), op: m((b) => b.plan.daysOver), oa: m((b) => b.actual.daysOver) }
+    return { cp: m((b) => b.plan.cov15), ca: m((b) => b.actual.cov15), pp: m((b) => b.plan.pcf), pa: m((b) => b.actual.pcf), kp: m((b) => b.plan.avgKm), ka: m((b) => b.actual.avgKm), op: m((b) => b.plan.daysOver), oa: m((b) => b.actual.daysOver), mp: m((b) => b.plan.maxDay), ma: m((b) => b.actual.maxDay) }
   }, [ok])
 
   const exportXlsx = () => {
@@ -78,7 +78,7 @@ export function BacktestPanel({ reps, selected }: { reps: PlanRep[]; selected: P
       'PCF plan %': r.bt ? Math.round(r.bt.plan.pcf * 100) : null, 'PCF actual %': r.bt ? Math.round(r.bt.actual.pcf * 100) : null,
       'Avg daily km plan': r.bt ? Number(r.bt.plan.avgKm.toFixed(1)) : null, 'Avg daily km actual': r.bt ? Number(r.bt.actual.avgKm.toFixed(1)) : null,
       'Days over target plan': r.bt ? r.bt.plan.daysOver : null, 'Days over target actual': r.bt ? r.bt.actual.daysOver : null,
-      'Days closed from actuals': r.bt ? r.bt.closedFromActuals : null, Note: r.error ?? '',
+      'Highest day plan': r.bt ? r.bt.plan.maxDay : null, 'Highest day actual': r.bt ? r.bt.actual.maxDay : null, Note: r.error ?? '',
     })))
   }
 
@@ -92,7 +92,7 @@ export function BacktestPanel({ reps, selected }: { reps: PlanRep[]; selected: P
         <Button size="sm" disabled={results.length === 0} onClick={exportXlsx}><FileSpreadsheet className="h-4 w-4" aria-hidden /> Excel</Button>
         {busy && <span className="text-sm text-muted-foreground" role="status">Running {progress}</span>}
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">The plan is generated for that month with the days the rep really worked (leaves, plus open days with no PM visit, count as closed) and compared with his actual PM visits to the doctors of his list. Distance is the straight-line GPS distance between consecutive visits of a day.</p>
+      <p className="mt-2 text-xs text-muted-foreground">The plan is generated for that month with the days that were really closed (leaves and registered PM activity / training) and compared with his actual PM visits to the doctors of his list. A day with no visit stays open. The PM window comes from his 3 months before. No planned day goes above 12 visits. Distance is the straight-line GPS distance between consecutive visits of a day.</p>
       {results.length > 0 && (
         <div className="mt-3 max-h-[60vh] overflow-auto rounded-card border">
           <table className="w-full text-sm">
@@ -102,7 +102,7 @@ export function BacktestPanel({ reps, selected }: { reps: PlanRep[]; selected: P
                 <th className="px-2 py-1.5 text-right">Cov d15 plan</th><th className="px-2 py-1.5 text-right">actual</th><th className="px-2 py-1.5 text-right">gain</th>
                 <th className="px-2 py-1.5 text-right">PCF plan</th><th className="px-2 py-1.5 text-right">actual</th>
                 <th className="px-2 py-1.5 text-right">Km/day plan</th><th className="px-2 py-1.5 text-right">actual</th>
-                <th className="px-2 py-1.5 text-right">Days over plan</th><th className="px-2 py-1.5 text-right">actual</th>
+                <th className="px-2 py-1.5 text-right">Days over plan</th><th className="px-2 py-1.5 text-right">actual</th><th className="px-2 py-1.5 text-right">Peak day plan</th><th className="px-2 py-1.5 text-right">actual</th>
               </tr>
             </thead>
             <tbody>
@@ -112,7 +112,7 @@ export function BacktestPanel({ reps, selected }: { reps: PlanRep[]; selected: P
                   <td className="tnum px-2 py-1.5 text-right">{pct(avg.cp)}</td><td className="tnum px-2 py-1.5 text-right">{pct(avg.ca)}</td><td className="tnum px-2 py-1.5 text-right">{pp(avg.cp, avg.ca)}</td>
                   <td className="tnum px-2 py-1.5 text-right">{pct(avg.pp)}</td><td className="tnum px-2 py-1.5 text-right">{pct(avg.pa)}</td>
                   <td className="tnum px-2 py-1.5 text-right">{km(avg.kp)}</td><td className="tnum px-2 py-1.5 text-right">{km(avg.ka)}</td>
-                  <td className="tnum px-2 py-1.5 text-right">{avg.op.toFixed(1)}</td><td className="tnum px-2 py-1.5 text-right">{avg.oa.toFixed(1)}</td>
+                  <td className="tnum px-2 py-1.5 text-right">{avg.op.toFixed(1)}</td><td className="tnum px-2 py-1.5 text-right">{avg.oa.toFixed(1)}</td><td className="tnum px-2 py-1.5 text-right">{avg.mp.toFixed(1)}</td><td className="tnum px-2 py-1.5 text-right">{avg.ma.toFixed(1)}</td>
                 </tr>
               )}
               {results.map((r) => (
@@ -124,9 +124,9 @@ export function BacktestPanel({ reps, selected }: { reps: PlanRep[]; selected: P
                       <td className="tnum px-2 py-1 text-right font-semibold">{pp(r.bt.plan.cov15, r.bt.actual.cov15)}</td>
                       <td className="tnum px-2 py-1 text-right">{pct(r.bt.plan.pcf)}</td><td className="tnum px-2 py-1 text-right">{pct(r.bt.actual.pcf)}</td>
                       <td className="tnum px-2 py-1 text-right">{km(r.bt.plan.avgKm)}</td><td className="tnum px-2 py-1 text-right">{km(r.bt.actual.avgKm)}</td>
-                      <td className="tnum px-2 py-1 text-right">{r.bt.plan.daysOver}</td><td className="tnum px-2 py-1 text-right">{r.bt.actual.daysOver}</td>
+                      <td className="tnum px-2 py-1 text-right">{r.bt.plan.daysOver}</td><td className="tnum px-2 py-1 text-right">{r.bt.actual.daysOver}</td><td className="tnum px-2 py-1 text-right">{r.bt.plan.maxDay}</td><td className={`tnum px-2 py-1 text-right ${r.bt.actual.maxDay > 12 ? 'font-bold text-red-700' : ''}`}>{r.bt.actual.maxDay}</td>
                     </>
-                  ) : <td colSpan={9} className="px-2 py-1 text-muted-foreground">{r.error}</td>}
+                  ) : <td colSpan={11} className="px-2 py-1 text-muted-foreground">{r.error}</td>}
                 </tr>
               ))}
             </tbody>

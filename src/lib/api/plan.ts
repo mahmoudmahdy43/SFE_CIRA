@@ -1,13 +1,27 @@
 import { supabase } from '../supabase'
-import type { ActualVisit, PlanInputs, PlanParams, PlanRow, PlanSummary } from '../../features/plan/planner'
+import { windowFromTimes, type ActualVisit, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary } from '../../features/plan/planner'
 import { fetchAll, rpc } from './core'
 
 type Raw = Record<string, unknown>
 const num = (v: unknown): number | null => (v === null || v === undefined || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null)
 const str = (v: unknown): string | null => (v === null || v === undefined ? null : String(v))
 
-/** plan_inputs (85_monthly_plan.sql): everything the planner needs for one rep and month. */
+/** The rep's PM window from his visits of the 3 months before `month` (5th-95th percentile of the visit times); null with too little history. */
+export async function fetchRepWindow(rep: number, month: string): Promise<{ start: number; end: number } | null> {
+  const y = Number(month.slice(0, 4))
+  const m = Number(month.slice(5, 7))
+  const months = [1, 2, 3].map((k) => { const d = new Date(Date.UTC(y, m - 1 - k, 1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01` })
+  const parts = await Promise.all(months.map((mm) => fetchPlanActuals(rep, mm).catch(() => [] as ActualVisit[])))
+  return windowFromTimes(parts.flat().map((v) => v.visit_time))
+}
+
+/** plan_inputs (85_monthly_plan.sql): everything the planner needs for one rep and month, plus the rep's own PM window. */
 export async function fetchPlanInputs(rep: number, month: string): Promise<PlanInputs> {
+  const [inputs, window] = await Promise.all([fetchPlanInputsRaw(rep, month), fetchRepWindow(rep, month)])
+  return { ...inputs, window }
+}
+
+async function fetchPlanInputsRaw(rep: number, month: string): Promise<PlanInputs> {
   const j = ((await rpc<Raw | null>('plan_inputs', { p_rep: rep, p_month: month })) ?? {}) as Raw
   const rr = j.rep as Raw | null | undefined
   const arr = (v: unknown): Raw[] => (Array.isArray(v) ? (v as Raw[]) : [])

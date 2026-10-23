@@ -64,10 +64,10 @@ t('a day is geographically compact (one neighbourhood most days)', () => {
   assert.ok(mixed <= 3, `mixed days: ${mixed}`)
 })
 
-t('list bigger than capacity: fewest days above target, peak <= 13, early, warning raised', () => {
+t('list bigger than capacity: fewest days above target, peak <= 12, early, warning raised', () => {
   const res = pl.generatePlan(input(doctors(100, 2), 9))
   assert.equal(res.summary.listTooBig, true)
-  assert.ok(res.summary.peak <= 13)
+  assert.ok(res.summary.peak <= 12)
   assert.ok(res.summary.overDays > 0)
   assert.ok(res.summary.warnings.some((w) => w.includes('bigger than the capacity')))
   const over = Object.entries(perDay(res)).filter(([, c]) => c > 9).map(([d]) => d)
@@ -77,7 +77,7 @@ t('list bigger than capacity: fewest days above target, peak <= 13, early, warni
 t('impossible list: numbers are reported, nothing is invented', () => {
   const res = pl.generatePlan(input(doctors(250, 3), 8))
   assert.ok(res.summary.plannedVisits < res.summary.targetVisits)
-  assert.ok(res.summary.peak <= 13)
+  assert.ok(res.summary.peak <= 12)
   assert.ok(res.summary.warnings.some((w) => /short by|cannot be placed/.test(w)))
   assert.ok(res.summary.dropped.length > 0)
 })
@@ -121,6 +121,64 @@ t('backtest compares plan and actual with the same metrics', () => {
   assert.ok(b.plan.cov15 >= b.actual.cov15)
   assert.ok(b.plan.pcf >= b.actual.pcf)
   assert.ok(b.plan.days > 0 && b.actual.days > 0)
+})
+
+t('hard cap: 40 confirmed doctors on the same weekday never push a day above 12', () => {
+  const docs = doctors(40, 1, () => ({ usual_isodow: 7, usual_hour: '16:00', n_visits: 6 }))
+  const res = pl.generatePlan(input(docs))
+  assert.equal(res.rows.length, 40)
+  assert.ok(Math.max(...Object.values(perDay(res))) <= 12)
+  assert.ok(res.rows.some((r) => r.note === 'Moved because the day is full'))
+  for (const r of res.rows) assert.equal(new Date(`${r.day}T00:00:00Z`).getUTCDay(), 0, 'moved to another Sunday first')
+  assert.doesNotThrow(() => pl.assertWithinCap(res.rows))
+})
+
+t('hard cap: if no day has room the visit is not placed and is reported with its visit number and impact', () => {
+  const docs = doctors(150, 1, () => ({ usual_isodow: 7, usual_hour: '16:00', n_visits: 6 }))
+  const closedButSundays = days().filter((d) => d.isodow !== 7 && d.isodow !== 1).map((d) => d.day) // only Sundays and Mondays stay open
+  const res = pl.generatePlan(input(docs, 9, closedButSundays))
+  assert.ok(Math.max(...Object.values(perDay(res))) <= 12)
+  assert.equal(res.summary.shortfall.visits, 150 - res.rows.length)
+  for (const d of res.summary.dropped) assert.match(d.visits[0], /^[0-9]+[/][0-9]+$/)
+  assert.ok(res.summary.shortfall.pcfLossPts > 0)
+})
+
+t('hard cap: the validation throws for a plan above 12', () => {
+  const rows = Array.from({ length: 13 }, (_, i) => ({ day: '2026-09-06', seq: i + 1 }))
+  assert.throws(() => pl.assertWithinCap(rows), /above the daily cap of 12/)
+})
+
+t('no generated plan ever exceeds 12, over many shapes', () => {
+  for (const [count, freq, target] of [[30, 1, 8], [80, 2, 9], [140, 3, 10], [200, 4, 8], [300, 2, 9]]) {
+    const res = pl.generatePlan(input(doctors(count, freq, (i) => (i % 5 === 0 ? { usual_isodow: 6, usual_hour: '17:00', n_visits: 4 } : {})), target))
+    assert.ok(res.summary.peak <= 12, `${count}x${freq}: peak ${res.summary.peak}`)
+    assert.ok(Math.max(0, ...Object.values(perDay(res))) <= 12)
+  }
+})
+
+t('PM window comes from the rep history: 5th-95th percentile, outliers ignored, default when too few visits', () => {
+  const times = [...Array.from({ length: 100 }, (_, i) => `${String(14 + Math.floor(i / 15)).padStart(2, '0')}:${String((i * 7) % 60).padStart(2, '0')}`), '03:00', '23:59']
+  const w = pl.windowFromTimes(times)
+  assert.ok(w.start >= 14 * 60 && w.end <= 21 * 60 + 40 && w.end > w.start)
+  assert.equal(pl.windowFromTimes(['15:00', '16:00']), null)
+})
+
+t('the planner uses the rep window, else 14:00-22:00', () => {
+  const docs = doctors(60, 3)
+  const wide = pl.generatePlan({ ...input(docs), window: { start: 13 * 60, end: 21 * 60 + 40 } })
+  assert.ok(wide.rows.every((r) => r.planned_time >= '13:00'))
+  const dflt = pl.generatePlan(input(docs))
+  assert.equal(dflt.params.defaultEnd, '22:00')
+  assert.ok(dflt.rows.every((r) => r.planned_time >= '14:00'))
+})
+
+t('backtest keeps a day with no visits open (only leaves / registered requests close days)', () => {
+  const docs = doctors(40, 1)
+  const actual = docs.slice(0, 10).map((d) => ({ day: '2026-09-06', doctor_id: d.doctor_id, visit_time: '15:00' }))
+  const b = pl.backtest(input(docs), actual)
+  assert.ok(b.plan.days > 5, 'the plan still uses the many days the rep did not work')
+  assert.equal(b.actual.maxDay, 10)
+  assert.ok(b.plan.maxDay <= 12)
 })
 
 t('haversine: one degree of latitude is about 111 km', () => {
