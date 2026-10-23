@@ -32,12 +32,14 @@ export const monthOf = (day: string): string => `${day.slice(0, 7)}-01`
 
 export function lastDayOf(month: string): string {
   const [y, m] = month.split('-').map(Number)
-  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
+  const d = new Date(Date.UTC(y, m, 0))
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10) // '' when no month is loaded yet
 }
 
 export function addDays(day: string, n: number): string {
   const [y, m, d] = day.split('-').map(Number)
-  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
+  const r = new Date(Date.UTC(y, m - 1, d + n))
+  return Number.isNaN(r.getTime()) ? '' : r.toISOString().slice(0, 10)
 }
 
 export function addMonths(month: string, n: number): string {

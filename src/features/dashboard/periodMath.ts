@@ -21,7 +21,8 @@ export const monthsOf = (fromYM: string, toYM: string): string[] => Array.from({
 export const firstDay = (ym: string): string => `${ym}-01`
 export function lastDay(ym: string): string {
   const [y, m] = ym.split('-').map(Number)
-  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
+  const d = new Date(Date.UTC(y, m, 0))
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10)
 }
 
 /** Snap a period to its mode: a quarter starts on a quarter boundary, a semester on January / July, a month is one month. */
