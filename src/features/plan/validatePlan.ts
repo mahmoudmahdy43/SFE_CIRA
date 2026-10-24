@@ -9,6 +9,8 @@ const MAX_LISTED = 30
 export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<PlanParams> = {}, declaredUnderMin: Iterable<string> = []): ValidationResult {
   const p: PlanParams = { ...DEFAULT_PARAMS, ...over }
   const fails: string[] = []
+  const warns: string[] = []
+  const dayBricks = new Map<string, Set<string>>()
   const declared = new Set(declaredUnderMin)
   const docs = new Map(inputs.doctors.map((d) => [d.doctor_id, d]))
   const dayInfo = new Map(inputs.days.map((d) => [d.day, d]))
@@ -37,6 +39,8 @@ export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<
       const m = toMin(r.planned_time)
       if (m === null) { fails.push(`${day}: doctor ${r.doctor_id} has no time`); continue }
       if (m < ws || m > we) fails.push(`${day}: ${r.planned_time} is outside the PM window ${Math.floor(ws / 60)}:${String(ws % 60).padStart(2, '0')}-${Math.floor(we / 60)}:${String(we % 60).padStart(2, '0')}`)
+      const dd = docs.get(r.doctor_id)
+      if (dd && dd.win_start != null && dd.win_start - m > p.maxWaitMin) warns.push(`${day}: ${dd.name} arrives ${Math.round(dd.win_start - m)} minutes before his usual hours`)
       if (prev !== null && m === prev) fails.push(`${day}: two visits at ${r.planned_time}`)
       else if (prev !== null && m - prev < p.gapMin) fails.push(`${day}: visits ${m - prev} minutes apart (minimum ${p.gapMin})`)
       prev = m
@@ -50,6 +54,7 @@ export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<
       if (seq[seq.length - 1] !== b) seq.push(b)
     }
     const distinct = [...new Set(seq)]
+    dayBricks.set(day, new Set(distinct))
     if (distinct.length > p.maxBricksPerDay) fails.push(`${day}: ${distinct.length} bricks in one day (maximum ${p.maxBricksPerDay})`)
     if (seq.length > distinct.length) fails.push(`${day}: bricks are not in blocks (${seq.join(' > ')})`)
     if (distinct.length === 2) {
@@ -62,6 +67,24 @@ export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<
     }
   }
 
+  // the same brick on two working days in a row is a failure unless the rep's own history allows it (and then only a few times)
+  const repeatDays = new Map((inputs.brickRepeats ?? []).map((r) => [r.brick, r.repeat_days]))
+  const usedBy = new Map<string, number>()
+  let usedTotal = 0
+  for (let i = 1; i < openDays.length; i++) {
+    const a = dayBricks.get(openDays[i - 1])
+    const b = dayBricks.get(openDays[i])
+    if (!a || !b) continue
+    for (const br of b) {
+      if (!a.has(br)) continue
+      const allowed = Math.max(0, (repeatDays.get(br) ?? 0) - 1)
+      usedBy.set(br, (usedBy.get(br) ?? 0) + 1)
+      usedTotal++
+      if ((usedBy.get(br) as number) > allowed) fails.push(`${openDays[i - 1]} and ${openDays[i]}: ${br} on two working days in a row${allowed === 0 ? ' (his history has no such repeat)' : ' (more often than his history allows)'}`)
+    }
+  }
+  if (usedTotal > p.maxBrickRepeats) fails.push(`${usedTotal} same-brick repeats on consecutive days, the limit is ${p.maxBrickRepeats}`)
+
   // per doctor: never above the visits left, and a minimum gap between his visits
   const perDoc = new Map<number, string[]>()
   for (const r of rows) perDoc.set(r.doctor_id, [...(perDoc.get(r.doctor_id) ?? []), r.day])
@@ -73,6 +96,7 @@ export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<
     const idx = ds.map((x) => openIdx.get(x)).filter((x): x is number => x !== undefined).sort((a, b) => a - b)
     for (let i = 1; i < idx.length; i++) if (idx[i] - idx[i - 1] < p.minGapDays) fails.push(`${d.name}: visits only ${idx[i] - idx[i - 1]} working day${idx[i] - idx[i - 1] === 1 ? '' : 's'} apart (minimum ${p.minGapDays})`)
   }
-  if (fails.length > MAX_LISTED) return { ok: false, failures: [...fails.slice(0, MAX_LISTED), `…and ${fails.length - MAX_LISTED} more`] }
-  return { ok: fails.length === 0, failures: fails }
+  const warnings = warns.length > MAX_LISTED ? [...warns.slice(0, MAX_LISTED), `…and ${warns.length - MAX_LISTED} more`] : warns
+  if (fails.length > MAX_LISTED) return { ok: false, failures: [...fails.slice(0, MAX_LISTED), `…and ${fails.length - MAX_LISTED} more`], warnings }
+  return { ok: fails.length === 0, failures: fails, warnings }
 }

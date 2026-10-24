@@ -12,7 +12,7 @@ const RELS = 'xmlns="http://schemas.openxmlformats.org/package/2006/relationship
 const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 
 const HEADERS = ['Date', 'Day', '#', 'Time', 'Doctor', 'Account', 'Brick', 'Visit', 'Confirmed', 'Note', 'Day visits / target']
-const WIDTHS = [13, 11, 5, 8, 34, 34, 18, 8, 11, 34, 18]
+const WIDTHS = [13, 11, 5, 8, 34, 34, 18, 8, 11, 44, 34]
 const dayName = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })
 
 export interface PlanBook { rep: string; month: string; target: number; rows: PlanRow[]; doctors: Map<number, PlanDoctor>; summary: PlanSummary | null; status: string }
@@ -54,7 +54,9 @@ export async function downloadPlanWorkbook(book: PlanBook, logoUrl: string): Pro
       put(r, 7, `${row.visit_no}/${d?.freq ?? '?'}`, base({ alignment: { horizontal: 'center' } }))
       put(r, 8, row.fixed ? 'Yes' : '', base({ alignment: { horizontal: 'center' } }))
       put(r, 9, [row.note, d && d.lat === null ? 'no GPS' : null].filter(Boolean).join(' - '), base())
-      put(r, 10, i === 0 ? `${list.length} / ${book.target}` : '', base({ alignment: { horizontal: 'center' }, ...(i === 0 && over ? { fill: fill(list.length >= 12 ? 'FECACA' : 'FDE68A') } : {}), font: font(10, { bold: i === 0 }) }))
+      const ts = list.map((x) => x.planned_time).filter((x): x is string => !!x).sort()
+      const spanMin = ts.length > 1 ? Number(ts[ts.length - 1].slice(0, 2)) * 60 + Number(ts[ts.length - 1].slice(3, 5)) - (Number(ts[0].slice(0, 2)) * 60 + Number(ts[0].slice(3, 5))) : 0
+      put(r, 10, i === 0 ? `${list.length} / ${book.target}  ${ts[0] ?? ''}→${ts[ts.length - 1] ?? ''} (${Math.floor(spanMin / 60)}h${String(spanMin % 60).padStart(2, '0')})` : '', base({ alignment: { horizontal: 'center' }, ...(i === 0 && over ? { fill: fill(list.length >= 12 ? 'FECACA' : 'FDE68A') } : {}), font: font(10, { bold: i === 0 }) }))
       r++
     })
   })
@@ -69,7 +71,7 @@ export async function downloadPlanWorkbook(book: PlanBook, logoUrl: string): Pro
     const s = book.summary
     const rows: (string | number)[][] = [
       ['Open PM days', s.openDays], ['Closed days', s.closedDays], ['Daily target', s.target], ['Capacity at target (Target x open days)', s.capacityAtTarget], ['Capacity at max (12 x open days)', s.capacityAtMax], ['Target visits (list)', s.targetVisits], ['Visits in the plan', s.plannedVisits],
-      ['Days above target', s.overDays], ['Highest day', s.peak], ['Lowest day', s.lowest], ['Days with 1 brick / 2 bricks', `${s.oneBrickDays} / ${s.twoBrickDays.length}`], ['Average stay (first to last visit)', `${Math.round(s.avgStayMin)} min`], ['Waiting time in total', `${s.waitTotalMin} min`], ['PM window', `${s.window.start} - ${s.window.end}${s.window.own ? '' : ' (default)'}`], ['Coverage by day 15', `${s.cov15.done} of ${s.cov15.total} (needs ${s.cov15.required})`], ['Expected PCF', `${(s.pcf.pct * 100).toFixed(1)}%`],
+      ['Days above target', s.overDays], ['Highest day', s.peak], ['Lowest day', s.lowest], ['Days with 1 brick / 2 bricks', `${s.oneBrickDays} / ${s.twoBrickDays.length}`], ['Average stay (first to last visit)', `${Math.round(s.avgStayMin)} min`], ['Waiting time in total', `${s.waitTotalMin} min`], ['Same-brick repeats on consecutive days', `${s.repeats.length} (limit ${s.repeatLimit}) ${s.repeats.map((r) => r.why).join('; ')}`], ['PM window', `${s.window.start} - ${s.window.end}${s.window.own ? '' : ' (default)'}`], ['Coverage by day 15', `${s.cov15.done} of ${s.cov15.total} (needs ${s.cov15.required})`], ['Expected PCF', `${(s.pcf.pct * 100).toFixed(1)}%`],
       ['Average estimated km a day (straight line x 1.35)', Number(s.avgEstKmPerDay.toFixed(1))], ['', ''], ['Warnings', ''], ...s.warnings.map((w) => ['', w]),
       ['', ''], ['Doctors without GPS', s.noGps.map((d) => d.name).join(', ')], ['Doctors without a usual time', s.noTime.length], ['Doctors left out', s.dropped.map((d) => `${d.name} ${d.visits.join(', ')}`).join(', ')],
     ]

@@ -14,14 +14,15 @@ export interface PlanDoctor {
 export interface PlanDay { day: string; isodow: number; closed: boolean; reason: string | null }
 /** One pair of bricks the rep really worked in the same day before (plan_brick_pairs). */
 export interface BrickPair { a: string; b: string; pm_days: number; any_days: number; last_day: string | null }
+export interface BrickRepeat { brick: string; repeat_days: number; brick_days: number; last_repeat: string | null }
 export interface PlanInputs {
   rep: { id: number; name: string; code: string } | null
   month: string; list_month: string | null; box_id: number | null
   daily_target: number | null; days: PlanDay[]; doctors: PlanDoctor[]
   /** The rep's own PM window in minutes: earliest / latest visit start (5th-95th percentile of his last 3 months). Absent = default window. */
   window?: { start: number; end: number } | null
-  /** When the rep usually starts his PM day (25th percentile of the first visit of each day). */
-  dayStart?: number | null
+  /** How often the rep really worked the same brick two PM working days in a row (plan_brick_repeats); undefined = not loaded. */
+  brickRepeats?: BrickRepeat[]
   /** Bricks worked together before; undefined = not loaded (then no day may have two bricks). */
   brickPairs?: BrickPair[]
   /** Plan only from this day on (mid-month re-plan); earlier days are not touched. */
@@ -38,7 +39,7 @@ export interface PlanParams {
   maxDay: number; minDay: number; extraLevels: number[]
   maxBricksPerDay: number; minSecondBrickDoctors: number
   visitMinutes: number; speedKmh: number; detourFactor: number; gapMin: number; gapMax: number
-  maxWaitMin: number; minGapDays: number
+  maxWaitMin: number; earlyToleranceMin: number; windowGapMaxMin: number; maxBrickRepeats: number; minGapDays: number
   defaultStart: string; defaultEnd: string; fallbackTarget: number; minHistory: number
 }
 export const DEFAULT_PARAMS: PlanParams = {
@@ -46,14 +47,14 @@ export const DEFAULT_PARAMS: PlanParams = {
   maxDay: MAX_PER_DAY, minDay: 6, extraLevels: [11, 12],
   maxBricksPerDay: 2, minSecondBrickDoctors: 3,
   visitMinutes: 15, speedKmh: 25, detourFactor: 1.35, gapMin: 15, gapMax: 25,
-  maxWaitMin: 45, minGapDays: 5,
+  maxWaitMin: 45, earlyToleranceMin: 20, windowGapMaxMin: 90, maxBrickRepeats: 3, minGapDays: 5,
   defaultStart: '14:00', defaultEnd: '22:00', fallbackTarget: 8, minHistory: 30,
 }
 
 export interface PlanRow { day: string; seq: number; doctor_id: number; planned_time: string | null; fixed: boolean; visit_no: number; note: string | null }
 interface Named { id: number; name: string }
 
-export interface ValidationResult { ok: boolean; failures: string[] }
+export interface ValidationResult { ok: boolean; failures: string[]; warnings: string[] }
 
 export interface PlanSummary {
   target: number; targetMissing: boolean
@@ -77,6 +78,10 @@ export interface PlanSummary {
   /** Estimated distance (straight line x detour factor), not road distance. */
   avgEstKmPerDay: number; avgStayMin: number
   waitTotalMin: number; waits: { id: number; name: string; day: string; minutes: number }[]
+  /** Same brick on two working days in a row: the few cases history allowed, and why. */
+  repeats: { day: string; brick: string; why: string }[]; repeatLimit: number
+  /** Days left empty because every brick with visits left was used the day before. */
+  blockedDays: string[]
   window: { start: string; end: string; own: boolean }
   fromDay: string | null
   warnings: string[]

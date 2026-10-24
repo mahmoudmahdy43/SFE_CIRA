@@ -24,6 +24,7 @@ function currentMonth(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
 }
+const hm = (t: string): number => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
 const dayName = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })
 const errText = (e: unknown) => (e instanceof Error ? e.message : 'Failed')
 
@@ -114,13 +115,15 @@ function WarningCards({ s, params }: { s: PlanSummary; params: PlanParams }) {
       {s.noGps.length > 0 && <Warn tone="yellow" title={`${s.noGps.length} doctor${s.noGps.length === 1 ? '' : 's'} without GPS`}>{names(s.noGps)}</Warn>}
       {s.noTime.length > 0 && <Warn tone="yellow" title={`${s.noTime.length} doctor${s.noTime.length === 1 ? '' : 's'} without a known usual time`}>{names(s.noTime, 8)}</Warn>}
       {s.twoBrickDays.length > 0 && <Warn tone="yellow" title={`${s.twoBrickDays.length} day${s.twoBrickDays.length === 1 ? '' : 's'} with a second brick`}>{s.twoBrickDays.slice(0, 8).map((d) => `${d.day}: ${d.a} + ${d.b} (${d.why})`).join('; ')}{s.twoBrickDays.length > 8 ? ' …' : ''}</Warn>}
+      {s.repeats.length > 0 && <Warn tone="yellow" title={`${s.repeats.length} same-brick repeat${s.repeats.length === 1 ? '' : 's'} on consecutive days (limit ${s.repeatLimit})`}>Allowed only because his history did it, as a last resort: {s.repeats.map((r) => `${r.day} ${r.why}`).join('; ')}</Warn>}
+      {s.blockedDays.length > 0 && <Warn tone="red" title={`The no-repeat brick rule blocks finishing the visits (${s.blockedDays.length} day${s.blockedDays.length === 1 ? '' : 's'} left empty)`}>Every brick with visits left was used the day before: too few bricks. {s.shortfall.visits} visit{s.shortfall.visits === 1 ? '' : 's'} not placed ({s.shortfall.pcfLossPts.toFixed(1)} pts of PCF).</Warn>}
       {s.waits.length > 0 && <Warn tone="yellow" title={`${s.waits.length} visit${s.waits.length === 1 ? '' : 's'} with a wait over 45 minutes`}>{s.waits.slice(0, 6).map((w) => `${w.name} ${w.day} (${w.minutes} min)`).join('; ')}</Warn>}
       {s.dropped.length > 0 && <Warn tone="yellow" title={`Shortfall: ${s.shortfall.visits} visit${s.shortfall.visits === 1 ? '' : 's'} of ${s.dropped.length} doctor${s.dropped.length === 1 ? '' : 's'} not placed`}>{s.dropped.slice(0, 10).map((d) => `${d.name} ${d.visits.join(', ')}`).join('; ')}{s.dropped.length > 10 ? ` and ${s.dropped.length - 10} more` : ''}. Placing them would add {s.shortfall.firstVisits} doctor{s.shortfall.firstVisits === 1 ? '' : 's'} to coverage ({s.shortfall.covLossPts.toFixed(1)} pts) and {s.shortfall.pcfLossPts.toFixed(1)} pts to PCF; no day goes above {MAX_PER_DAY} visits.</Warn>}
       {s.underMin.length > 0 && <Warn tone="red" title={`${s.underMin.length} day${s.underMin.length === 1 ? '' : 's'} under the minimum of ${params.minDay} visits`}>{s.underMin.map((d) => `${d.day} (${d.count})`).join(', ')}</Warn>}
       {s.emptyDays.length > 0 && <Warn tone="yellow" title={`${s.emptyDays.length} open day${s.emptyDays.length === 1 ? ' has' : 's have'} no visits`}>The list has {s.targetVisits} visits; {params.minDay} a day needs {params.minDay * s.openDays}. {s.emptyDays.slice(0, 10).join(', ')}</Warn>}
       {s.warnings.filter((w) => w.startsWith('No open') || w.includes('no PM call-rate')).map((w) => <Warn key={w} tone="red" title={w} />)}
       <Warn tone="grey" title="Summary">
-        {s.openDays} open PM days ({s.closedDays} closed). Capacity at target (Target x open days) {s.capacityAtTarget}; at max ({MAX_PER_DAY} x open days) {s.capacityAtMax}. Target visits {s.targetVisits}, in the plan {s.plannedVisits}. Days: highest {s.peak}, lowest {s.lowest}. Estimated distance (straight line x 1.35, not road distance): {s.avgEstKmPerDay.toFixed(1)} km a day on average. Stay in the day (first to last visit): {Math.round(s.avgStayMin)} min on average. Days with 1 brick: {s.oneBrickDays}, with 2 bricks: {s.twoBrickDays.length}. Waiting in total: {s.waitTotalMin} min. PM window {s.window.start}–{s.window.end}{s.window.own ? '' : ' (default)'}.
+        {s.openDays} open PM days ({s.closedDays} closed). Capacity at target (Target x open days) {s.capacityAtTarget}; at max ({MAX_PER_DAY} x open days) {s.capacityAtMax}. Target visits {s.targetVisits}, in the plan {s.plannedVisits}. Days: highest {s.peak}, lowest {s.lowest}. Estimated distance (straight line x 1.35, not road distance): {s.avgEstKmPerDay.toFixed(1)} km a day on average. Stay in the day (first to last visit): {Math.round(s.avgStayMin)} min on average. Days with 1 brick: {s.oneBrickDays}, with 2 bricks: {s.twoBrickDays.length}. Waiting in total: {s.waitTotalMin} min. Same-brick repeats on consecutive days: {s.repeats.length} (limit {s.repeatLimit}). PM window {s.window.start}–{s.window.end}{s.window.own ? '' : ' (default)'}.
       </Warn>
     </div>
   )
@@ -143,9 +146,12 @@ function PlanTable({ rows, doctors, target }: { rows: PlanRow[]; doctors: Map<nu
         <tbody>
           {days.map(([day, list]) => {
             const n = list.length
+            const times = list.map((r) => r.planned_time).filter((x): x is string => !!x).sort()
+            const spanMin = times.length > 1 ? hm(times[times.length - 1]) - hm(times[0]) : 0
+            const span = times.length > 0 ? `${times[0]} → ${times[times.length - 1]}, ${Math.floor(spanMin / 60)}h${String(spanMin % 60).padStart(2, '0')}` : ''
             const color = n >= MAX_PER_DAY ? 'bg-red-100 text-red-900' : n > target ? 'bg-amber-100 text-amber-900' : 'bg-green-50 text-green-900'
             return (
-              <FragmentDay key={day} head={<tr className={cn('border-t-2', color)}><td colSpan={7} className="px-2 py-1.5 font-semibold">{day} <span className="font-normal">{dayName(day)}</span> — {n} visit{n === 1 ? '' : 's'} / target {target}{n > target ? ' (above target)' : ''}</td></tr>}>
+              <FragmentDay key={day} head={<tr className={cn('border-t-2', color)}><td colSpan={7} className="px-2 py-1.5 font-semibold">{day} <span className="font-normal">{dayName(day)}</span> — {n} visit{n === 1 ? '' : 's'} / target {target}{n > target ? ' (above target)' : ''}{span && <span className="ml-2 font-normal">· {span}</span>}</td></tr>}>
                 {list.map((r) => {
                   const d = doctors.get(r.doctor_id)
                   return (
@@ -321,6 +327,12 @@ function MonthlyPlanBody() {
                     <div role="alert" className="rounded-card border border-red-400 bg-red-50 px-4 py-3 text-sm text-red-900">
                       <div className="font-semibold">⛔ Validation failed — this plan is shown for review only and cannot be saved</div>
                       <ul className="mt-1 list-disc pl-5 text-xs">{work.validation.failures.map((f) => <li key={f}>{f}</li>)}</ul>
+                    </div>
+                  )}
+                  {work.validation && work.validation.warnings.length > 0 && (
+                    <div className="rounded-card border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      <div className="font-semibold">🟡 Validator warnings</div>
+                      <ul className="mt-0.5 list-disc pl-5">{work.validation.warnings.slice(0, 12).map((w) => <li key={w}>{w}</li>)}</ul>
                     </div>
                   )}
                   {work.summary && <WarningCards s={work.summary} params={work.params} />}
