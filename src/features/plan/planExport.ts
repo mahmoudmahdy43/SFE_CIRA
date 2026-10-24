@@ -68,8 +68,8 @@ export async function downloadPlanWorkbook(book: PlanBook, logoUrl: string): Pro
   if (book.summary) {
     const s = book.summary
     const rows: (string | number)[][] = [
-      ['Open PM days', s.openDays], ['Closed days', s.closedDays], ['Daily target', s.target], ['Total capacity', s.capacity], ['Target visits (list)', s.targetVisits], ['Visits in the plan', s.plannedVisits],
-      ['Days above target', s.overDays], ['Highest day', s.peak], ['Coverage by day 15', `${s.cov15.done} of ${s.cov15.total} (needs ${s.cov15.required})`], ['Expected PCF', `${(s.pcf.pct * 100).toFixed(1)}%`],
+      ['Open PM days', s.openDays], ['Closed days', s.closedDays], ['Daily target', s.target], ['Capacity at target (Target x open days)', s.capacityAtTarget], ['Capacity at max (12 x open days)', s.capacityAtMax], ['Target visits (list)', s.targetVisits], ['Visits in the plan', s.plannedVisits],
+      ['Days above target', s.overDays], ['Highest day', s.peak], ['Lowest day', s.lowest], ['Bricks a day (average / most)', `${s.avgBricksPerDay.toFixed(1)} / ${s.maxBricksPerDay}`], ['PM window', `${s.window.start} - ${s.window.end}${s.window.own ? '' : ' (default)'}`], ['Coverage by day 15', `${s.cov15.done} of ${s.cov15.total} (needs ${s.cov15.required})`], ['Expected PCF', `${(s.pcf.pct * 100).toFixed(1)}%`],
       ['Average daily km', Number(s.avgDailyKm.toFixed(1))], ['', ''], ['Warnings', ''], ...s.warnings.map((w) => ['', w]),
       ['', ''], ['Doctors without GPS', s.noGps.map((d) => d.name).join(', ')], ['Doctors without a usual time', s.noTime.length], ['Doctors left out', s.dropped.map((d) => `${d.name} ${d.visits.join(', ')}`).join(', ')],
     ]

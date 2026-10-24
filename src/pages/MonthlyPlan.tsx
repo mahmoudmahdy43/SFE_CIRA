@@ -106,7 +106,7 @@ const names = (l: { name: string }[], max = 12) => `${l.slice(0, max).map((d) =>
 function WarningCards({ s, params }: { s: PlanSummary; params: PlanParams }) {
   return (
     <div className="grid gap-2 md:grid-cols-2">
-      {s.listTooBig && <Warn tone="red" title="The list is bigger than the visit capacity">{s.overDays} day{s.overDays === 1 ? '' : 's'} above the target, highest day {s.peak} (list {s.targetVisits} visits, capacity at target {s.target} x {s.openDays} = {s.target * s.openDays}).</Warn>}
+      {s.listTooBig && <Warn tone="red" title="The list is bigger than the visit capacity">{s.overDays} day{s.overDays === 1 ? '' : 's'} above the target, highest day {s.peak} (list {s.targetVisits} visits). Capacity at target (Target x open days): {s.target} x {s.openDays} = {s.capacityAtTarget}. Capacity at max ({MAX_PER_DAY} x open days) = {s.capacityAtMax}.</Warn>}
       <Warn tone={s.cov15.ok ? 'green' : 'red'} title={`Coverage by day ${params.coverageDay}: ${s.cov15.done} of ${s.cov15.total} doctors (${Math.round(s.cov15.pct * 100)}%)`}>
         Required {Math.round(params.minCoverage * 100)}% = {s.cov15.required} doctors{s.cov15.ok ? '.' : `: short by ${s.cov15.required - s.cov15.done}.`} End of month: {s.covEnd.done} of {s.covEnd.total}.
       </Warn>
@@ -115,10 +115,11 @@ function WarningCards({ s, params }: { s: PlanSummary; params: PlanParams }) {
       {s.noTime.length > 0 && <Warn tone="yellow" title={`${s.noTime.length} doctor${s.noTime.length === 1 ? '' : 's'} without a known usual time`}>{names(s.noTime, 8)}</Warn>}
       {s.moved.length > 0 && <Warn tone="yellow" title={`${s.moved.length} confirmed-time visit${s.moved.length === 1 ? '' : 's'} moved (usual day closed or full)`}>{s.moved.slice(0, 8).map((m) => `${m.name} ${m.from} → ${m.to} (${m.reason})`).join('; ')}</Warn>}
       {s.dropped.length > 0 && <Warn tone="yellow" title={`Shortfall: ${s.shortfall.visits} visit${s.shortfall.visits === 1 ? '' : 's'} of ${s.dropped.length} doctor${s.dropped.length === 1 ? '' : 's'} not placed`}>{s.dropped.slice(0, 10).map((d) => `${d.name} ${d.visits.join(', ')}`).join('; ')}{s.dropped.length > 10 ? ` and ${s.dropped.length - 10} more` : ''}. Placing them would add {s.shortfall.firstVisits} doctor{s.shortfall.firstVisits === 1 ? '' : 's'} to coverage ({s.shortfall.covLossPts.toFixed(1)} pts) and {s.shortfall.pcfLossPts.toFixed(1)} pts to PCF; no day goes above {MAX_PER_DAY} visits.</Warn>}
-      {s.timeOverflow.length > 0 && <Warn tone="yellow" title={`${s.timeOverflow.length} day${s.timeOverflow.length === 1 ? '' : 's'} may not fit the usual PM hours`}>{s.timeOverflow.join(', ')}</Warn>}
+      {s.underMin.length > 0 && <Warn tone="red" title={`${s.underMin.length} day${s.underMin.length === 1 ? '' : 's'} under the minimum of ${params.minDay} visits`}>{s.underMin.map((d) => `${d.day} (${d.count})`).join(', ')}</Warn>}
+      {s.emptyDays.length > 0 && <Warn tone="yellow" title={`${s.emptyDays.length} open day${s.emptyDays.length === 1 ? ' has' : 's have'} no visits`}>The list has {s.targetVisits} visits; {params.minDay} a day needs {params.minDay * s.openDays}. {s.emptyDays.slice(0, 10).join(', ')}</Warn>}
       {s.warnings.filter((w) => w.startsWith('No open') || w.includes('no PM call-rate')).map((w) => <Warn key={w} tone="red" title={w} />)}
       <Warn tone="grey" title="Summary">
-        {s.openDays} open PM days ({s.closedDays} closed), capacity {s.capacity}, target visits {s.targetVisits}, in the plan {s.plannedVisits}, average {s.avgDailyKm.toFixed(1)} km a day.
+        {s.openDays} open PM days ({s.closedDays} closed). Capacity at target (Target x open days) {s.capacityAtTarget}; at max ({MAX_PER_DAY} x open days) {s.capacityAtMax}. Target visits {s.targetVisits}, in the plan {s.plannedVisits}. Days: highest {s.peak}, lowest {s.lowest}. Average {s.avgDailyKm.toFixed(1)} km a day, {s.avgBricksPerDay.toFixed(1)} bricks a day (up to {s.maxBricksPerDay}). PM window {s.window.start}–{s.window.end}{s.window.own ? '' : ' (default)'}.
       </Warn>
     </div>
   )
