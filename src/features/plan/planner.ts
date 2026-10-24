@@ -12,7 +12,12 @@
  *                      when repeat_days / brick_days >= 15%.
  *  B softer history  : weekdays seen once, any weekday for a doctor inside his Brick, windows P5-P95, repeats at >= 5%.
  *  C last resort     : any Brick on any weekday, doctors without time data placed by Brick and distance, up to 6 same-Brick days in a row,
- *                      end of the day extended to P99 / 22:30.
+ *                      end of the day extended to P99 / 22:30, up to 3 Bricks a day.
+ *  D non-negotiable  : the end-of-month targets (PCF >= 90%, Coverage >= 90%) win: D1 up to 4 Bricks a day with the relaxed weekday reason, D2 the gap between
+ *                      visits of a doctor reduced to 7 / 5 / 4 days (marked 'Gap reduced'), D3 every open day filled up to 12 visits (the day-15 goal is dropped).
+ *
+ * More than two Bricks a day only when all of them were visited together on 2+ days of the history, or the doctors of the extra Brick have 2+ visits on that weekday
+ * in the history (3+ such doctors); Bricks stay in contiguous blocks ordered along the shortest path between the Brick centres.
  *
  * The calendar is built date by date: restricted Bricks (those whose history allows the date's weekday) first, by pressure; free Bricks fill the rest.
  */
@@ -20,7 +25,7 @@ import {
   brickOf, clamp, dayNum, DEFAULT_PARAMS, estKm, fromMin, gapDaysFor, hasGps, haversineKm, isoDow, pairAllowed, pairLookup, pairWhy, routeKm, toMin,
   WEEKDAY, type ActualVisit, type Grade, type HistoryInfo, type PlanDoctor, type PlanInputs, type PlanMode, type PlanParams, type PlanResult, type PlanRow, type PlanSummary, type Step,
 } from './planCore.ts'
-import { allowedDays, brickHours, brickKind, buildBrickTemplates, pctOf, pickHistory, templateSummary, type BrickTpl } from './templates.ts'
+import { allowedDays, brickHours, brickKind, buildBrickTemplates, comboDays, comboSets, pctOf, pickHistory, templateSummary, type BrickTpl } from './templates.ts'
 import { validatePlan } from './validatePlan.ts'
 
 export * from './planCore.ts'
@@ -124,7 +129,8 @@ function emptySummary(inputs: PlanInputs, p: PlanParams, T: number, targetMissin
   }
 }
 
-export function generatePlan(rawInputs: PlanInputs, over: Partial<PlanParams> = {}): PlanResult {
+/** `only` runs one attempt (a step, and the D sub-step) instead of the escalation: used by the tests and for debugging. */
+export function generatePlan(rawInputs: PlanInputs, over: Partial<PlanParams> = {}, only?: { step: Step; dSub?: 1 | 2 | 3 }): PlanResult {
   const p0: PlanParams = { ...DEFAULT_PARAMS, ...over }
   const info: HistoryInfo | undefined = rawInputs.historyInfo
   const listN = rawInputs.doctors.filter((d) => d.freq > 0).length
@@ -161,35 +167,69 @@ export function generatePlan(rawInputs: PlanInputs, over: Partial<PlanParams> = 
   const tpl = buildBrickTemplates(picked.visits, profiled, inputs.brickRepeats)
   const nTotal = profiled.reduce((acc, d) => acc + (d.freq > 0 ? d.freq : 0), 0)
 
-  let best: PlanResult | null = null
-  let bestScore = -1
-  let met = false
-  for (const step of ['A', 'B', 'C'] as Step[]) {
-    const res = buildPlan(inputs, rawInputs, mode, modeInfo, p, step, tpl, picked.source, picked.ownVisits)
-    const ok = res.validation.ok && (nTotal === 0 || (res.summary.cov15.ok && res.summary.pcf.ok))
-    const score = Math.min(res.summary.pcf.pct, p.minPcf) + Math.min(res.summary.cov15.pct, p.minCoverage) + (res.validation.ok ? 1 : 0)
-    if (ok) { best = res; met = true; break }
-    if (best === null || score > bestScore + 1e-9) { best = res; bestScore = score }
+  // the end-of-month targets (PCF and Coverage) are non-negotiable: the first step that reaches both wins; the day-15 coverage is a goal that gives way to them
+  const combos = comboSets(picked.visits, profiled)
+  const endOk = (r: PlanResult): boolean => r.validation.ok && (nTotal === 0 || r.summary.endTargets?.bothMet === true)
+  if (only) {
+    const res = buildPlan(inputs, rawInputs, mode, modeInfo, p, only.step, tpl, picked.source, picked.ownVisits, { combos, hist: picked.visits, dSub: only.step === 'D' ? only.dSub ?? 1 : 0 })
+    res.summary.targetsMet = res.validation.ok && res.summary.endTargets?.bothMet === true
+    return res
   }
+  const attempts: PlanResult[] = []
+  let chosen: PlanResult | null = null
+  let firstEnd: PlanResult | null = null
+  const run = (step: Step, dSub: 0 | 1 | 2 | 3): PlanResult => {
+    const res = buildPlan(inputs, rawInputs, mode, modeInfo, p, step, tpl, picked.source, picked.ownVisits, { combos, hist: picked.visits, dSub })
+    attempts.push(res)
+    return res
+  }
+  for (const step of ['A', 'B', 'C'] as Step[]) {
+    const res = run(step, 0)
+    if (endOk(res) && res.summary.cov15.ok) { chosen = res; break }
+    if (endOk(res) && !firstEnd) firstEnd = res
+  }
+  if (!chosen && firstEnd) chosen = firstEnd
+  if (!chosen) {
+    for (const sub of [1, 2, 3] as const) {
+      const res = run('D', sub)
+      if (endOk(res)) { chosen = res; break }
+    }
+  }
+  const score = (r: PlanResult): number => Math.min(r.summary.pcf.pct, p.minPcf) + Math.min(r.summary.covEnd.pct, p.minCoverage) + (r.validation.ok ? 1 : 0) + r.summary.cov15.pct * 0.01
+  let best: PlanResult | null = chosen
+  if (!best) for (const r of attempts) if (best === null || score(r) > score(best) + 1e-9 || (Math.abs(score(r) - score(best)) <= 1e-9 && best.rows.length === 0)) best = r
   const out = best as PlanResult
+  const met = chosen !== null
   out.summary.targetsMet = met
+  if (met && !out.summary.cov15.ok) out.summary.warnings.unshift(`Coverage by day ${p.coverageDay} (${(out.summary.cov15.pct * 100).toFixed(1)}%) is below its ${Math.round(p.minCoverage * 100)}% goal: the end-of-month targets (PCF ${(out.summary.pcf.pct * 100).toFixed(1)}%, Coverage ${(out.summary.covEnd.pct * 100).toFixed(1)}%) are met and win.`)
   if (!met) {
-    out.summary.notReachable = notReached(out, p)
+    out.summary.notReachable = notReached(inputs, out, p)
     const nr = out.summary.notReachable
-    out.summary.warnings.unshift(`Not reached with the current rules: PCF ${(nr.bestPcf * 100).toFixed(1)}% and Coverage by day ${p.coverageDay} ${(nr.bestCov15 * 100).toFixed(1)}% are the best found (step ${out.summary.step ?? '-'}); ${Math.round(p.minPcf * 100)}% of ${nr.targetVisits} visits = ${nr.requiredVisits} needed, capacity ${nr.capacity}${nr.capacityEnough ? ' (enough: the rules block it)' : ' (not enough)'}. ${nr.reasons.join('; ')}.`)
+    const head = nr.impossible ? `${nr.impossible.message} (short by ${nr.impossible.gap}: add ${nr.impossible.addDays} open day${nr.impossible.addDays === 1 ? '' : 's'} or remove ${nr.impossible.removeVisits} visit${nr.impossible.removeVisits === 1 ? '' : 's'} from the list).` : 'Not reached with the current rules:'
+    out.summary.warnings.unshift(`${head} PCF ${(nr.bestPcf * 100).toFixed(1)}% and end-of-month Coverage ${(out.summary.covEnd.pct * 100).toFixed(1)}% are the best found (step ${out.summary.step ?? '-'}${out.summary.dSub ? out.summary.dSub : ''}); ${Math.round(p.minPcf * 100)}% of ${nr.targetVisits} visits = ${nr.requiredVisits} needed, capacity ${nr.capacity}${nr.capacityEnough ? ' (enough: the rules block it)' : ' (not enough)'}. ${nr.reasons.join('; ')}.`)
   }
   return out
 }
 
 /** Why the targets are not reached: whether the capacity is enough and which rules block how many visits. */
-function notReached(res: PlanResult, p: PlanParams): NonNullable<PlanSummary['notReachable']> {
+function notReached(inputs: PlanInputs, res: PlanResult, p: PlanParams): NonNullable<PlanSummary['notReachable']> {
   const s = res.summary
   const N = s.targetVisits
   const requiredVisits = Math.ceil(p.minPcf * N)
   const capacity = p.maxDay * s.openDays
-  const capacityEnough = capacity >= requiredVisits
+  const done = inputs.done ?? {}
+  const doneSum = inputs.doctors.reduce((a, d) => a + Math.min(done[d.doctor_id] ?? 0, d.freq), 0)
+  const requiredLeft = Math.max(0, requiredVisits - doneSum)
+  const firstNeeded = Math.max(0, Math.ceil(p.minCoverage * s.doctors) - inputs.doctors.filter((d) => (done[d.doctor_id] ?? 0) > 0 && d.freq > 0).length)
+  const worst = Math.max(requiredLeft, firstNeeded)
+  const capacityEnough = capacity >= worst
+  const impossible = capacityEnough ? null : {
+    capacity, required: worst, gap: worst - capacity, addDays: Math.ceil((worst - capacity) / p.maxDay), removeVisits: Math.max(0, N - Math.floor((capacity + doneSum) / p.minPcf)), firstNeeded,
+    message: `Impossible for this rep: capacity ${capacity} < required ${worst}`,
+  }
   const reasons: string[] = []
-  if (!capacityEnough) reasons.push(`capacity: ${p.maxDay} x ${s.openDays} open days = ${capacity} is below the ${requiredVisits} visits needed${s.closedDays > 0 ? ` (${s.closedDays} closed day${s.closedDays === 1 ? '' : 's'})` : ''}`)
+  if (impossible) reasons.push(`the exact check: required visits = ceil(${Math.round(p.minPcf * 100)}% x ${N}) = ${requiredVisits}${doneSum > 0 ? `, ${doneSum} already done` : ''}; capacity = ${p.maxDay} x ${s.openDays} open days = ${capacity}; doctors needing a first visit = ${firstNeeded}`)
+  if (!capacityEnough) reasons.push(`capacity: ${p.maxDay} x ${s.openDays} open days = ${capacity} is below the ${worst} visits needed${s.closedDays > 0 ? ` (${s.closedDays} closed day${s.closedDays === 1 ? '' : 's'})` : ''}`)
   else if (s.closedDays > 0) reasons.push(`closed days: ${s.closedDays} day${s.closedDays === 1 ? '' : 's'} closed (leaves, requests, holidays)`)
   const by = new Map<string, number>()
   for (const d of s.dropped) { const key = d.reason.split(':')[0]; by.set(key, (by.get(key) ?? 0) + d.missing) }
@@ -199,7 +239,7 @@ function notReached(res: PlanResult, p: PlanParams): NonNullable<PlanSummary['no
   if (s.emptyDays.length > 0) reasons.push(`minimum 6: ${s.emptyDays.length} open day${s.emptyDays.length === 1 ? '' : 's'} could not be given 6 visits`)
   if (!s.cov15.ok && s.cov15Why.length > 0) reasons.push(...s.cov15Why.map((w) => `coverage by day ${p.coverageDay}: ${w}`))
   if (reasons.length === 0) reasons.push('the gap, weekday, Brick and 6-visit rules together leave no room for the missing visits')
-  return { capacity, requiredVisits, targetVisits: N, bestPcf: s.pcf.pct, bestCov15: s.cov15.pct, requiredCov15: s.cov15.required, capacityEnough, reasons }
+  return { capacity, requiredVisits, targetVisits: N, bestPcf: s.pcf.pct, bestCov15: s.cov15.pct, requiredCov15: s.cov15.required, capacityEnough, reasons, impossible }
 }
 
 /* ------------------------------------ one plan at one step ------------------------------------ */
@@ -211,7 +251,16 @@ interface OpenDay { day: string; isodow: number; dn: number; early: boolean }
 interface Block { brick: string; docs: Prof[] }
 interface DayPlan { blocks: Block[]; why: string[]; second: string | null; repeat: { brick: string; why: string } | null }
 
-function buildPlan(inputs: PlanInputs, rawInputs: PlanInputs, mode: PlanMode, modeInfo: PlanSummary['modeInfo'], p: PlanParams, step: Step, tpl: Map<string, BrickTpl>, source: 'own' | 'any' | 'none', ownVisits: number): PlanResult {
+function buildPlan(inputs: PlanInputs, rawInputs: PlanInputs, mode: PlanMode, modeInfo: PlanSummary['modeInfo'], p: PlanParams, stepIn: Step, tpl: Map<string, BrickTpl>, source: 'own' | 'any' | 'none', ownVisits: number, ctx: { combos: Set<string>[]; hist: ActualVisit[]; dSub: 0 | 1 | 2 | 3 }): PlanResult {
+  // step D keeps the rules of step C and bends the rest in order: D1 up to 4 Bricks, D2 a shorter gap between visits, D3 every open day up to 12 visits
+  const step: 'A' | 'B' | 'C' = stepIn === 'D' ? 'C' : stepIn
+  const dSub = stepIn === 'D' ? ctx.dSub : 0
+  const maxB = mode === 'geography' ? 1 : stepIn === 'D' ? p.maxBricksStepD : p.maxBricksPerDay
+  const topUpB = Math.min(maxB, stepIn === 'A' || stepIn === 'B' ? 2 : stepIn === 'C' ? 3 : 4)
+  const gapRed = dSub >= 2
+  const fill12 = dSub >= 3
+  const relaxB = stepIn === 'D'
+  const combos = ctx.combos
   const T0b = inputs.daily_target
   const targetMissing = T0b === null || !(T0b > 0)
   const T = targetMissing ? p.fallbackTarget : Math.round(T0b as number)
@@ -326,6 +375,16 @@ function buildPlan(inputs: PlanInputs, rawInputs: PlanInputs, mode: PlanMode, mo
     const key = (pr: Prof): number => win(pr, dow).a
     const bs = blocks.filter((b) => b.length > 0).map((b) => [...b].sort((x, y) => key(x) - key(y) || x.id - y.id))
     bs.sort((x, y) => median(x.map(key)) - median(y.map(key)))
+    if (bs.length < 2) return bs
+    // the blocks go along the shortest path between the Brick centres (ties: by hours); the first order that works with every doctor's hours wins
+    const perms: Prof[][][] = []
+    const permute = (rest: Prof[][], acc: Prof[][]) => { if (rest.length === 0) { perms.push(acc); return } rest.forEach((x, i) => permute([...rest.slice(0, i), ...rest.slice(i + 1)], [...acc, x])) }
+    permute(bs, [])
+    const pathLen = (o: Prof[][]): number => o.reduce((acc, blk, i) => acc + (i > 0 ? distBricks(o[i - 1][0].brick, blk[0].brick) : 0), 0)
+    const rank = new Map(bs.map((blk, i) => [blk, i]))
+    const lex = (o: Prof[][]): number => o.reduce((acc, blk, i) => acc * 10 + (rank.get(blk) ?? 0) + 0 * i, 0)
+    const sorted = perms.map((o) => ({ o, len: Math.round(pathLen(o) * 1e6) / 1e6, lex: lex(o) })).sort((x, y) => x.len - y.len || x.lex - y.lex)
+    for (const c of sorted) if (schedule(c.o.flat(), dow).ok) return c.o
     return bs
   }
   const flatKm = (seq: Prof[]): number => routeKm(seq.map((s2) => s2.d), p.detourFactor)
@@ -355,7 +414,7 @@ function buildPlan(inputs: PlanInputs, rawInputs: PlanInputs, mode: PlanMode, mo
   const dayReasons: Record<string, string> = {}
   const visitDays = new Map<number, number[]>()
   const countOf = (di: number): number => plans[di].blocks.reduce((a, b) => a + b.docs.length, 0)
-  const gapOf = (pr: Prof): number => gapDaysFor(pr.d.freq)
+  const gapOf = (pr: Prof): number => gapDaysFor(pr.d.freq, gapRed)
   const spaced = (pr: Prof, di: number, except = -1): boolean => {
     const g = gapOf(pr)
     const ld = inputs.lastDone?.[pr.id]
@@ -395,20 +454,47 @@ function buildPlan(inputs: PlanInputs, rawInputs: PlanInputs, mode: PlanMode, mo
     }
     return chosen
   }
-  /** Second Brick options for a day: worked together before, else its doctors were visited on this weekday before (3+). */
-  const secondOptions = (a: string, di: number, pool: Map<string, Prof[]>): { b: string; list: Prof[]; pm: number; dist: number; why: string }[] => {
+  const ORD = ['', 'Second', 'Third', 'Fourth']
+  const centDist = (have: string[], b: string): number => have.reduce((acc, h) => acc + distBricks(h, b), 0)
+  /**
+   * The best Brick to add to a day. Second Brick: worked together before (pair history), else its doctors were visited on this weekday before (3+).
+   * Third / fourth Brick: all the Bricks of the day were visited together on 2+ days of the history, else the doctors taken have 2+ visits on this weekday (3+ of
+   * them); step D also accepts 1+ visit, or the Brick nearest by GPS. Fewest Bricks first, then the history reason, then the shorter distance between the blocks.
+   */
+  interface Add { b: string; docs: Prof[]; why: string }
+  const addBrick = (di: number, blocks: Block[], pool: Map<string, Prof[]>, room: number): Add | null => {
     const dow = open[di].isodow
-    const opts: { b: string; list: Prof[]; pm: number; dist: number; why: string }[] = []
-    for (const [b2, l2] of pool) {
-      if (b2 === a || !repeatOk(b2, di).ok) continue
-      const pr2 = pairs(a, b2)
-      if (pr2 && pairAllowed(pr2)) opts.push({ b: b2, list: l2, pm: pr2.pm_days, dist: distBricks(a, b2), why: pairWhy(pr2) })
-      else {
-        const same = l2.filter((x) => (x.dowN[dow] ?? 0) > 0)
-        if (same.length >= p.minSecondBrickDoctors) opts.push({ b: b2, list: same, pm: 0, dist: distBricks(a, b2), why: `his doctors were visited on a ${WEEKDAY[dow]} before` })
+    const have = blocks.map((x) => x.brick)
+    const total = blocks.reduce((a, x) => a + x.docs.length, 0)
+    const free = [...pool.keys()].filter((b2) => !have.includes(b2) && repeatOk(b2, di).ok)
+    const nearest = free.length > 0 ? [...free].sort((x, y) => centDist(have, x) - centDist(have, y) || x.localeCompare(y))[0] : null
+    const opts: { b: string; list: Prof[]; rank: number; why: string }[] = []
+    for (const b2 of free) {
+      const l2 = pool.get(b2) as Prof[]
+      if (blocks.length === 1) {
+        const pr2 = pairs(have[0], b2)
+        if (pr2 && pairAllowed(pr2)) opts.push({ b: b2, list: l2, rank: 0, why: pairWhy(pr2) })
+        else {
+          const same = l2.filter((x) => (x.dowN[dow] ?? 0) > 0)
+          if (same.length >= p.minSecondBrickDoctors) opts.push({ b: b2, list: same, rank: 1, why: `his doctors were visited on a ${WEEKDAY[dow]} before` })
+        }
+      } else {
+        const days = comboDays(combos, [...have, b2])
+        if (days >= 2) opts.push({ b: b2, list: l2, rank: 0, why: `combination seen ${days} days before` })
+        else {
+          const own = l2.filter((x) => (x.dowN[dow] ?? 0) >= (relaxB ? 1 : 2))
+          if (own.length >= p.minSecondBrickDoctors) opts.push({ b: b2, list: own, rank: 1, why: "doctors' own weekday history" })
+          else if (relaxB && b2 === nearest) opts.push({ b: b2, list: l2, rank: 2, why: 'nearest Brick by GPS (step D)' })
+        }
       }
     }
-    return opts.sort((x, y) => y.list.length - x.list.length || y.pm - x.pm || x.dist - y.dist || x.b.localeCompare(y.b))
+    const scored: { o: (typeof opts)[number]; docs: Prof[]; done: boolean; dist: number }[] = []
+    for (const o of opts) {
+      const docs = takeDocs(di, blocks, o.list, room)
+      if (docs.length >= p.minSecondBrickDoctors) scored.push({ o, docs, done: total + docs.length >= minDay, dist: centDist(have, o.b) })
+    }
+    scored.sort((x, y) => Number(y.done) - Number(x.done) || x.o.rank - y.o.rank || x.dist - y.dist || y.docs.length - x.docs.length || x.o.b.localeCompare(y.o.b))
+    return scored.length > 0 ? { b: scored[0].o.b, docs: scored[0].docs, why: scored[0].o.why } : null
   }
 
   /* ---- 1. the calendar, date by date ---- */
@@ -470,24 +556,19 @@ function buildPlan(inputs: PlanInputs, rawInputs: PlanInputs, mode: PlanMode, mo
       let want = globalWant
       if (bd) want = Math.max(want, Math.min(maxDay, Math.ceil(needB / Math.max(1, remainingAllowed(c.brick, di)))))
       if (earlyLeft > 0 && open[di].early && needFirst > 0) want = Math.max(want, Math.min(maxDay, Math.ceil(needFirst / earlyLeft)))
-      want = clamp(want, minDay, maxDay)
+      want = fill12 ? maxDay : clamp(want, minDay, maxDay)
       const chosen = takeDocs(di, [], c.list, want)
       const blocks: Block[] = [{ brick: c.brick, docs: chosen }]
       const why = [c.why]
-      let second: string | null = null
-      if (chosen.length < minDay && p.maxBricksPerDay >= 2 && chosen.length >= p.minSecondBrickDoctors) {
-        for (const o of secondOptions(c.brick, di, eligs)) {
-          const more = takeDocs(di, blocks, o.list, maxDay - chosen.length)
-          if (more.length >= p.minSecondBrickDoctors && chosen.length + more.length >= minDay) {
-            blocks.push({ brick: o.b, docs: more })
-            second = o.b
-            why.push(`Second brick ${o.b}: ${o.why}`)
-            break
-          }
-        }
+      // one Brick if it is enough; a second, then a third (then a fourth in step D) only to reach the minimum of 6 visits
+      while (chosen.length >= p.minSecondBrickDoctors && blocks.length < maxB && blocks.reduce((a, b) => a + b.docs.length, 0) < minDay) {
+        const add = addBrick(di, blocks, eligs, maxDay - blocks.reduce((a, b) => a + b.docs.length, 0))
+        if (!add) break
+        blocks.push({ brick: add.b, docs: add.docs })
+        why.push(`${ORD[blocks.length - 1]} brick ${add.b}: ${add.why}`)
       }
       if (blocks.reduce((a, b) => a + b.docs.length, 0) < minDay) continue
-      plans[di] = { blocks, why, second, repeat: c.rep ? { brick: c.brick, why: c.rep } : null }
+      plans[di] = { blocks, why, second: blocks.length > 1 ? blocks[1].brick : null, repeat: c.rep ? { brick: c.brick, why: c.rep } : null }
       for (const b of blocks) for (const pr of b.docs) commit(pr, di)
       made = true
       break
@@ -512,20 +593,17 @@ function buildPlan(inputs: PlanInputs, rawInputs: PlanInputs, mode: PlanMode, mo
         commit(pr, di)
       }
     }
-    if (plans[di].blocks.length === 1 && countOf(di) <= maxDay - p.minSecondBrickDoctors && p.maxBricksPerDay >= 2) {
-      const a = plans[di].blocks[0].brick
+    // small Bricks join as an extra block while there is room (a third / fourth Brick only from step C, the targets being out of reach with two)
+    while (plans[di].blocks.length < topUpB && countOf(di) <= maxDay - p.minSecondBrickDoctors) {
+      const have = plans[di].blocks.map((b) => b.brick)
       const pool = new Map<string, Prof[]>()
-      for (const pr of plist) if (pr.brick !== a && eligibleFor(pr, di)) pool.set(pr.brick, [...(pool.get(pr.brick) ?? []), pr])
-      for (const o of secondOptions(a, di, pool)) {
-        const more = takeDocs(di, plans[di].blocks, o.list, maxDay - countOf(di))
-        if (more.length >= p.minSecondBrickDoctors) {
-          plans[di].blocks.push({ brick: o.b, docs: more })
-          plans[di].second = o.b
-          plans[di].why.push(`Second brick ${o.b}: ${o.why}`)
-          for (const pr of more) commit(pr, di)
-          break
-        }
-      }
+      for (const pr of plist) if (!have.includes(pr.brick) && eligibleFor(pr, di)) pool.set(pr.brick, [...(pool.get(pr.brick) ?? []), pr])
+      const add = addBrick(di, plans[di].blocks, pool, maxDay - countOf(di))
+      if (!add) break
+      plans[di].blocks.push({ brick: add.b, docs: add.docs })
+      plans[di].second = plans[di].blocks[1].brick
+      plans[di].why.push(`${ORD[plans[di].blocks.length - 1]} brick ${add.b}: ${add.why}`)
+      for (const pr of add.docs) commit(pr, di)
     }
   }
 
@@ -563,8 +641,8 @@ function buildPlan(inputs: PlanInputs, rawInputs: PlanInputs, mode: PlanMode, mo
         if (g.certain && early <= p.maxWaitMin) { note = `Waits ${early} min (doctor present that day)`; allowedWait.set(pr.id, (allowedWait.get(pr.id) ?? 0) + early) }
         else { note = `Waits ${early} min (his usual hours start ${fromMin(w.a)})`; waits.push({ id: pr.id, name: pr.d.name, day: open[di].day, minutes: early }) }
       }
-      if (plans[di].second && block === plans[di].second && (i === 0 || dayRows[di][i - 1].block !== block)) {
-        const tag = plans[di].why.find((x) => x.startsWith('Second brick')) ?? `Second brick ${block}`
+      if (block !== plans[di].blocks[0].brick && (i === 0 || dayRows[di][i - 1].block !== block)) {
+        const tag = plans[di].why.find((x) => / brick /.test(x) && x.includes(` ${block}: `)) ?? `Extra brick ${block}`
         note = note ? `${note}; ${tag}` : tag
       }
       if (!pr.timed) note = note ? `${note}; hours of ${pr.brick}` : `Hours of ${pr.brick} (no time data for him)`
@@ -578,7 +656,26 @@ function buildPlan(inputs: PlanInputs, rawInputs: PlanInputs, mode: PlanMode, mo
       const reasons = [...plans[di].why]
       const rp = plans[di].repeat
       if (rp) { reasons.push(`Repeat: ${rp.why}`); repeats.push({ day: open[di].day, brick: rp.brick, why: rp.why }) }
-      dayReasons[open[di].day] = `${[...new Set(dayRows[di].map((x) => x.block))].join(' + ')}: ${reasons.join('; ')}`
+      const bsDay = [...new Set(dayRows[di].map((x) => x.block))]
+      dayReasons[open[di].day] = `${bsDay.join(' + ')}: ${reasons.join('; ')}${bsDay.length > 1 ? `; Brick changes: ${bsDay.length - 1}` : ''}`
+    }
+  }
+
+  // visits closer to the previous visit of the doctor than the normal gap (step D2+) are marked
+  let gapReducedVisits = 0
+  {
+    const byDoc = new Map<number, PlanRow[]>()
+    for (const r of rows) byDoc.set(r.doctor_id, [...(byDoc.get(r.doctor_id) ?? []), r])
+    for (const [id, list] of byDoc) {
+      list.sort((x, y) => x.day.localeCompare(y.day))
+      const freq = (profs.get(id) as Prof).d.freq
+      const normal = gapDaysFor(freq, false)
+      let prev: number | null = inputs.lastDone?.[id] ? dayNum(inputs.lastDone[id]) : null
+      for (const r of list) {
+        const dn = dayNum(r.day)
+        if (prev !== null && dn - prev < normal) { r.note = `${r.note ? `${r.note}; ` : ''}Gap reduced (${dn - prev} days, normally ${normal})`; gapReducedVisits++ }
+        prev = dn
+      }
     }
   }
 
@@ -605,9 +702,20 @@ function buildPlan(inputs: PlanInputs, rawInputs: PlanInputs, mode: PlanMode, mo
   const kms = used.map((l) => routeKm(l.map((x) => x.pr.d), p.detourFactor))
   const stays = used.map((l) => Math.max(...l.map((x) => x.time)) - Math.min(...l.map((x) => x.time)))
   const twoBrickDays: PlanSummary['twoBrickDays'] = []
+  let brickChanges = 0
+  const blockKms: number[] = []
+  const brickDays = { one: 0, two: 0, threePlus: 0 }
   for (let di = 0; di < W; di++) {
     const bs = [...new Set(dayRows[di].map((x) => x.block))]
-    if (bs.length === 2) twoBrickDays.push({ day: open[di].day, a: bs[0], b: bs[1], why: plans[di].why.find((x) => x.startsWith('Second brick'))?.replace(/^Second brick [^:]*: /, '') ?? 'allowed' })
+    if (bs.length === 0) continue
+    if (bs.length === 1) { brickDays.one++; continue }
+    if (bs.length === 2) brickDays.two++
+    else brickDays.threePlus++
+    brickChanges += bs.length - 1
+    let km = 0
+    for (let k = 1; k < bs.length; k++) { const x = cent.get(bs[k - 1]); const y = cent.get(bs[k]); if (x && y) km += estKm(x, y, p.detourFactor) }
+    blockKms.push(km)
+    twoBrickDays.push({ day: open[di].day, a: bs[0], b: bs[1], bricks: bs, why: plans[di].why.filter((x) => / brick /.test(x)).map((x) => x.replace(/^[A-Za-z]+ brick [^:]*: /, '')).join('; ') || 'allowed' })
   }
   const noGps = docs.filter((d) => !hasGps(d)).map((d) => ({ id: d.doctor_id, name: d.name }))
   const noTime = docs.filter((d) => d.win_start == null).map((d) => ({ id: d.doctor_id, name: d.name }))
@@ -674,7 +782,8 @@ function buildPlan(inputs: PlanInputs, rawInputs: PlanInputs, mode: PlanMode, mo
   if (counts.some((c) => c >= maxDay)) warnings.push(`${counts.filter((c) => c >= maxDay).length} day${counts.filter((c) => c >= maxDay).length === 1 ? ' is' : 's are'} at the maximum of ${maxDay}.`)
   if (waits.length > 0) warnings.push(`${waits.length} visit${waits.length === 1 ? '' : 's'} would wait more than the allowed time for the doctor's usual hours (20 minutes, or 45 when he is certain to be present that day).`)
   if (repeats.length > 0) warnings.push(`${repeats.length} same-Brick repeat${repeats.length === 1 ? '' : 's'} on consecutive days: ${repeats.map((r) => `${r.day} ${r.why}`).join('; ')}.`)
-  if (step !== 'A') warnings.push(`Step ${step}: ${step === 'B' ? 'weekdays seen once count, doctors may use any weekday of their Brick, windows are P5-P95, Brick repeats need 5% in the history (step A did not reach both targets)' : 'any Brick on any weekday, doctors without time data placed by Brick and distance, up to 6 same-Brick days in a row, the day may end later (steps A and B did not reach both targets)'}.`)
+  if (stepIn === 'D') warnings.push(`Step D${dSub}: steps A, B and C did not reach PCF and Coverage of ${Math.round(p.minPcf * 100)}% by the end of the month, so the rules were bent in order: up to ${maxB} Bricks a day${gapRed ? ', the gap between visits of a doctor reduced to 7 / 5 / 4 days (visits marked Gap reduced)' : ''}${fill12 ? ', every open day filled up to 12 visits (the day-15 coverage goal dropped)' : ''}.${gapReducedVisits > 0 ? ` ${gapReducedVisits} visit${gapReducedVisits === 1 ? '' : 's'} with a reduced gap.` : ''}`)
+  else if (step !== 'A') warnings.push(`Step ${step}: ${step === 'B' ? 'weekdays seen once count, doctors may use any weekday of their Brick, windows are P5-P95, Brick repeats need 5% in the history (step A did not reach both targets)' : 'any Brick on any weekday, doctors without time data placed by Brick and distance, up to 6 same-Brick days in a row, the day may end later (steps A and B did not reach both targets)'}.`)
 
   const ts = templateSummary(tpl, p, minDates)
   const summary: PlanSummary = {
@@ -688,7 +797,10 @@ function buildPlan(inputs: PlanInputs, rawInputs: PlanInputs, mode: PlanMode, mo
     shortfall: { visits: missingVisits, firstVisits: missingFirst, covLossPts: D > 0 ? (missingFirst / D) * 100 : 0, pcfLossPts: N > 0 ? (missingVisits / N) * 100 : 0 },
     avgEstKmPerDay: kms.length > 0 ? kms.reduce((a, b) => a + b, 0) / kms.length : 0,
     avgStayMin: stays.length > 0 ? stays.reduce((a, b) => a + b, 0) / stays.length : 0,
-    step, targetsMet: false, notReachable: null, grades: gradeTotals, dayGrades, waitAllowed: { doctors: allowedWait.size, minutes: [...allowedWait.values()].reduce((a, b) => a + b, 0) },
+    step: stepIn, dSub: stepIn === 'D' ? (dSub as 1 | 2 | 3) : null, targetsMet: false, notReachable: null,
+    endTargets: { pcfOk: pcf >= p.minPcf, covEndOk: (D > 0 ? covEnd / D : 1) >= p.minCoverage, bothMet: pcf >= p.minPcf && (D > 0 ? covEnd / D : 1) >= p.minCoverage },
+    brickDays, brickChanges, avgBlockKm: blockKms.length > 0 ? blockKms.reduce((x, y) => x + y, 0) / blockKms.length : 0, gapReducedVisits,
+    grades: gradeTotals, dayGrades, waitAllowed: { doctors: allowedWait.size, minutes: [...allowedWait.values()].reduce((a, b) => a + b, 0) },
     waitTotalMin: waitTotal, waits, repeats, repeatLimit: p.maxRunC, blockedDays, usualMaxDay: usualMax, aboveUsual, cov15Why,
     window: rows.length > 0 ? { start: fromMin(Math.min(...rows.map((r) => toMin(r.planned_time) ?? SAN_Z))), end: fromMin(Math.max(...rows.map((r) => toMin(r.planned_time) ?? SAN_A))), own: !!rawInputs.window } : { start: p.defaultWinStart, end: p.defaultWinEnd, own: !!rawInputs.window },
     fromDay, warnings,
@@ -697,14 +809,14 @@ function buildPlan(inputs: PlanInputs, rawInputs: PlanInputs, mode: PlanMode, mo
     template: { source, ownVisits, freeBricks: ts.free, restrictedBricks: ts.restricted, unknownBricks: ts.unknown, bricks: ts.bricks },
     dayReasons,
   }
-  const flat: PlanInputs = { ...inputs, window: { start: SAN_A, end: SAN_Z } }
-  const validation = validatePlan(flat, rows, p, underMin.map((d) => d.day), { relaxWeekdays: true })
+  const flat: PlanInputs = { ...inputs, history: ctx.hist, window: { start: SAN_A, end: SAN_Z } }
+  const validation = validatePlan(flat, rows, { ...p, maxBricksPerDay: maxB }, underMin.map((d) => d.day), { relaxWeekdays: true, gapReduced: gapRed, stepD: stepIn === 'D' })
   return { rows, summary, params: p, validation }
 }
 
 /* ------------------------------------ backtest ------------------------------------ */
 export interface Metrics { cov15: number; pcf: number; avgKm: number; daysOver: number; days: number; maxDay: number }
-export interface Backtest { plan: Metrics; actual: Metrics; valid: boolean; grades: { A: number; B: number; C: number }; step: Step | null; targetsMet: boolean }
+export interface Backtest { plan: Metrics; actual: Metrics; valid: boolean; grades: { A: number; B: number; C: number }; step: Step | null; dSub: 1 | 2 | 3 | null; targetsMet: boolean }
 
 /** Plans the month with the days that were really closed (leaves and registered PM requests, as plan_inputs gives them) and compares with what he did. A day with no visits stays open. */
 export function backtest(inputs: PlanInputs, actuals: ActualVisit[], over: Partial<PlanParams> = {}): Backtest {
@@ -742,6 +854,6 @@ export function backtest(inputs: PlanInputs, actuals: ActualVisit[], over: Parti
     plan: metrics(res.rows.map((r) => ({ day: r.day, doctor_id: r.doctor_id, time: toMin(r.planned_time) ?? 0 }))),
     actual: metrics(act.map((a) => ({ day: a.day, doctor_id: a.doctor_id, time: toMin(a.visit_time) ?? 0 }))),
     valid: res.validation.ok,
-    grades: res.summary.grades ?? { A: 0, B: 0, C: 0 }, step: res.summary.step ?? null, targetsMet: res.summary.targetsMet === true,
+    grades: res.summary.grades ?? { A: 0, B: 0, C: 0 }, step: res.summary.step ?? null, dSub: res.summary.dSub ?? null, targetsMet: res.summary.targetsMet === true,
   }
 }

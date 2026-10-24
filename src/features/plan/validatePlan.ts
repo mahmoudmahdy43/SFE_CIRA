@@ -1,12 +1,13 @@
 /**
- * Independent check of a generated plan against every hard rule (6-12 visits a day, closed days, the minimum gap between visits of a doctor, nobody above his visits, at most 2 Bricks in blocks with a second Brick only by history, the loose 08:00-23:59 bound). It shares nothing with the planner except the input types and tiny
+ * Independent check of a generated plan against every hard rule (6-12 visits a day, closed days, the minimum gap between visits of a doctor, nobody above his visits, at most 3 Bricks (4 in step D) in blocks, each with 3+ doctors, a second Brick only by history, a third only by the combination history or the doctors' own weekdays, the loose 08:00-23:59 bound). It shares nothing with the planner except the input types and tiny
  * helpers, so a bug in the planner cannot hide here. A plan that fails is shown with the list of failures and is never saved as a draft.
  */
 import { brickOf, dayNum, DEFAULT_PARAMS, gapDaysFor, pairAllowed, pairLookup, toMin, type PlanInputs, type PlanParams, type PlanRow, type ValidationResult } from './planCore.ts'
+import { comboDays, comboSets } from './templates.ts'
 
 const MAX_LISTED = 30
 
-export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<PlanParams> = {}, declaredUnderMin: Iterable<string> = [], opts: { relaxWeekdays?: boolean } = {}): ValidationResult {
+export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<PlanParams> = {}, declaredUnderMin: Iterable<string> = [], opts: { relaxWeekdays?: boolean; gapReduced?: boolean; stepD?: boolean } = {}): ValidationResult {
   const p: PlanParams = { ...DEFAULT_PARAMS, ...over }
   const fails: string[] = []
   const warns: string[] = []
@@ -19,6 +20,7 @@ export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<
   const we = inputs.window ? Math.max(inputs.window.end, ws) : (toMin(p.sanityEnd) as number)
   const pair = pairLookup(inputs.brickPairs)
   const done = inputs.done ?? {}
+  const combos = comboSets(inputs.history ?? [], inputs.doctors)
 
   const byDay = new Map<string, PlanRow[]>()
   for (const r of rows) byDay.set(r.day, [...(byDay.get(r.day) ?? []), r])
@@ -56,18 +58,30 @@ export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<
     dayBricks.set(day, new Set(distinct))
     if (distinct.length > p.maxBricksPerDay) fails.push(`${day}: ${distinct.length} bricks in one day (maximum ${p.maxBricksPerDay})`)
     if (seq.length > distinct.length) fails.push(`${day}: bricks are not in blocks (${seq.join(' > ')})`)
-    if (distinct.length === 2) {
-      const [a, b] = distinct
-      // allowed by the history of the two bricks together, or by the weekday history of every doctor of one of them (3+)
+    if (distinct.length >= 2) {
       const dow = info ? info.isodow : 0
-      const byWeekday = distinct.some((br) => {
-        const rs = ordered.filter((r) => { const d = docs.get(r.doctor_id); return d && brickOf(d) === br })
-        return rs.length >= p.minSecondBrickDoctors && rs.every((r) => docs.get(r.doctor_id)?.hist_dows?.includes(dow))
-      })
-      if (!pairAllowed(pair(a, b)) && !byWeekday) fails.push(`${day}: ${a} and ${b} were never worked together before and his doctors were not visited on this weekday before`)
+      const docsOf = (br: string) => ordered.map((r) => docs.get(r.doctor_id)).filter((d) => d && brickOf(d) === br)
+      // a pair of Bricks: worked together before, or every doctor of one of them (3+) was visited on this weekday before
+      const pairOk = (x: string, y: string): boolean => pairAllowed(pair(x, y)) || [x, y].some((br) => docsOf(br).length >= p.minSecondBrickDoctors && docsOf(br).every((d) => d?.hist_dows?.includes(dow)))
       for (const br of distinct) {
-        const n = ordered.filter((r) => { const d = docs.get(r.doctor_id); return d && brickOf(d) === br }).length
-        if (n < p.minSecondBrickDoctors) fails.push(`${day}: only ${n} doctor${n === 1 ? '' : 's'} in ${br}, a second brick needs ${p.minSecondBrickDoctors}`)
+        const n = docsOf(br).length
+        if (n < p.minSecondBrickDoctors) fails.push(`${day}: only ${n} doctor${n === 1 ? '' : 's'} in ${br}, a Brick in a multi-Brick day needs ${p.minSecondBrickDoctors}`)
+      }
+      if (distinct.length === 2) {
+        if (!pairOk(distinct[0], distinct[1])) fails.push(`${day}: ${distinct[0]} and ${distinct[1]} were never worked together before and his doctors were not visited on this weekday before`)
+      } else {
+        // more than two Bricks: (a) all of them were visited on the same day in 2+ days of the history, or (b) a pair follows the pair rules and every doctor
+        // of each other Brick has 2+ visits on this weekday (step D: 1+) with 3+ such doctors
+        const need = opts.stepD ? 1 : 2
+        const extraOk = (br: string): boolean => docsOf(br).length >= p.minSecondBrickDoctors && docsOf(br).every((d) => (d?.dow_n?.[dow] ?? 0) >= need)
+        const reasonA = comboDays(combos, distinct) >= 2
+        let reasonB = false
+        for (let i = 0; i < distinct.length && !reasonB; i++) for (let j = i + 1; j < distinct.length && !reasonB; j++) if (pairOk(distinct[i], distinct[j]) && distinct.every((br, k) => k === i || k === j || extraOk(br))) reasonB = true
+        if (!reasonA && !reasonB) {
+          const msg = `${day}: ${distinct.length} bricks (${distinct.join(', ')}) without a reason: they were not visited together on 2+ days before and the doctors of the extra Brick have no visits on this weekday in the history`
+          if (opts.stepD) warns.push(msg)
+          else fails.push(msg)
+        }
       }
     }
   }
@@ -106,7 +120,7 @@ export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<
     const left = Math.max(0, d.freq - (done[id] ?? 0))
     if (ds.length > left) fails.push(`${d.name}: ${ds.length} planned visits, only ${left} left`)
     // minimum gap in calendar days between consecutive visits (10 for 2 visits a month, 7 for 3, 5 for 4 or more), counted from a visit already done too
-    const gap = gapDaysFor(d.freq)
+    const gap = gapDaysFor(d.freq, opts.gapReduced)
     const nums = ds.map(dayNum).sort((a, b) => a - b)
     const last = inputs.lastDone?.[id]
     if (last) nums.unshift(dayNum(last))

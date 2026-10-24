@@ -7,7 +7,7 @@ import { Button } from '../components/ui/button'
 import { Card, Input, Skeleton } from '../components/ui/misc'
 import { BacktestPanel } from '../features/plan/BacktestPanel'
 import { downloadPlanWorkbook } from '../features/plan/planExport'
-import { DEFAULT_PARAMS, MAX_PER_DAY, generatePlan, type Grade, type PlanDoctor, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary, type ValidationResult } from '../features/plan/planner'
+import { DEFAULT_PARAMS, MAX_PER_DAY, approvalState, generatePlan, type Grade, type PlanDoctor, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary, type ValidationResult } from '../features/plan/planner'
 import { useAsync } from '../features/dashboard/useAsync'
 import {
   addPlanRequest, approvePlan, deletePlanRequest, fetchPlanInputs, fetchPlanReps, fetchPlanRequests, fetchSavedPlan, savePlan,
@@ -134,18 +134,18 @@ function WarningCards({ s, params, rows, doctors }: { s: PlanSummary; params: Pl
     <div className="grid gap-2 md:grid-cols-2">
       {nr && (
         <div className="md:col-span-2">
-          <Warn tone="red" title="Not reached with the current rules">
-            PCF ≥ {Math.round(params.minPcf * 100)}% and Coverage by day {params.coverageDay} ≥ {Math.round(params.minCoverage * 100)}% could not both be met, even at step C. This is the best plan found (step {s.step ?? '–'}).{nr.capacityEnough ? ' The capacity is enough: the rules below block it.' : ' The capacity is not enough.'}
+          <Warn tone="red" title={nr.impossible ? nr.impossible.message : 'Not reached with the current rules'}>
+            {nr.impossible ? `Short by ${nr.impossible.gap} visits: ${nr.impossible.addDays} more open day${nr.impossible.addDays === 1 ? '' : 's'} are needed, or ${nr.impossible.removeVisits} visit${nr.impossible.removeVisits === 1 ? '' : 's'} removed from the list. ` : ''}PCF ≥ {Math.round(params.minPcf * 100)}% and end-of-month Coverage ≥ {Math.round(params.minCoverage * 100)}% could not both be met, even at step D. This is the best plan found (step {s.step ?? '–'}{s.dSub ?? ''}).{nr.capacityEnough ? ' The capacity is enough: the rules below block it.' : ' The capacity is not enough.'}
             <ul className="mt-1 list-disc pl-4">
               <li>Available capacity ({MAX_PER_DAY} × {s.openDays} open days): {nr.capacity} visits</li>
               <li>Required ({Math.round(params.minPcf * 100)}% × {nr.targetVisits} target visits): {nr.requiredVisits} visits</li>
-              <li>Best PCF achievable: {(nr.bestPcf * 100).toFixed(1)}% · best Coverage by day {params.coverageDay}: {s.cov15.done} of {s.cov15.total} ({(nr.bestCov15 * 100).toFixed(1)}%, {nr.requiredCov15} needed)</li>
+              <li>Best PCF achievable: {(nr.bestPcf * 100).toFixed(1)}% · best end-of-month Coverage {(s.covEnd.pct * 100).toFixed(1)}% ({s.covEnd.done} of {s.covEnd.total}) · Coverage by day {params.coverageDay}: {s.cov15.done} of {s.cov15.total} ({(nr.bestCov15 * 100).toFixed(1)}%, {nr.requiredCov15} needed)</li>
               {nr.reasons.map((r) => <li key={r}>{r}</li>)}
             </ul>
           </Warn>
         </div>
       )}
-      {!nr && s.targetsMet && s.step != null && <Warn tone="green" title={`Both targets met at step ${s.step}`}>PCF {(s.pcf.pct * 100).toFixed(1)}% · Coverage by day {params.coverageDay} {(s.cov15.pct * 100).toFixed(1)}%.{s.step === 'B' ? ' Step A (strict history) could not reach them, so weekdays seen once, any weekday inside the Brick, P5-P95 windows and 5% Brick repeats were allowed.' : s.step === 'C' ? ' Steps A and B could not reach them, so any Brick on any weekday, doctors without time data by Brick and distance, and up to 6 same-Brick days in a row were allowed.' : ' Strict history: every visit follows the rep\'s own weekly rhythm.'}</Warn>}
+      {!nr && s.targetsMet && s.step != null && <Warn tone="green" title={`Both targets met at step ${s.step}`}>PCF {(s.pcf.pct * 100).toFixed(1)}% · Coverage by day {params.coverageDay} {(s.cov15.pct * 100).toFixed(1)}%.{s.step === 'D' ? ` Steps A, B and C could not reach them, so the rules were bent in order: up to 4 Bricks a day${s.dSub && s.dSub >= 2 ? ', a shorter gap between the visits of a doctor (marked Gap reduced)' : ''}${s.dSub === 3 ? ', every open day filled up to 12' : ''}.` : s.step === 'B' ? ' Step A (strict history) could not reach them, so weekdays seen once, any weekday inside the Brick, P5-P95 windows and 5% Brick repeats were allowed.' : s.step === 'C' ? ' Steps A and B could not reach them, so any Brick on any weekday, doctors without time data by Brick and distance, and up to 6 same-Brick days in a row were allowed.' : ' Strict history: every visit follows the rep\'s own weekly rhythm.'}</Warn>}
       {s.template && <Warn tone="grey" title={`History template: ${s.template.freeBricks} free Brick${s.template.freeBricks === 1 ? '' : 's'}, ${s.template.restrictedBricks} restricted`}>Built from {s.template.source === 'own' ? `the rep's own ${s.template.ownVisits} visits` : s.template.source === 'any' ? `the visits of any rep to the same doctors (the rep has ${s.template.ownVisits} of his own)` : 'no history (Geography mode)'}. The Brick x weekday table is in the History template card below.</Warn>}
       {total > 0 && <Warn tone="grey" title={`Confidence: A ${share(g.A, total)} · B ${share(g.B, total)} · C ${share(g.C, total)}`}>{g.A} grade A, {g.B} grade B, {g.C} grade C visits. {s.waitAllowed && s.waitAllowed.doctors > 0 ? `${s.waitAllowed.doctors} doctor${s.waitAllowed.doctors === 1 ? '' : 's'} with an allowed wait (20-45 min, certain to be present that day), ${s.waitAllowed.minutes} min in total.` : 'No allowed waiting (20-45 min) was needed.'}</Warn>}
       {cRows.length > 0 && (
@@ -174,7 +174,7 @@ function WarningCards({ s, params, rows, doctors }: { s: PlanSummary; params: Pl
       {s.emptyDays.length > 0 && <Warn tone="yellow" title={`${s.emptyDays.length} open day${s.emptyDays.length === 1 ? ' has' : 's have'} no visits`}>The list has {s.targetVisits} visits; {params.minDay} a day needs {params.minDay * s.openDays}. {s.emptyDays.slice(0, 10).join(', ')}</Warn>}
       {s.warnings.filter((w) => w.startsWith('No open') || w.includes('no PM call-rate')).map((w) => <Warn key={w} tone="red" title={w} />)}
       <Warn tone="grey" title="Summary">
-        Step {s.step ?? '–'}. {s.openDays} open PM days ({s.closedDays} closed). Capacity at target (Target x open days) {s.capacityAtTarget}; at max ({MAX_PER_DAY} x open days) {s.capacityAtMax}. Target visits {s.targetVisits}, in the plan {s.plannedVisits}. Days: highest {s.peak}, lowest {s.lowest}. Estimated distance (straight line x 1.35, not road distance): {s.avgEstKmPerDay.toFixed(1)} km a day on average. Stay in the day (first to last visit): {Math.round(s.avgStayMin)} min on average. Days with 1 brick: {s.oneBrickDays}, with 2 bricks: {s.twoBrickDays.length}. Waiting in total: {s.waitTotalMin} min{s.waitAllowed && s.waitAllowed.doctors > 0 ? ` (allowed waits: ${s.waitAllowed.doctors} doctor${s.waitAllowed.doctors === 1 ? '' : 's'}, ${s.waitAllowed.minutes} min)` : ''}. Same-brick repeats on consecutive days: {s.repeats.length} (limit {s.repeatLimit}). PM window {s.window.start}–{s.window.end}{s.window.own ? '' : ' (default)'}.
+        Step {s.step ?? '–'}{s.dSub ?? ''}. Days with 1 / 2 / 3+ Bricks: {s.brickDays ? `${s.brickDays.one} / ${s.brickDays.two} / ${s.brickDays.threePlus}` : '–'}; Brick changes {s.brickChanges ?? 0}; {(s.avgBlockKm ?? 0).toFixed(1)} km between the blocks on average{s.gapReducedVisits ? `; ${s.gapReducedVisits} visits with a reduced gap` : ''}. {s.openDays} open PM days ({s.closedDays} closed). Capacity at target (Target x open days) {s.capacityAtTarget}; at max ({MAX_PER_DAY} x open days) {s.capacityAtMax}. Target visits {s.targetVisits}, in the plan {s.plannedVisits}. Days: highest {s.peak}, lowest {s.lowest}. Estimated distance (straight line x 1.35, not road distance): {s.avgEstKmPerDay.toFixed(1)} km a day on average. Stay in the day (first to last visit): {Math.round(s.avgStayMin)} min on average. Days with 1 brick: {s.oneBrickDays}, with 2 bricks: {s.twoBrickDays.length}. Waiting in total: {s.waitTotalMin} min{s.waitAllowed && s.waitAllowed.doctors > 0 ? ` (allowed waits: ${s.waitAllowed.doctors} doctor${s.waitAllowed.doctors === 1 ? '' : 's'}, ${s.waitAllowed.minutes} min)` : ''}. Same-brick repeats on consecutive days: {s.repeats.length} (limit {s.repeatLimit}). PM window {s.window.start}–{s.window.end}{s.window.own ? '' : ' (default)'}.
       </Warn>
     </div>
   )
@@ -337,6 +337,7 @@ function MonthlyPlanBody() {
   }
   const approve = async () => {
     if (!work || repId === null) return
+    if (!gate.allowed) { toast.error(gate.message ?? 'The end-of-month targets are not met.'); return }
     if (!window.confirm('Approve this plan? An approved plan is locked and cannot be edited.')) return
     setBusy(true)
     try {
@@ -351,6 +352,7 @@ function MonthlyPlanBody() {
   }
 
   const failed = (work?.validation ? !work.validation.ok : false) || work?.summary?.mode === 'none'
+  const gate = approvalState(work?.summary, work?.params ?? DEFAULT_PARAMS)
   const refreshRequests = () => { if (repId !== null) void load(repId, month, true) }
 
   return (
@@ -394,7 +396,7 @@ function MonthlyPlanBody() {
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="primary" disabled={locked || busy} onClick={generate}><Sparkles className="h-4 w-4" aria-hidden /> Generate plan</Button>
                 <Button disabled={!work || !work.dirty || locked || busy || failed} onClick={() => void saveDraft()}><Save className="h-4 w-4" aria-hidden /> Save draft</Button>
-                <Button disabled={!work || locked || busy || failed} onClick={() => void approve()}><CheckCircle2 className="h-4 w-4" aria-hidden /> Approve</Button>
+                <Button disabled={!work || locked || busy || failed || !gate.allowed} title={gate.message ?? undefined} onClick={() => void approve()}><CheckCircle2 className="h-4 w-4" aria-hidden /> Approve</Button>
                 <Button disabled={!work} onClick={exportXlsx}><FileSpreadsheet className="h-4 w-4" aria-hidden /> Download Excel</Button>
                 <label className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
                   Plan from
@@ -406,6 +408,7 @@ function MonthlyPlanBody() {
                   {work?.dirty && ' · unsaved changes'}
                 </span>
               </div>
+              {work && !locked && !gate.allowed && <div role="status" className="rounded-card border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900">{gate.message} Save draft is still allowed.</div>}
               {work ? (
                 <>
                   {work.summary && <ModeBadge s={work.summary} />}

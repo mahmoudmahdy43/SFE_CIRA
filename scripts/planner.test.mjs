@@ -215,7 +215,7 @@ t('grades: A needs 5+ timed visits, an allowed weekday and a time inside P20-P80
 })
 
 /* ------------------------------ not reached ------------------------------ */
-t('270 visits in 18 open days: "Not reached with the current rules" with the exact numbers and the blocking rules', () => {
+t('270 visits in 18 open days: "Impossible for this rep: capacity 216 < required 243" with the exact gap and what would fix it', () => {
   const sp = {}
   for (const b of 'ABCDEF') sp[b] = { n: 15, freq: 3, dows: [6, 7, 1, 2, 3], ...EVE }
   const { docs, hist } = build(sp)
@@ -226,7 +226,10 @@ t('270 visits in 18 open days: "Not reached with the current rules" with the exa
   assert.ok(nr)
   assert.deepEqual([nr.targetVisits, nr.requiredVisits, nr.capacity, nr.capacityEnough], [270, 243, 216, false])
   assert.ok(nr.reasons.some((r) => r.startsWith('capacity: 12 x 18 open days = 216 is below the 243 visits needed')), nr.reasons.join(' | '))
-  assert.ok(res.summary.warnings[0].startsWith('Not reached with the current rules'))
+  assert.deepEqual({ ...nr.impossible, message: undefined }, { capacity: 216, required: 243, gap: 27, addDays: 3, removeVisits: 30, firstNeeded: 243 > 0 ? 6 * 0 + Math.ceil(0.9 * 90) : 0, message: undefined })
+  assert.equal(nr.impossible.message, 'Impossible for this rep: capacity 216 < required 243')
+  assert.ok(res.summary.warnings[0].startsWith('Impossible for this rep: capacity 216 < required 243 (short by 27: add 3 open days or remove 30 visits'), res.summary.warnings[0])
+  assert.equal(pl.approvalState(res.summary).allowed, false)
   assert.ok(res.rows.length > 0 && res.validation.ok, res.validation.failures.join('; '))
 })
 
@@ -254,7 +257,7 @@ t('the validator rejects a broken plan and lists what is wrong (hard rules only)
   assert.match(fails(mkr('2026-11-07', [a(0), a(1), a(2), b(0), b(1), b(2), c(0), c(1)])), /3 bricks/)
   assert.match(fails(mkr('2026-11-07', [a(0), a(1), a(2), b(0), b(1), b(2), a(3)])), /not in blocks/)
   assert.match(fails(mkr('2026-11-07', [a(0), a(1), a(2), c(0), c(1), c(2)])), /never worked together/)
-  assert.match(fails(mkr('2026-11-07', [a(0), a(1), a(2), a(3), a(4), b(0)])), /second brick needs 3/)
+  assert.match(fails(mkr('2026-11-07', [a(0), a(1), a(2), a(3), a(4), b(0)])), /a Brick in a multi-Brick day needs 3/)
   assert.match(fails(mkr('2026-11-09', six)), /closed day/)
   assert.match(fails(mkr('2026-11-07', six, 6 * 60)), /outside the PM window/)
   assert.equal(pl.validatePlan(inp, mkr('2026-11-07', six, 11 * 60 + 30)).ok, true, 'midday visits are fine: only 08:00-23:59 is a bound')
@@ -268,7 +271,7 @@ t('the validator rejects a broken plan and lists what is wrong (hard rules only)
 })
 
 t('gap in calendar days: 2 visits -> 10, 3 -> 7, 4+ -> 5, one visit none; a visit already done counts in a re-plan', () => {
-  assert.deepEqual([1, 2, 3, 4, 6].map(pl.gapDaysFor), [0, 10, 7, 5, 5])
+  assert.deepEqual([1, 2, 3, 4, 6].map((f) => pl.gapDaysFor(f)), [0, 10, 7, 5, 5])
   const { docs, hist } = build({ A: { n: 30, freq: 4, dows: [6, 7, 1, 2, 3], ...EVE }, B: { n: 30, freq: 3, dows: [6, 7, 1, 2, 3], ...EVE } })
   const res = pl.generatePlan(input(docs, hist))
   const per = new Map()
@@ -355,6 +358,154 @@ t('PM window from the rep history (P5-P95 plus P99), doctor profile (visits per 
   for (let d = 1; d <= 20; d++) for (let k = 0; k < (d <= 18 ? 6 : 9); k++) hist.push({ day: `2026-08-${String(d).padStart(2, '0')}`, doctor_id: k + 1, visit_time: '18:00' })
   assert.equal(pl.usualMaxDayFromHistory(hist), 6)
   assert.equal(pl.usualMaxDayFromHistory(hist.slice(0, 20)), null)
+})
+
+/* ------------------------------ v7: non-negotiable targets, more than two Bricks ------------------------------ */
+/** A list of small free Bricks (3 doctors each) over the given open days: with wide hours every day can hold 12 visits. */
+function smallBricks(nBricks, openDays, freq = 2) {
+  const docs = []
+  let id = 1
+  for (let b = 0; b < nBricks; b++) for (let i = 0; i < 3; i++) { docs.push({ doctor_id: id, name: `Dr B${b}-${i}`, account: 'a', account_type: 'Clinics', freq, brick: `B${b}`, division: 'D', lat: 30 + b * 0.02 + i * 0.001, lng: 31, pos_source: 'device', usual_isodow: null, usual_hour: null, n_visits: 0 }); id++ }
+  const hist = []
+  for (let ms = Date.UTC(2026, 4, 1); ms < Date.UTC(2026, 10, 1); ms += 86400000) {
+    const iso = new Date(ms).toISOString().slice(0, 10)
+    if ([4, 5].includes(dow(iso))) continue
+    const dn = Math.round(ms / 86400000)
+    for (const d of docs) if ((d.doctor_id * 7 + dn) % 3 === 0) hist.push({ day: iso, doctor_id: d.doctor_id, visit_time: hh(12 * 60 + ((d.doctor_id * 37 + dn * 53) % 600)), by_rep: 1 })
+  }
+  const closed = days().filter((d) => !openDays.includes(d.day)).map((d) => d.day)
+  return { docs, hist, closed }
+}
+const OPEN9 = ['01', '02', '03', '04', '07', '08', '09', '10', '11'].map((d) => `2026-11-${d}`)
+
+t('(c) a plan that misses 90% at steps A-C reaches it at step D by reducing the gap and using 4 Bricks; the affected visits are marked', () => {
+  const { docs, hist, closed } = smallBricks(14, OPEN9)
+  const inp = input(docs, hist, 9, closed)
+  for (const step of ['A', 'B', 'C']) assert.ok(pl.generatePlan(inp, {}, { step }).summary.pcf.pct < 0.9, step)
+  const res = pl.generatePlan(inp)
+  assert.equal(res.summary.step, 'D')
+  assert.equal(res.summary.targetsMet, true)
+  assert.ok(res.summary.pcf.pct >= 0.9 && res.summary.covEnd.pct >= 0.9)
+  assert.equal(res.summary.endTargets.bothMet, true)
+  const marked = res.rows.filter((r) => /Gap reduced/.test(r.note ?? ''))
+  assert.ok(marked.length > 0 && marked.length === res.summary.gapReducedVisits)
+  const bo = brickOfRow(docs)
+  const per = perDay(res)
+  assert.ok(Object.values(per).some((l) => new Set(l.map(bo)).size === 4), 'a day with 4 Bricks')
+  assert.ok(Object.values(per).every((l) => new Set(l.map(bo)).size <= 4 && l.length >= 6 && l.length <= 12))
+  // every visit is at least 7 / 5 / 4 days after the previous one of the same doctor, and the ones closer than the normal gap are exactly the marked ones
+  const byDoc = new Map()
+  for (const r of res.rows) byDoc.set(r.doctor_id, [...(byDoc.get(r.doctor_id) ?? []), r])
+  let closer = 0
+  for (const list of byDoc.values()) { list.sort((a, b) => a.day.localeCompare(b.day)); for (let i = 1; i < list.length; i++) { const g = pl.dayNum(list[i].day) - pl.dayNum(list[i - 1].day); assert.ok(g >= pl.gapDaysFor(2, true)); if (g < pl.gapDaysFor(2)) closer++ } }
+  assert.equal(closer, marked.length)
+  assert.equal(res.validation.ok, true, res.validation.failures.join('; '))
+  assert.ok(res.summary.warnings.some((w) => w.startsWith('Step D2')))
+})
+
+t('(a) three Bricks together in a day only when the history shows the combination (2+ days) or the doctors have 2+ visits on that weekday', () => {
+  const mkRep = (visitDays) => {
+    const docs = []
+    let id = 1
+    for (const b of ['P', 'Q', 'R']) for (let i = 0; i < 3; i++) docs.push({ doctor_id: id++, name: `Dr ${b}${i}`, account: 'a', account_type: 'Clinics', freq: 1, brick: b, division: 'D', lat: 30 + (b === 'P' ? 0 : b === 'Q' ? 0.01 : 0.02), lng: 31, pos_source: 'device', usual_isodow: null, usual_hour: null, n_visits: 0 })
+    const hist = []
+    for (const [b, ds] of Object.entries(visitDays)) for (const day of ds) for (const d of docs.filter((x) => x.brick === b)) hist.push({ day, doctor_id: d.doctor_id, visit_time: '19:00', by_rep: 1 })
+    return { docs, hist }
+  }
+  // minDay 8: two Bricks of 3 doctors give 6 visits, a third Brick is needed (the minimum is raised for the test only)
+  const together = mkRep({ P: ['2026-10-03', '2026-10-10'], Q: ['2026-10-03', '2026-10-10'], R: ['2026-10-03', '2026-10-10'] })
+  const yes = pl.generatePlan(input(together.docs, together.hist, 9, [], { brickPairs: [] }), { minDay: 8 }, { step: 'A' })
+  const bo = brickOfRow(together.docs)
+  const three = Object.entries(perDay(yes)).filter(([, l]) => new Set(l.map(bo)).size === 3)
+  assert.equal(three.length, 1, yes.summary.warnings.join('|'))
+  assert.match(yes.summary.dayReasons[three[0][0]], /combination seen 2 days before/)
+  assert.ok(yes.rows.some((r) => /Third brick/.test(r.note ?? '')))
+  assert.equal(yes.validation.ok, true, yes.validation.failures.join('; '))
+  // the same Bricks on different days (and on different weekdays for their doctors): no day with three Bricks before step D
+  const apart = mkRep({ P: ['2026-10-03', '2026-10-11'], Q: ['2026-10-04', '2026-10-12'], R: ['2026-10-05', '2026-10-13'] })
+  for (const step of ['A', 'B', 'C']) {
+    const no = pl.generatePlan(input(apart.docs, apart.hist, 9, [], { brickPairs: allPairs(['P', 'Q', 'R']) }), { minDay: 8 }, { step })
+    const bo2 = brickOfRow(apart.docs)
+    assert.ok(Object.values(perDay(no)).every((l) => new Set(l.map(bo2)).size <= 2), step)
+  }
+  // the validator rejects a three-Brick day with no reason and accepts it with the combination history
+  const row = (doctor_id, i) => ({ day: '2026-11-07', seq: i + 1, doctor_id, planned_time: hh(17 * 60 + i * 17), fixed: false, visit_no: 1, note: null })
+  const rows = together.docs.map((d, i) => row(d.doctor_id, i))
+  const v1 = pl.validatePlan(input(apart.docs, apart.hist, 9, [], { brickPairs: allPairs(['P', 'Q', 'R']) }), rows, { minDay: 8 })
+  assert.match(v1.failures.join('|'), /3 bricks \(P, Q, R\) without a reason/)
+  assert.equal(pl.validatePlan(input(together.docs, together.hist, 9, [], { brickPairs: [] }), rows, { minDay: 8 }).ok, true)
+  // reason (b): every doctor of the other Bricks has 2+ visits on that weekday, 3+ doctors
+  const byWeekday = together.docs.map((d) => ({ ...d, dow_n: [0, 0, 0, 0, 0, 0, 2, 0], hist_dows: [6] })) // Saturday
+  assert.equal(pl.validatePlan(input(byWeekday, [], 9, [], { brickPairs: allPairs(['P', 'Q', 'R']) }), rows, { minDay: 8 }).ok, true)
+  // more Bricks than the maximum fail; step D allows 4
+  const four = smallBricks(4, OPEN9)
+  const rows4 = four.docs.map((d, i) => ({ day: '2026-11-07', seq: i + 1, doctor_id: d.doctor_id, planned_time: hh(17 * 60 + i * 17), fixed: false, visit_no: 1, note: null }))
+  const v4 = pl.validatePlan(input(four.docs, four.hist, 9, []), rows4, { maxBricksPerDay: 3 })
+  assert.match(v4.failures.join('|'), /4 bricks in one day \(maximum 3\)/)
+  assert.equal(pl.validatePlan(input(four.docs, four.hist, 9, []), rows4, { maxBricksPerDay: 4 }, [], { stepD: true }).failures.some((f) => /maximum/.test(f)), false)
+})
+
+t('(b) with the same Bricks available the plan picks the nearer Brick and the fewer Brick changes', () => {
+  const docs = []
+  let id = 1
+  const put = (brick, n, lat) => { for (let i = 0; i < n; i++) docs.push({ doctor_id: id++, name: `Dr ${brick}${i}`, account: 'a', account_type: 'Clinics', freq: 1, brick, division: 'D', lat: lat + i * 0.001, lng: 31, pos_source: 'device', usual_isodow: null, usual_hour: null, n_visits: 0 }) }
+  put('X', 4, 30)
+  put('FAR', 3, 30.5)
+  put('NEAR', 3, 30.01)
+  const hist = []
+  for (const d of docs) ['2026-10-04', '2026-10-11', '2026-10-18', '2026-10-25', '2026-10-05'].forEach((day, k) => hist.push({ day, doctor_id: d.doctor_id, visit_time: hh(17 * 60 + ((d.doctor_id * 37 + k * 91) % 270)), by_rep: 1 }))
+  const res = pl.generatePlan(input(docs, hist, 9, [], { brickPairs: allPairs(['X', 'FAR', 'NEAR']) }), {}, { step: 'A' })
+  const bo = brickOfRow(docs)
+  const day = Object.values(perDay(res))[0]
+  assert.deepEqual([...new Set(day.map(bo))].sort(), ['NEAR', 'X'])
+  assert.equal(res.summary.brickChanges, 1)
+  assert.deepEqual(res.summary.brickDays, { one: 0, two: 1, threePlus: 0 })
+  assert.ok(res.summary.avgBlockKm > 0 && res.summary.avgBlockKm < 5)
+  assert.match(res.summary.dayReasons[Object.keys(perDay(res))[0]], /Brick changes: 1/)
+})
+
+t('(d)(e) Approve needs PCF >= 90% and end-of-month Coverage >= 90%, with the numbers in the message; Save draft is not affected', () => {
+  const ok = scenario().res.summary
+  assert.deepEqual(pl.approvalState(ok), { allowed: true, message: null })
+  const lowPcf = { ...ok, pcf: { ...ok.pcf, pct: 0.841 } }
+  assert.deepEqual(pl.approvalState(lowPcf), { allowed: false, message: 'Approve is disabled: PCF 84.1% < 90%.' })
+  const lowCov = { ...ok, covEnd: { ...ok.covEnd, pct: 0.88 } }
+  assert.equal(pl.approvalState(lowCov).message, 'Approve is disabled: end-of-month Coverage 88.0% < 90%.')
+  assert.equal(pl.approvalState({ ...lowPcf, covEnd: lowCov.covEnd }).message, 'Approve is disabled: PCF 84.1% < 90% · end-of-month Coverage 88.0% < 90%.')
+  assert.equal(pl.approvalState(null).allowed, false)
+  // a plan that cannot reach the targets says so, and the summary agrees with the gate
+  const sp = {}
+  for (const b of 'ABCDEF') sp[b] = { n: 15, freq: 3, dows: [6, 7, 1, 2, 3], ...EVE }
+  const { docs, hist } = build(sp)
+  const res = pl.generatePlan(input(docs, hist, 9, days().map((d) => d.day).slice(0, 4)))
+  assert.equal(res.summary.targetsMet, false)
+  assert.equal(pl.approvalState(res.summary).allowed, false)
+  assert.equal(res.summary.endTargets.bothMet, false)
+})
+
+t('(f) no day above 12 or between 1 and 5 visits in any step (A, B, C, D1, D2, D3), on several shapes', () => {
+  const shapes = []
+  shapes.push(() => { const { docs, hist } = build(SCENARIO); return input(docs, hist, 9, [], { brickRepeats: FREPEAT }) })
+  shapes.push(() => { const sp = {}; for (const b of 'ABCDEFGH') sp[b] = { n: 12, freq: 3, dows: [6, 7, 1, 2, 3], ...EVE }; const { docs, hist } = build(sp); return input(docs, hist, 9, days().map((d) => d.day).slice(0, 5)) })
+  shapes.push(() => { const { docs, hist, closed } = smallBricks(14, OPEN9); return input(docs, hist, 9, closed) })
+  shapes.push(() => { const { docs, hist } = build({ A: { n: 9, freq: 2, dows: [1], ...EVE }, B: { n: 5, freq: 1, dows: [2, 3], ...EVE }, C: { n: 4, freq: 2, dows: [6], ...EVE } }); return input(docs, hist) })
+  for (const mkInput of shapes) {
+    for (const [step, dSub] of [['A'], ['B'], ['C'], ['D', 1], ['D', 2], ['D', 3]]) {
+      const res = pl.generatePlan(mkInput(), {}, { step, dSub })
+      for (const [d, l] of Object.entries(perDay(res))) assert.ok(l.length >= 6 && l.length <= 12, `${step}${dSub ?? ''} ${d}: ${l.length}`)
+      assert.equal(res.validation.ok, true, `${step}${dSub ?? ''}: ${res.validation.failures.join('; ')}`)
+      const per = new Map()
+      for (const r of res.rows) per.set(r.doctor_id, (per.get(r.doctor_id) ?? 0) + 1)
+      for (const d of mkInput().doctors) assert.ok((per.get(d.doctor_id) ?? 0) <= d.freq)
+    }
+  }
+})
+
+t('summary: days with 1, 2 and 3+ Bricks add up, Brick changes and the km between blocks are reported', () => {
+  const sm = scenario().res.summary
+  assert.equal(sm.brickDays.one + sm.brickDays.two + sm.brickDays.threePlus, sm.dayCounts.filter((d) => d.count > 0).length)
+  assert.equal(sm.brickChanges, sm.brickDays.two + 2 * sm.brickDays.threePlus)
+  assert.ok(sm.avgBlockKm >= 0)
 })
 
 console.log(`${n} tests passed`)

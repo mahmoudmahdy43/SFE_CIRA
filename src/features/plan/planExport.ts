@@ -37,7 +37,7 @@ export async function downloadPlanWorkbook(book: PlanBook, logoUrl: string): Pro
   const gt = { A: book.rows.filter((x) => x.grade === 'A').length, B: book.rows.filter((x) => x.grade === 'B').length, C: book.rows.filter((x) => x.grade === 'C').length }
   const gSum = gt.A + gt.B + gt.C
   const gp = (n: number) => `${gSum > 0 ? Math.round((n / gSum) * 100) : 0}%`
-  put(3, 0, cov ? `Visits ${book.rows.length} of ${cov.targetVisits}   |   Coverage by day 15: ${cov.cov15.done}/${cov.cov15.total} (${Math.round(cov.cov15.pct * 100)}%)   |   PCF ${(cov.pcf.pct * 100).toFixed(1)}%   |   ${cov.targetsMet ? `Targets met at step ${cov.step}` : cov.notReachable ? 'NOT REACHED WITH THE CURRENT RULES' : ''}   |   A ${gp(gt.A)}  B ${gp(gt.B)}  C ${gp(gt.C)}` : `Visits ${book.rows.length}`, { fill: fill(STRIP), font: font(11, { bold: true }) })
+  put(3, 0, cov ? `Visits ${book.rows.length} of ${cov.targetVisits}   |   Coverage by day 15: ${cov.cov15.done}/${cov.cov15.total} (${Math.round(cov.cov15.pct * 100)}%)   |   PCF ${(cov.pcf.pct * 100).toFixed(1)}%   |   ${cov.targetsMet ? `Targets met at step ${cov.step}${cov.dSub ?? ''}` : cov.notReachable ? 'NOT REACHED WITH THE CURRENT RULES' : ''}   |   A ${gp(gt.A)}  B ${gp(gt.B)}  C ${gp(gt.C)}` : `Visits ${book.rows.length}`, { fill: fill(STRIP), font: font(11, { bold: true }) })
   HEADERS.forEach((h, c) => put(5, c, h, { fill: fill(GREEN), font: font(11, { bold: true, rgb: 'FFFFFF' }), alignment: { horizontal: 'center', vertical: 'center' } }))
 
   const days = [...new Set(book.rows.map((r) => r.day))].sort()
@@ -80,8 +80,10 @@ export async function downloadPlanWorkbook(book: PlanBook, logoUrl: string): Pro
   if (book.summary) {
     const s = book.summary
     const rows: (string | number)[][] = [
-      ['Targets', s.targetsMet ? `MET at step ${s.step} (A strict history, B softer history, C last resort)` : s.notReachable ? `NOT REACHED WITH THE CURRENT RULES - best plan found, step ${s.step ?? '-'}` : '-'],
+      ['Targets', s.targetsMet ? `MET at step ${s.step}${s.dSub ?? ''} (A strict history, B softer history, C last resort, D bends the rules in order)` : s.notReachable ? `${s.notReachable.impossible ? s.notReachable.impossible.message : 'NOT REACHED WITH THE CURRENT RULES'} - best plan found, step ${s.step ?? '-'}${s.dSub ?? ''}` : '-'],
       ...(s.notReachable ? [['Available capacity (12 x open days)', s.notReachable.capacity], [`Required (90% x ${s.notReachable.targetVisits} target visits)`, s.notReachable.requiredVisits], ['Capacity is enough', s.notReachable.capacityEnough ? 'yes - the rules block it' : 'no'], ['Best PCF / Coverage by day 15 achievable', `${(s.notReachable.bestPcf * 100).toFixed(1)}% / ${(s.notReachable.bestCov15 * 100).toFixed(1)}% (${s.notReachable.requiredCov15} doctors needed by day 15)`], ...s.notReachable.reasons.map((x) => ['Reason', x])] : []),
+      ['End of month: PCF / Coverage', `${(s.pcf.pct * 100).toFixed(1)}% / ${(s.covEnd.pct * 100).toFixed(1)}% (Coverage by day 15: ${(s.cov15.pct * 100).toFixed(1)}%)`],
+      ['Days with 1 / 2 / 3+ Bricks', s.brickDays ? `${s.brickDays.one} / ${s.brickDays.two} / ${s.brickDays.threePlus}` : '-'], ['Brick changes / average km between blocks', `${s.brickChanges ?? 0} / ${(s.avgBlockKm ?? 0).toFixed(1)}`], ['Visits with a reduced gap', s.gapReducedVisits ?? 0],
       ['Grades A / B / C', `${gt.A} (${gp(gt.A)}) / ${gt.B} (${gp(gt.B)}) / ${gt.C} (${gp(gt.C)})`],
       ['Allowed waiting (20-45 min, doctor certain to be present)', s.waitAllowed ? `${s.waitAllowed.doctors} doctors, ${s.waitAllowed.minutes} min` : '-'],
       ['Planning mode', s.mode === 'history' ? 'History mode' : s.mode === 'geography' ? 'Geography mode - Low confidence - geography only' : 'No plan'],

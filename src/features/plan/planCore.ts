@@ -66,7 +66,8 @@ export const MAX_PER_DAY = 12
 export interface PlanParams {
   coverageDay: number; minCoverage: number; minPcf: number
   maxDay: number; minDay: number
-  maxBricksPerDay: number; minSecondBrickDoctors: number
+  /** Bricks in one day: at most this many (3), 4 only in step D; every Brick of a multi-Brick day needs minSecondBrickDoctors doctors. */
+  maxBricksPerDay: number; maxBricksStepD: number; minSecondBrickDoctors: number
   visitMinutes: number; speedKmh: number; detourFactor: number; gapMin: number; gapMax: number
   minHistoryShare: number; minGpsShare: number
   /** The rep's own visits are used for the templates when he has at least this many in the history window. */
@@ -92,7 +93,7 @@ export interface PlanParams {
 export const DEFAULT_PARAMS: PlanParams = {
   coverageDay: 15, minCoverage: 0.9, minPcf: 0.9,
   maxDay: MAX_PER_DAY, minDay: 6,
-  maxBricksPerDay: 2, minSecondBrickDoctors: 3,
+  maxBricksPerDay: 3, maxBricksStepD: 4, minSecondBrickDoctors: 3,
   visitMinutes: 15, speedKmh: 25, detourFactor: 1.35, gapMin: 15, gapMax: 25,
   minHistoryShare: 0.5, minGpsShare: 0.7, minOwnVisits: 30,
   maxWaitMin: 45, earlyToleranceMin: 20, windowGapMaxMin: 90,
@@ -106,7 +107,7 @@ export const DEFAULT_PARAMS: PlanParams = {
 /** Confidence of one planned visit: A good data, B data exists but does not fully match, C needs timing confirmation from the rep. */
 export type Grade = 'A' | 'B' | 'C'
 /** Fallback step: A strict history, B softer history, C last resort. */
-export type Step = 'A' | 'B' | 'C'
+export type Step = 'A' | 'B' | 'C' | 'D'
 export interface PlanRow { day: string; seq: number; doctor_id: number; planned_time: string | null; fixed: boolean; visit_no: number; note: string | null; grade?: Grade | null }
 interface Named { id: number; name: string }
 
@@ -126,7 +127,7 @@ export interface PlanSummary {
   underMin: { day: string; count: number }[]
   emptyDays: string[]
   /** Days with two bricks and why that was allowed. */
-  twoBrickDays: { day: string; a: string; b: string; why: string }[]
+  twoBrickDays: { day: string; a: string; b: string; why: string; bricks?: string[] }[]
   oneBrickDays: number
   noGps: Named[]; noTime: Named[]
   dropped: { id: number; name: string; missing: number; visits: string[]; reason: string }[]
@@ -154,9 +155,19 @@ export interface PlanSummary {
   warnings: string[]
   /** The step (A/B/C) at which the plan met both targets, or the step of the best plan found when it did not. null = nothing planned. */
   step?: Step | null
+  /** Step D sub-step reached: 1 = up to 4 Bricks, 2 = + reduced gap, 3 = + every open day up to 12. */
+  dSub?: 1 | 2 | 3 | null
+  /** The non-negotiable end-of-month targets: PCF and Coverage (doctors with a done or planned visit / doctors of the list). */
+  endTargets?: { pcfOk: boolean; covEndOk: boolean; bothMet: boolean }
+  /** Days with 1, 2 and 3+ Bricks, Brick changes in the month, average km between the Brick blocks of a multi-Brick day. */
+  brickDays?: { one: number; two: number; threePlus: number }
+  brickChanges?: number
+  avgBlockKm?: number
+  /** Visits planned closer to the previous visit of the doctor than the normal gap (step D2+). */
+  gapReducedVisits?: number
   targetsMet?: boolean
   /** Set when even step C could not reach PCF and Coverage by day 15 ("Not reached with the current rules"): the numbers and the blocking rules with counts. */
-  notReachable?: { capacity: number; requiredVisits: number; targetVisits: number; bestPcf: number; bestCov15: number; requiredCov15: number; capacityEnough: boolean; reasons: string[] } | null
+  notReachable?: { capacity: number; requiredVisits: number; targetVisits: number; bestPcf: number; bestCov15: number; requiredCov15: number; capacityEnough: boolean; reasons: string[]; impossible?: { capacity: number; required: number; gap: number; addDays: number; removeVisits: number; firstNeeded: number; message: string } | null } | null
   /** The history template used: Brick x weekday dates, kind per Brick, and where it came from. */
   template?: { source: 'own' | 'any' | 'none'; ownVisits: number; freeBricks: number; restrictedBricks: number; unknownBricks: number; bricks: { brick: string; doctors: number; dates: number[]; allowed: number[]; kind: 'free' | 'restricted' | 'unknown'; repeatRatio: number | null }[] } | null
   /** Per date: the Brick(s) assigned, why, and the reason when a day stayed empty. */
@@ -221,8 +232,21 @@ export const pairAllowed = (p: BrickPair | null): boolean => p !== null && (p.pm
 export const pairWhy = (p: BrickPair): string => (p.pm_days >= 2 ? `worked together ${p.pm_days} PM days before` : `worked together AM + PM ${p.any_days - p.pm_days} day${p.any_days - p.pm_days === 1 ? '' : 's'} before`)
 export const WEEKDAY = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
-/** Minimum calendar days between two visits of one doctor: 2 visits a month -> 10, 3 -> 7, 4 or more -> 5, one visit -> none. */
-export const gapDaysFor = (freq: number): number => (freq >= 4 ? 5 : freq === 3 ? 7 : freq === 2 ? 10 : 0)
+/**
+ * Approval needs both end-of-month targets: PCF and Coverage (doctors with a done or planned visit / doctors of the list) of 90% or more.
+ * Save draft stays allowed; there is no "approve anyway".
+ */
+export function approvalState(s: PlanSummary | null | undefined, p: Pick<PlanParams, 'minPcf' | 'minCoverage'> = DEFAULT_PARAMS): { allowed: boolean; message: string | null } {
+  if (!s || s.mode === 'none') return { allowed: false, message: 'There is no plan to approve.' }
+  const bits: string[] = []
+  if (s.pcf.pct < p.minPcf) bits.push(`PCF ${(s.pcf.pct * 100).toFixed(1)}% < ${Math.round(p.minPcf * 100)}%`)
+  const cov = s.covEnd?.pct ?? 0
+  if (cov < p.minCoverage) bits.push(`end-of-month Coverage ${(cov * 100).toFixed(1)}% < ${Math.round(p.minCoverage * 100)}%`)
+  return bits.length === 0 ? { allowed: true, message: null } : { allowed: false, message: `Approve is disabled: ${bits.join(' · ')}.` }
+}
+
+/** Minimum calendar days between two visits of one doctor: 2 visits a month -> 10, 3 -> 7, 4 or more -> 5, one visit -> none. Reduced (step D): 7 / 5 / 4. */
+export const gapDaysFor = (freq: number, reduced = false): number => (reduced ? (freq >= 4 ? 4 : freq === 3 ? 5 : freq === 2 ? 7 : 0) : freq >= 4 ? 5 : freq === 3 ? 7 : freq === 2 ? 10 : 0)
 /** Calendar day number (days since 1970-01-01) of an ISO date. */
 export const dayNum = (iso: string): number => Math.round(Date.parse(`${iso}T00:00:00Z`) / 86400000)
 

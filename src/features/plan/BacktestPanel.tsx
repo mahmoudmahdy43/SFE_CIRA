@@ -13,7 +13,7 @@ const pct = (v: number) => `${(v * 100).toFixed(0)}%`
 const pp = (a: number, b: number) => { const d = (a - b) * 100; return `${d >= 0 ? '+' : ''}${d.toFixed(0)} pp` }
 const km = (v: number) => v.toFixed(1)
 const gShare = (b: Backtest, g: 'A' | 'B' | 'C'): number => { const t = b.grades.A + b.grades.B + b.grades.C; return t > 0 ? b.grades[g] / t : 0 }
-const levelText = (b: Backtest): string => (b.targetsMet ? `Step ${b.step}` : b.step ? `not reached (best step ${b.step})` : '-')
+const levelText = (b: Backtest): string => (b.targetsMet ? `Step ${b.step}${b.dSub ?? ''} - both targets met` : b.step ? `Step ${b.step}${b.dSub ?? ''} - targets NOT met` : '-')
 const SELECT = 'h-8 rounded-control border bg-card px-2 text-sm text-foreground'
 
 function prevMonth(): string {

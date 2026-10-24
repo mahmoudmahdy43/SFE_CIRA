@@ -54,6 +54,23 @@ export function buildBrickTemplates(history: ActualVisit[], doctors: PlanDoctor[
   return out
 }
 
+/** The set of Bricks visited on each (rep, date) of the history: used to tell whether three Bricks were really worked together. */
+export function comboSets(history: ActualVisit[], doctors: PlanDoctor[]): Set<string>[] {
+  const brickByDoc = new Map(doctors.map((d) => [d.doctor_id, brickOf(d)]))
+  const by = new Map<string, Set<string>>()
+  for (const v of history) {
+    const b = brickByDoc.get(v.doctor_id)
+    if (b === undefined) continue
+    const key = `${v.by_rep ?? 'x'}|${v.day}`
+    const s = by.get(key) ?? new Set<string>()
+    s.add(b)
+    by.set(key, s)
+  }
+  return [...by.values()]
+}
+/** On how many different days (of one rep) all these Bricks were visited together. */
+export const comboDays = (sets: Set<string>[], bricks: string[]): number => sets.filter((s) => bricks.every((b) => s.has(b))).length
+
 /** Weekdays on which the Brick was visited on at least `minDates` distinct dates. */
 export const allowedDays = (t: BrickTpl | undefined, minDates: number): number[] => (t ? [1, 2, 3, 4, 5, 6, 7].filter((d) => t.dates[d] >= minDates) : [])
 
