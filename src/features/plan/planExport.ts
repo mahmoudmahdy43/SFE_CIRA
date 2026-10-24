@@ -37,7 +37,7 @@ export async function downloadPlanWorkbook(book: PlanBook, logoUrl: string): Pro
   const gt = { A: book.rows.filter((x) => x.grade === 'A').length, B: book.rows.filter((x) => x.grade === 'B').length, C: book.rows.filter((x) => x.grade === 'C').length }
   const gSum = gt.A + gt.B + gt.C
   const gp = (n: number) => `${gSum > 0 ? Math.round((n / gSum) * 100) : 0}%`
-  put(3, 0, cov ? `Visits ${book.rows.length} of ${cov.targetVisits}   |   Coverage by day 15: ${cov.cov15.done}/${cov.cov15.total} (${Math.round(cov.cov15.pct * 100)}%)   |   PCF ${(cov.pcf.pct * 100).toFixed(1)}%   |   ${cov.targetsMet ? `Targets met at level ${cov.level}` : cov.notReachable ? 'TARGET NOT REACHABLE' : ''}   |   A ${gp(gt.A)}  B ${gp(gt.B)}  C ${gp(gt.C)}` : `Visits ${book.rows.length}`, { fill: fill(STRIP), font: font(11, { bold: true }) })
+  put(3, 0, cov ? `Visits ${book.rows.length} of ${cov.targetVisits}   |   Coverage by day 15: ${cov.cov15.done}/${cov.cov15.total} (${Math.round(cov.cov15.pct * 100)}%)   |   PCF ${(cov.pcf.pct * 100).toFixed(1)}%   |   ${cov.targetsMet ? `Targets met at step ${cov.step}` : cov.notReachable ? 'NOT REACHED WITH THE CURRENT RULES' : ''}   |   A ${gp(gt.A)}  B ${gp(gt.B)}  C ${gp(gt.C)}` : `Visits ${book.rows.length}`, { fill: fill(STRIP), font: font(11, { bold: true }) })
   HEADERS.forEach((h, c) => put(5, c, h, { fill: fill(GREEN), font: font(11, { bold: true, rgb: 'FFFFFF' }), alignment: { horizontal: 'center', vertical: 'center' } }))
 
   const days = [...new Set(book.rows.map((r) => r.day))].sort()
@@ -80,14 +80,15 @@ export async function downloadPlanWorkbook(book: PlanBook, logoUrl: string): Pro
   if (book.summary) {
     const s = book.summary
     const rows: (string | number)[][] = [
-      ['Targets', s.targetsMet ? `MET at level ${s.level} (L1 strictest ... L4 loosest)` : s.notReachable ? `NOT REACHABLE - best plan found, level ${s.level ?? '-'}` : '-'],
-      ...(s.notReachable ? [['Available capacity (12 x open days)', s.notReachable.capacity], [`Required (${Math.round(0.9 * 100)}% x ${s.notReachable.targetVisits} target visits)`, s.notReachable.requiredVisits], ['Best PCF / Coverage by day 15 achievable', `${(s.notReachable.bestPcf * 100).toFixed(1)}% / ${(s.notReachable.bestCov15 * 100).toFixed(1)}% (${s.notReachable.requiredCov15} doctors needed by day 15)`], ...s.notReachable.reasons.map((x) => ['Reason', x])] : []),
+      ['Targets', s.targetsMet ? `MET at step ${s.step} (A strict history, B softer history, C last resort)` : s.notReachable ? `NOT REACHED WITH THE CURRENT RULES - best plan found, step ${s.step ?? '-'}` : '-'],
+      ...(s.notReachable ? [['Available capacity (12 x open days)', s.notReachable.capacity], [`Required (90% x ${s.notReachable.targetVisits} target visits)`, s.notReachable.requiredVisits], ['Capacity is enough', s.notReachable.capacityEnough ? 'yes - the rules block it' : 'no'], ['Best PCF / Coverage by day 15 achievable', `${(s.notReachable.bestPcf * 100).toFixed(1)}% / ${(s.notReachable.bestCov15 * 100).toFixed(1)}% (${s.notReachable.requiredCov15} doctors needed by day 15)`], ...s.notReachable.reasons.map((x) => ['Reason', x])] : []),
       ['Grades A / B / C', `${gt.A} (${gp(gt.A)}) / ${gt.B} (${gp(gt.B)}) / ${gt.C} (${gp(gt.C)})`],
       ['Allowed waiting (20-45 min, doctor certain to be present)', s.waitAllowed ? `${s.waitAllowed.doctors} doctors, ${s.waitAllowed.minutes} min` : '-'],
       ['Planning mode', s.mode === 'history' ? 'History mode' : s.mode === 'geography' ? 'Geography mode - Low confidence - geography only' : 'No plan'],
       ['Doctors with visit times / GPS / any history', `${s.modeInfo.withTime} / ${s.modeInfo.withGps} / ${s.modeInfo.withAny} of ${s.modeInfo.listDoctors}`],
       ['Brick history source', s.brickSource === 'own' ? "the rep's own" : s.brickSource === 'any' ? 'any rep who worked these bricks' : '-'],
-      ['Doctors only on their usual weekdays / free any day', `${s.restrictedDoctors} / ${s.freeDoctors}`],
+      ['Doctors on their own weekdays only / free doctors (4+ weekdays)', `${s.restrictedDoctors} / ${s.freeDoctors}`],
+      ['Bricks: free / restricted / unknown history', s.template ? `${s.template.freeBricks} / ${s.template.restrictedBricks} / ${s.template.unknownBricks}` : '-'],
       ['Open PM days', s.openDays], ['Closed days', s.closedDays], ['Daily target', s.target], ['Capacity at target (Target x open days)', s.capacityAtTarget], ['Capacity at max (12 x open days)', s.capacityAtMax], ['Target visits (list)', s.targetVisits], ['Visits in the plan', s.plannedVisits],
       ['Days above target', s.overDays], ['Highest day', s.peak], ['Lowest day', s.lowest], ['His usual busiest day (P90, last 3 months)', s.usualMaxDay ?? 'not enough history'], ['Days with 1 brick / 2 bricks', `${s.oneBrickDays} / ${s.twoBrickDays.length}`], ['Average stay (first to last visit)', `${Math.round(s.avgStayMin)} min`], ['Waiting time in total', `${s.waitTotalMin} min`], ['Same-brick repeats on consecutive days', `${s.repeats.length} (limit ${s.repeatLimit}) ${s.repeats.map((r) => r.why).join('; ')}`], ['PM window', `${s.window.start} - ${s.window.end}${s.window.own ? '' : ' (default)'}`], ['Coverage by day 15', `${s.cov15.done} of ${s.cov15.total} (needs ${s.cov15.required})`], ['Expected PCF', `${(s.pcf.pct * 100).toFixed(1)}%`],
       ['Average estimated km a day (straight line x 1.35)', Number(s.avgEstKmPerDay.toFixed(1))], ['', ''], ['Warnings', ''], ...s.warnings.map((w) => ['', w]),
@@ -96,6 +97,21 @@ export async function downloadPlanWorkbook(book: PlanBook, logoUrl: string): Pro
     const sh = XLSX.utils.aoa_to_sheet(rows)
     sh['!cols'] = [{ wch: 30 }, { wch: 90 }]
     XLSX.utils.book_append_sheet(wb, sh, 'Summary')
+    if (s.template) {
+      // the history template: Brick x weekday (distinct dates), the Brick type, and per date which Brick(s) were assigned and why
+      const order: [number, string][] = [[6, 'Sat'], [7, 'Sun'], [1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri']]
+      const t = s.template
+      const tr: (string | number)[][] = [
+        [`History template - ${t.source === 'own' ? "the rep's own visits" : t.source === 'any' ? 'visits of any rep to the same doctors' : 'no history'} (last 6 months). Cells = distinct dates the Brick was visited; allowed weekdays are marked with *.`],
+        ['Brick', 'Doctors', ...order.map(([, l]) => l), 'Type', 'Allowed weekdays', 'Consecutive-day repeats'],
+        ...t.bricks.map((b) => [b.brick, b.doctors, ...order.map(([d]) => `${b.dates[d - 1] || ''}${b.allowed.includes(d) ? ' *' : ''}`), b.kind === 'free' ? 'Free' : b.kind === 'restricted' ? 'Restricted' : 'Unknown history', b.allowed.map((d) => order.find(([k]) => k === d)?.[1]).join(', '), b.repeatRatio === null ? '' : `${Math.round(b.repeatRatio * 100)}%`]),
+        [''], ['Date', 'Day', 'Brick(s) and why'],
+        ...Object.entries(s.dayReasons ?? {}).sort((x, y) => x[0].localeCompare(y[0])).map(([d, why]) => [d, dayName(d), why]),
+      ]
+      const th = XLSX.utils.aoa_to_sheet(tr)
+      th['!cols'] = [{ wch: 22 }, { wch: 9 }, ...order.map(() => ({ wch: 7 })), { wch: 16 }, { wch: 26 }, { wch: 22 }]
+      XLSX.utils.book_append_sheet(wb, th, 'History template')
+    }
   }
 
   const raw = XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer

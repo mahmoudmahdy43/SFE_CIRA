@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import { DEFAULT_PARAMS, doctorTimesFromHistory, usualMaxDayFromHistory, windowFromTimes, type ActualVisit, type BrickPair, type BrickRepeat, type HistoryInfo, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary } from '../../features/plan/planner'
+import { DEFAULT_PARAMS, usualMaxDayFromHistory, windowFromTimes, type ActualVisit, type BrickPair, type BrickRepeat, type HistoryInfo, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary } from '../../features/plan/planner'
 import { fetchAll, rpc } from './core'
 import { rpcAll } from './reports'
 
@@ -32,7 +32,7 @@ export async function fetchHistoryInfo(rep: number, month: string): Promise<Hist
 export async function fetchDoctorHistory(rep: number, month: string): Promise<ActualVisit[] | undefined> {
   try {
     const rows = await rpcAll('plan_doctor_history', { p_rep: rep, p_month: month, p_months_back: 6 }, ['doctor_id', 'visit_date'])
-    return rows.map((r) => ({ day: String(r.visit_date).slice(0, 10), doctor_id: Number(r.doctor_id), visit_time: str(r.visit_time) }))
+    return rows.map((r) => ({ day: String(r.visit_date).slice(0, 10), doctor_id: Number(r.doctor_id), visit_time: str(r.visit_time), by_rep: num(r.by_rep) }))
   } catch {
     return undefined
   }
@@ -69,7 +69,7 @@ export async function fetchPlanInputs(rep: number, month: string, fromDay: strin
     fromDay && fromDay > month ? fetchPlanActuals(rep, month) : Promise.resolve([] as ActualVisit[]),
   ])
   // brick history: the rep's own when he has 30+ PM visits in the last 3 months, else the history of any rep who worked these bricks
-  const own = history.length >= DEFAULT_PARAMS.minOwnVisitsForBricks
+  const own = history.length >= DEFAULT_PARAMS.minOwnVisits
   const pairs = own ? pairsOwn ?? pairsAny : pairsAny ?? pairsOwn
   const repeats = own ? repeatsOwn ?? repeatsAny : repeatsAny ?? repeatsOwn
   const brickSource: 'own' | 'any' = own || (pairsAny === undefined && repeatsAny === undefined) ? 'own' : 'any'
@@ -77,7 +77,8 @@ export async function fetchPlanInputs(rep: number, month: string, fromDay: strin
   const lastDone: Record<number, string> = {}
   for (const v of thisMonth) if (fromDay && v.day < fromDay) { done[v.doctor_id] = (done[v.doctor_id] ?? 0) + 1; if (!lastDone[v.doctor_id] || v.day > lastDone[v.doctor_id]) lastDone[v.doctor_id] = v.day }
   return {
-    ...inputs, historyInfo: info, brickSource, doctors: doctorTimesFromHistory(docHist ?? history, inputs.doctors), window: windowFromTimes(history.map((v) => v.visit_time)),
+    // the planner builds the Brick and doctor templates itself from the raw history (the rep's own visits when he has enough, else any rep's)
+    ...inputs, historyInfo: info, brickSource, history: docHist ?? history.map((v) => ({ ...v, by_rep: rep })), window: windowFromTimes(history.map((v) => v.visit_time)),
     brickRepeats: repeats, usualMaxDay: usualMaxDayFromHistory(history), brickPairs: pairs, fromDay: fromDay && fromDay > month ? fromDay : null, done, lastDone,
   }
 }

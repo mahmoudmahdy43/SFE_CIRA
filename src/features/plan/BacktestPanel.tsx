@@ -13,7 +13,7 @@ const pct = (v: number) => `${(v * 100).toFixed(0)}%`
 const pp = (a: number, b: number) => { const d = (a - b) * 100; return `${d >= 0 ? '+' : ''}${d.toFixed(0)} pp` }
 const km = (v: number) => v.toFixed(1)
 const gShare = (b: Backtest, g: 'A' | 'B' | 'C'): number => { const t = b.grades.A + b.grades.B + b.grades.C; return t > 0 ? b.grades[g] / t : 0 }
-const levelText = (b: Backtest): string => (b.targetsMet ? `L${b.level}` : b.level ? `not reached (best L${b.level})` : '-')
+const levelText = (b: Backtest): string => (b.targetsMet ? `Step ${b.step}` : b.step ? `not reached (best step ${b.step})` : '-')
 const SELECT = 'h-8 rounded-control border bg-card px-2 text-sm text-foreground'
 
 function prevMonth(): string {
@@ -82,7 +82,7 @@ export function BacktestPanel({ reps, selected }: { reps: PlanRep[]; selected: P
       'Days over target plan': r.bt ? r.bt.plan.daysOver : null, 'Days over target actual': r.bt ? r.bt.actual.daysOver : null,
       'Highest day plan': r.bt ? r.bt.plan.maxDay : null, 'Highest day actual': r.bt ? r.bt.actual.maxDay : null,
       'Grade A %': r.bt ? Math.round(gShare(r.bt, 'A') * 100) : null, 'Grade B %': r.bt ? Math.round(gShare(r.bt, 'B') * 100) : null, 'Grade C %': r.bt ? Math.round(gShare(r.bt, 'C') * 100) : null,
-      'Level reached': r.bt ? levelText(r.bt) : '', Note: r.error ?? '',
+      'Step reached': r.bt ? levelText(r.bt) : '', Note: r.error ?? '',
     })))
   }
 
@@ -107,7 +107,7 @@ export function BacktestPanel({ reps, selected }: { reps: PlanRep[]; selected: P
                 <th className="px-2 py-1.5 text-right">PCF plan</th><th className="px-2 py-1.5 text-right">actual</th>
                 <th className="px-2 py-1.5 text-right">Est. km/day plan</th><th className="px-2 py-1.5 text-right">actual</th>
                 <th className="px-2 py-1.5 text-right">Days over plan</th><th className="px-2 py-1.5 text-right">actual</th><th className="px-2 py-1.5 text-right">Peak day plan</th><th className="px-2 py-1.5 text-right">actual</th>
-                <th className="px-2 py-1.5 text-right">A %</th><th className="px-2 py-1.5 text-right">B %</th><th className="px-2 py-1.5 text-right">C %</th><th className="px-2 py-1.5 text-left">Level</th>
+                <th className="px-2 py-1.5 text-right">A %</th><th className="px-2 py-1.5 text-right">B %</th><th className="px-2 py-1.5 text-right">C %</th><th className="px-2 py-1.5 text-left">Step</th>
               </tr>
             </thead>
             <tbody>

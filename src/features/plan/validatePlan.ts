@@ -1,5 +1,5 @@
 /**
- * Independent check of a generated plan against every hard rule. It shares nothing with the planner except the input types and tiny
+ * Independent check of a generated plan against every hard rule (6-12 visits a day, closed days, the minimum gap between visits of a doctor, nobody above his visits, at most 2 Bricks in blocks with a second Brick only by history, the loose 08:00-23:59 bound). It shares nothing with the planner except the input types and tiny
  * helpers, so a bug in the planner cannot hide here. A plan that fails is shown with the list of failures and is never saved as a draft.
  */
 import { brickOf, dayNum, DEFAULT_PARAMS, gapDaysFor, pairAllowed, pairLookup, toMin, type PlanInputs, type PlanParams, type PlanRow, type ValidationResult } from './planCore.ts'
@@ -15,8 +15,8 @@ export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<
   const docs = new Map(inputs.doctors.map((d) => [d.doctor_id, d]))
   const dayInfo = new Map(inputs.days.map((d) => [d.day, d]))
   const openDays = inputs.days.filter((d) => !d.closed && (!inputs.fromDay || d.day >= inputs.fromDay)).map((d) => d.day).sort()
-  const ws = inputs.window ? inputs.window.start : (toMin(p.defaultStart) as number)
-  const we = inputs.window ? Math.max(inputs.window.end, ws) : (toMin(p.defaultEnd) as number)
+  const ws = inputs.window ? inputs.window.start : (toMin(p.sanityStart) as number)
+  const we = inputs.window ? Math.max(inputs.window.end, ws) : (toMin(p.sanityEnd) as number)
   const pair = pairLookup(inputs.brickPairs)
   const done = inputs.done ?? {}
 
@@ -72,23 +72,18 @@ export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<
     }
   }
 
-  // the same brick on two working days in a row is a failure unless the rep's own history allows it (and then only a few times)
-  const repeatDays = new Map((inputs.brickRepeats ?? []).map((r) => [r.brick, r.repeat_days]))
-  const usedBy = new Map<string, number>()
-  let usedTotal = 0
+  // the same Brick on two working days in a row is allowed by the steps of the planner (history ratio, or step C): reported, never a failure
+  const repeatDays = new Map((inputs.brickRepeats ?? []).map((r) => [r.brick, r]))
   for (let i = 1; i < openDays.length; i++) {
-    const a = dayBricks.get(openDays[i - 1])
-    const b = dayBricks.get(openDays[i])
-    if (!a || !b) continue
-    for (const br of b) {
-      if (!a.has(br)) continue
-      const allowed = Math.max(0, (repeatDays.get(br) ?? 0) - 1)
-      usedBy.set(br, (usedBy.get(br) ?? 0) + 1)
-      usedTotal++
-      if ((usedBy.get(br) as number) > allowed) fails.push(`${openDays[i - 1]} and ${openDays[i]}: ${br} on two working days in a row${allowed === 0 ? ' (his history has no such repeat)' : ' (more often than his history allows)'}`)
+    const x = dayBricks.get(openDays[i - 1])
+    const y = dayBricks.get(openDays[i])
+    if (!x || !y) continue
+    for (const br of y) {
+      if (!x.has(br)) continue
+      const r = repeatDays.get(br)
+      warns.push(`${openDays[i - 1]} and ${openDays[i]}: ${br} on two working days in a row (${r && r.brick_days > 0 ? `${Math.round((r.repeat_days / r.brick_days) * 100)}% of its visited days in his history` : 'no repeat history'})`)
     }
   }
-  if (usedTotal > p.maxBrickRepeats) fails.push(`${usedTotal} same-brick repeats on consecutive days, the limit is ${p.maxBrickRepeats}`)
 
   // doctors restricted to their usual weekdays are only planned on them
   for (const r of rows) {

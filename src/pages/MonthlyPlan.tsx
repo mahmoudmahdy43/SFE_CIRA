@@ -103,7 +103,7 @@ function ModeBadge({ s }: { s: PlanSummary }) {
       <span className={cn('rounded-full px-2.5 py-0.5 font-semibold', tone)}>{label}</span>
       <span className="text-muted-foreground">
         {s.modeInfo.withTime} of {s.modeInfo.listDoctors} doctors have visit times · {s.modeInfo.withGps} have GPS · {s.modeInfo.withAny} have any history
-        {s.mode === 'history' && ` · ${s.restrictedDoctors} doctors only on their usual weekdays, ${s.freeDoctors} free any day`}
+        {s.mode === 'history' && s.template && ` · ${s.template.restrictedBricks} restricted Bricks, ${s.template.freeBricks} free Bricks${s.template.unknownBricks > 0 ? `, ${s.template.unknownBricks} with unknown history` : ''} · ${s.restrictedDoctors} doctors on their own weekdays only, ${s.freeDoctors} free doctors (4+ weekdays)`}
         {s.brickSource && ` · brick history: ${s.brickSource === 'own' ? "the rep's own" : 'any rep who worked these bricks'}`}
       </span>
     </div>
@@ -134,8 +134,8 @@ function WarningCards({ s, params, rows, doctors }: { s: PlanSummary; params: Pl
     <div className="grid gap-2 md:grid-cols-2">
       {nr && (
         <div className="md:col-span-2">
-          <Warn tone="red" title="Target not reachable">
-            PCF ≥ {Math.round(params.minPcf * 100)}% and Coverage by day {params.coverageDay} ≥ {Math.round(params.minCoverage * 100)}% could not both be met, even at level 4. This is the best plan found (level {s.level ?? '–'}).
+          <Warn tone="red" title="Not reached with the current rules">
+            PCF ≥ {Math.round(params.minPcf * 100)}% and Coverage by day {params.coverageDay} ≥ {Math.round(params.minCoverage * 100)}% could not both be met, even at step C. This is the best plan found (step {s.step ?? '–'}).{nr.capacityEnough ? ' The capacity is enough: the rules below block it.' : ' The capacity is not enough.'}
             <ul className="mt-1 list-disc pl-4">
               <li>Available capacity ({MAX_PER_DAY} × {s.openDays} open days): {nr.capacity} visits</li>
               <li>Required ({Math.round(params.minPcf * 100)}% × {nr.targetVisits} target visits): {nr.requiredVisits} visits</li>
@@ -145,7 +145,8 @@ function WarningCards({ s, params, rows, doctors }: { s: PlanSummary; params: Pl
           </Warn>
         </div>
       )}
-      {!nr && s.targetsMet && s.level != null && <Warn tone="green" title={`Both targets met at level ${s.level}`}>PCF {(s.pcf.pct * 100).toFixed(1)}% · Coverage by day {params.coverageDay} {(s.cov15.pct * 100).toFixed(1)}%.{s.level > 1 ? ` Level ${s.level - 1} could not reach them, so softer rules were relaxed (L2 longer waits for doctors certain to be present, L3 doctors with no time data and weekday restrictions, L4 later PM end).` : ''}</Warn>}
+      {!nr && s.targetsMet && s.step != null && <Warn tone="green" title={`Both targets met at step ${s.step}`}>PCF {(s.pcf.pct * 100).toFixed(1)}% · Coverage by day {params.coverageDay} {(s.cov15.pct * 100).toFixed(1)}%.{s.step === 'B' ? ' Step A (strict history) could not reach them, so weekdays seen once, any weekday inside the Brick, P5-P95 windows and 5% Brick repeats were allowed.' : s.step === 'C' ? ' Steps A and B could not reach them, so any Brick on any weekday, doctors without time data by Brick and distance, and up to 6 same-Brick days in a row were allowed.' : ' Strict history: every visit follows the rep\'s own weekly rhythm.'}</Warn>}
+      {s.template && <Warn tone="grey" title={`History template: ${s.template.freeBricks} free Brick${s.template.freeBricks === 1 ? '' : 's'}, ${s.template.restrictedBricks} restricted`}>Built from {s.template.source === 'own' ? `the rep's own ${s.template.ownVisits} visits` : s.template.source === 'any' ? `the visits of any rep to the same doctors (the rep has ${s.template.ownVisits} of his own)` : 'no history (Geography mode)'}. The Brick x weekday table is in the History template card below.</Warn>}
       {total > 0 && <Warn tone="grey" title={`Confidence: A ${share(g.A, total)} · B ${share(g.B, total)} · C ${share(g.C, total)}`}>{g.A} grade A, {g.B} grade B, {g.C} grade C visits. {s.waitAllowed && s.waitAllowed.doctors > 0 ? `${s.waitAllowed.doctors} doctor${s.waitAllowed.doctors === 1 ? '' : 's'} with an allowed wait (20-45 min, certain to be present that day), ${s.waitAllowed.minutes} min in total.` : 'No allowed waiting (20-45 min) was needed.'}</Warn>}
       {cRows.length > 0 && (
         <Warn tone="yellow" title={`${cRows.length} grade C visit${cRows.length === 1 ? '' : 's'} need timing confirmation from the rep`}>
@@ -173,14 +174,43 @@ function WarningCards({ s, params, rows, doctors }: { s: PlanSummary; params: Pl
       {s.emptyDays.length > 0 && <Warn tone="yellow" title={`${s.emptyDays.length} open day${s.emptyDays.length === 1 ? ' has' : 's have'} no visits`}>The list has {s.targetVisits} visits; {params.minDay} a day needs {params.minDay * s.openDays}. {s.emptyDays.slice(0, 10).join(', ')}</Warn>}
       {s.warnings.filter((w) => w.startsWith('No open') || w.includes('no PM call-rate')).map((w) => <Warn key={w} tone="red" title={w} />)}
       <Warn tone="grey" title="Summary">
-        {s.openDays} open PM days ({s.closedDays} closed). Capacity at target (Target x open days) {s.capacityAtTarget}; at max ({MAX_PER_DAY} x open days) {s.capacityAtMax}. Target visits {s.targetVisits}, in the plan {s.plannedVisits}. Days: highest {s.peak}, lowest {s.lowest}. Estimated distance (straight line x 1.35, not road distance): {s.avgEstKmPerDay.toFixed(1)} km a day on average. Stay in the day (first to last visit): {Math.round(s.avgStayMin)} min on average. Days with 1 brick: {s.oneBrickDays}, with 2 bricks: {s.twoBrickDays.length}. Waiting in total: {s.waitTotalMin} min{s.waitAllowed && s.waitAllowed.doctors > 0 ? ` (allowed waits: ${s.waitAllowed.doctors} doctor${s.waitAllowed.doctors === 1 ? '' : 's'}, ${s.waitAllowed.minutes} min)` : ''}. Same-brick repeats on consecutive days: {s.repeats.length} (limit {s.repeatLimit}). PM window {s.window.start}–{s.window.end}{s.window.own ? '' : ' (default)'}.
+        Step {s.step ?? '–'}. {s.openDays} open PM days ({s.closedDays} closed). Capacity at target (Target x open days) {s.capacityAtTarget}; at max ({MAX_PER_DAY} x open days) {s.capacityAtMax}. Target visits {s.targetVisits}, in the plan {s.plannedVisits}. Days: highest {s.peak}, lowest {s.lowest}. Estimated distance (straight line x 1.35, not road distance): {s.avgEstKmPerDay.toFixed(1)} km a day on average. Stay in the day (first to last visit): {Math.round(s.avgStayMin)} min on average. Days with 1 brick: {s.oneBrickDays}, with 2 bricks: {s.twoBrickDays.length}. Waiting in total: {s.waitTotalMin} min{s.waitAllowed && s.waitAllowed.doctors > 0 ? ` (allowed waits: ${s.waitAllowed.doctors} doctor${s.waitAllowed.doctors === 1 ? '' : 's'}, ${s.waitAllowed.minutes} min)` : ''}. Same-brick repeats on consecutive days: {s.repeats.length} (limit {s.repeatLimit}). PM window {s.window.start}–{s.window.end}{s.window.own ? '' : ' (default)'}.
       </Warn>
     </div>
   )
 }
 
+/* ------------------------------ history template ------------------------------ */
+/** Weekday columns in the order of the week the reps work: Saturday first. */
+const TPL_DAYS: [number, string][] = [[6, 'Sat'], [7, 'Sun'], [1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri']]
+function TemplateCard({ s }: { s: PlanSummary }) {
+  const t = s.template
+  if (!t) return null
+  const kindLabel = { free: 'Free', restricted: 'Restricted', unknown: 'Unknown history' } as const
+  return (
+    <Card className="p-4">
+      <h2 className="text-base font-semibold">History template</h2>
+      <p className="mt-1 text-xs text-muted-foreground">Distinct dates on which each Brick was visited, per weekday (last 6 months, {t.source === 'own' ? "the rep's own visits" : t.source === 'any' ? 'visits of any rep to the same doctors' : 'no history'}). A weekday is allowed with 2+ dates (1+ in step B); a Brick allowed on 4+ weekdays is free. {t.freeBricks} free · {t.restrictedBricks} restricted · {t.unknownBricks} unknown.</p>
+      <div className="mt-2 max-h-72 overflow-auto rounded-card border">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-muted text-xs"><tr><th className="px-2 py-1 text-left">Brick</th><th className="px-2 py-1 text-right">Doctors</th>{TPL_DAYS.map(([, l]) => <th key={l} className="px-2 py-1 text-center">{l}</th>)}<th className="px-2 py-1 text-left">Type</th><th className="px-2 py-1 text-right">Repeats</th></tr></thead>
+          <tbody>
+            {t.bricks.map((b) => (
+              <tr key={b.brick} className="border-t">
+                <td className="px-2 py-1 font-medium">{b.brick}</td><td className="tnum px-2 py-1 text-right">{b.doctors}</td>
+                {TPL_DAYS.map(([d, l]) => <td key={l} className={cn('tnum px-2 py-1 text-center', b.allowed.includes(d) ? 'bg-green-100 font-semibold text-green-900' : 'text-muted-foreground')}>{b.dates[d - 1] || ''}</td>)}
+                <td className="px-2 py-1 text-xs">{kindLabel[b.kind]}</td><td className="tnum px-2 py-1 text-right text-xs">{b.repeatRatio === null ? '–' : `${Math.round(b.repeatRatio * 100)}%`}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  )
+}
+
 /* ------------------------------ the plan table ------------------------------ */
-function PlanTable({ rows, doctors, target, usual, filter }: { rows: PlanRow[]; doctors: Map<number, PlanDoctor>; target: number; usual: number | null; filter: GradeFilter }) {
+function PlanTable({ rows, doctors, target, usual, filter, reasons }: { rows: PlanRow[]; doctors: Map<number, PlanDoctor>; target: number; usual: number | null; filter: GradeFilter; reasons: Record<string, string> }) {
   const days = useMemo(() => {
     const m = new Map<string, PlanRow[]>()
     for (const r of [...rows].sort((a, b) => a.day.localeCompare(b.day) || a.seq - b.seq)) m.set(r.day, [...(m.get(r.day) ?? []), r])
@@ -204,7 +234,7 @@ function PlanTable({ rows, doctors, target, usual, filter }: { rows: PlanRow[]; 
             const span = times.length > 0 ? `${times[0]} → ${times[times.length - 1]}, ${Math.floor(spanMin / 60)}h${String(spanMin % 60).padStart(2, '0')}` : ''
             const color = n >= MAX_PER_DAY ? 'bg-red-100 text-red-900' : n > target ? 'bg-amber-100 text-amber-900' : 'bg-green-50 text-green-900'
             return (
-              <FragmentDay key={day} head={<tr className={cn('border-t-2', color)}><td colSpan={8} className="px-2 py-1.5 font-semibold">{day} <span className="font-normal">{dayName(day)}</span> — {n} visit{n === 1 ? '' : 's'} / target {target}{n > target ? ' (above target)' : ''}{span && <span className="ml-2 font-normal">· {span}</span>}{usual !== null && <span className="ml-2 font-normal">· his usual busiest day {usual}</span>}{gc.A + gc.B + gc.C > 0 && <span className="ml-2 font-normal">· grades <b>A {gc.A}</b> · <b>B {gc.B}</b> · <b>C {gc.C}</b></span>}</td></tr>}>
+              <FragmentDay key={day} head={<tr className={cn('border-t-2', color)}><td colSpan={8} className="px-2 py-1.5 font-semibold">{day} <span className="font-normal">{dayName(day)}</span> — {n} visit{n === 1 ? '' : 's'} / target {target}{n > target ? ' (above target)' : ''}{span && <span className="ml-2 font-normal">· {span}</span>}{usual !== null && <span className="ml-2 font-normal">· his usual busiest day {usual}</span>}{reasons[day] && <span className="ml-2 font-normal">· {reasons[day]}</span>}{gc.A + gc.B + gc.C > 0 && <span className="ml-2 font-normal">· grades <b>A {gc.A}</b> · <b>B {gc.B}</b> · <b>C {gc.C}</b></span>}</td></tr>}>
                 {shown.map((r) => {
                   const d = doctors.get(r.doctor_id)
                   return (
@@ -404,7 +434,8 @@ function MonthlyPlanBody() {
                       <button key={g} type="button" aria-pressed={gradeFilter === g} onClick={() => setGradeFilter(g)} className={cn('rounded-control border px-2.5 py-1 text-xs font-medium', gradeFilter === g ? 'border-foreground bg-foreground text-background' : 'bg-card hover:bg-muted')}>{g === 'all' ? 'All' : g}{g !== 'all' && <span className="ml-1 opacity-70">{work.rows.filter((r) => r.grade === g).length}</span>}</button>
                     ))}
                   </div>
-                  <PlanTable rows={work.rows} doctors={doctors} target={work.summary?.target ?? inputs.daily_target ?? 8} usual={work.summary?.usualMaxDay ?? null} filter={gradeFilter} />
+                  {work.summary?.template && <TemplateCard s={work.summary} />}
+                  <PlanTable rows={work.rows} doctors={doctors} target={work.summary?.target ?? inputs.daily_target ?? 8} usual={work.summary?.usualMaxDay ?? null} filter={gradeFilter} reasons={work.summary?.dayReasons ?? {}} />
                 </>
               ) : (
                 <Card><EmptyState icon={Sparkles} title="No plan yet" description="Press Generate plan to build the plan from the list, the open days and the requests above." /></Card>

@@ -38,6 +38,8 @@ export interface PlanInputs {
   rep: { id: number; name: string; code: string } | null
   month: string; list_month: string | null; box_id: number | null
   daily_target: number | null; days: PlanDay[]; doctors: PlanDoctor[]
+  /** The PM visits (any rep, last 6 months) of the doctors of the list: the planner builds the Brick and doctor templates from them. */
+  history?: ActualVisit[]
   /** The rep's own PM window in minutes: earliest / latest visit start (5th-95th percentile of his last 3 months). Absent = default window. */
   window?: { start: number; end: number; end99?: number } | null
   /** How often the rep really worked the same brick two PM working days in a row (plan_brick_repeats); undefined = not loaded. */
@@ -63,33 +65,48 @@ export const MAX_PER_DAY = 12
 
 export interface PlanParams {
   coverageDay: number; minCoverage: number; minPcf: number
-  maxDay: number; minDay: number; extraLevels: number[]
+  maxDay: number; minDay: number
   maxBricksPerDay: number; minSecondBrickDoctors: number
   visitMinutes: number; speedKmh: number; detourFactor: number; gapMin: number; gapMax: number
-  minHistoryShare: number; minGpsShare: number; geoStart: string; geoEnd: string; minOwnVisitsForBricks: number
-  maxWaitMin: number; earlyToleranceMin: number; windowGapMaxMin: number; maxBrickRepeats: number
-  /** Level 4: the PM window ends at the rep's P99 (or l4End when unknown), never later than l4Cap. */
-  l4End: string; l4Cap: string
+  minHistoryShare: number; minGpsShare: number
+  /** The rep's own visits are used for the templates when he has at least this many in the history window. */
+  minOwnVisits: number
+  /** Early arrival allowed before a doctor's window: always 20 minutes, 45 when he is certain to be present that weekday. */
+  maxWaitMin: number; earlyToleranceMin: number
+  /** More idle time than this between two visits of a day (windows too far apart) and the doctor waits for another date. */
+  windowGapMaxMin: number
+  /** A Brick may be repeated on consecutive PM days when repeat_days / brick_days is at least this (step A, step B). */
+  repeatRatioA: number; repeatRatioB: number
+  /** Step C: the longest run of consecutive days with the same Brick. */
+  maxRunC: number
+  /** A weekday needs this many distinct dates (Brick) / visits (doctor) in the history to be allowed; step B accepts 1. */
+  minBrickDates: number; minDoctorVisits: number
   /** A doctor is certain to be present on a weekday when he was visited on it this many times before. */
   certainSameDow: number
-  /** First relaxation level to try (1 = start from the strictest). */
-  minLevel: number
-  defaultStart: string; defaultEnd: string; fallbackTarget: number; minHistory: number
+  /** Window for a doctor and a Brick with no time data, loose sanity bounds, and the end of the day (rep P95 or dayEnd; step C: P99 or c_end up to cap). */
+  defaultWinStart: string; defaultWinEnd: string; sanityStart: string; sanityEnd: string; dayEnd: string; stepCEnd: string; stepCCap: string
+  /** Hours of Geography mode. */
+  geoStart: string; geoEnd: string
+  fallbackTarget: number; minHistory: number
 }
 export const DEFAULT_PARAMS: PlanParams = {
   coverageDay: 15, minCoverage: 0.9, minPcf: 0.9,
-  maxDay: MAX_PER_DAY, minDay: 6, extraLevels: [11, 12],
+  maxDay: MAX_PER_DAY, minDay: 6,
   maxBricksPerDay: 2, minSecondBrickDoctors: 3,
   visitMinutes: 15, speedKmh: 25, detourFactor: 1.35, gapMin: 15, gapMax: 25,
-  minHistoryShare: 0.5, minGpsShare: 0.7, geoStart: '17:00', geoEnd: '22:00', minOwnVisitsForBricks: 30,
-  maxWaitMin: 45, earlyToleranceMin: 20, windowGapMaxMin: 90, maxBrickRepeats: 3, l4End: '22:30', l4Cap: '23:00', certainSameDow: 2, minLevel: 1,
-  defaultStart: '14:00', defaultEnd: '22:00', fallbackTarget: 8, minHistory: 30,
+  minHistoryShare: 0.5, minGpsShare: 0.7, minOwnVisits: 30,
+  maxWaitMin: 45, earlyToleranceMin: 20, windowGapMaxMin: 90,
+  repeatRatioA: 0.15, repeatRatioB: 0.05, maxRunC: 6,
+  minBrickDates: 2, minDoctorVisits: 2, certainSameDow: 2,
+  defaultWinStart: '18:00', defaultWinEnd: '21:30', sanityStart: '08:00', sanityEnd: '23:59', dayEnd: '22:00', stepCEnd: '22:30', stepCCap: '23:00',
+  geoStart: '17:00', geoEnd: '22:00',
+  fallbackTarget: 8, minHistory: 30,
 }
 
 /** Confidence of one planned visit: A good data, B data exists but does not fully match, C needs timing confirmation from the rep. */
 export type Grade = 'A' | 'B' | 'C'
-/** Relaxation level: 1 strictest ... 4 loosest. */
-export type Level = 1 | 2 | 3 | 4
+/** Fallback step: A strict history, B softer history, C last resort. */
+export type Step = 'A' | 'B' | 'C'
 export interface PlanRow { day: string; seq: number; doctor_id: number; planned_time: string | null; fixed: boolean; visit_no: number; note: string | null; grade?: Grade | null }
 interface Named { id: number; name: string }
 
@@ -135,11 +152,15 @@ export interface PlanSummary {
   window: { start: string; end: string; own: boolean }
   fromDay: string | null
   warnings: string[]
-  /** The relaxation level (1-4) at which the plan met both targets, or the level of the best plan found when it did not. null = nothing planned. */
-  level?: Level | null
+  /** The step (A/B/C) at which the plan met both targets, or the step of the best plan found when it did not. null = nothing planned. */
+  step?: Step | null
   targetsMet?: boolean
-  /** Set when even level 4 could not reach PCF and Coverage by day 15: the numbers and the reasons. */
-  notReachable?: { capacity: number; requiredVisits: number; targetVisits: number; bestPcf: number; bestCov15: number; requiredCov15: number; reasons: string[] } | null
+  /** Set when even step C could not reach PCF and Coverage by day 15 ("Not reached with the current rules"): the numbers and the blocking rules with counts. */
+  notReachable?: { capacity: number; requiredVisits: number; targetVisits: number; bestPcf: number; bestCov15: number; requiredCov15: number; capacityEnough: boolean; reasons: string[] } | null
+  /** The history template used: Brick x weekday dates, kind per Brick, and where it came from. */
+  template?: { source: 'own' | 'any' | 'none'; ownVisits: number; freeBricks: number; restrictedBricks: number; unknownBricks: number; bricks: { brick: string; doctors: number; dates: number[]; allowed: number[]; kind: 'free' | 'restricted' | 'unknown'; repeatRatio: number | null }[] } | null
+  /** Per date: the Brick(s) assigned, why, and the reason when a day stayed empty. */
+  dayReasons?: Record<string, string>
   /** Planned visits per grade, and per day. */
   grades?: { A: number; B: number; C: number }
   dayGrades?: Record<string, { A: number; B: number; C: number }>
@@ -206,4 +227,4 @@ export const gapDaysFor = (freq: number): number => (freq >= 4 ? 5 : freq === 3 
 export const dayNum = (iso: string): number => Math.round(Date.parse(`${iso}T00:00:00Z`) / 86400000)
 
 /** One real PM visit of the rep (plan_actuals). */
-export interface ActualVisit { day: string; doctor_id: number; visit_time: string | null }
+export interface ActualVisit { day: string; doctor_id: number; visit_time: string | null; by_rep?: number | null }
