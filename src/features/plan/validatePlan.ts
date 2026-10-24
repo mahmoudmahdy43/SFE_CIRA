@@ -2,11 +2,11 @@
  * Independent check of a generated plan against every hard rule. It shares nothing with the planner except the input types and tiny
  * helpers, so a bug in the planner cannot hide here. A plan that fails is shown with the list of failures and is never saved as a draft.
  */
-import { brickOf, DEFAULT_PARAMS, pairAllowed, pairLookup, toMin, type PlanInputs, type PlanParams, type PlanRow, type ValidationResult } from './planCore.ts'
+import { brickOf, dayNum, DEFAULT_PARAMS, gapDaysFor, pairAllowed, pairLookup, toMin, type PlanInputs, type PlanParams, type PlanRow, type ValidationResult } from './planCore.ts'
 
 const MAX_LISTED = 30
 
-export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<PlanParams> = {}, declaredUnderMin: Iterable<string> = []): ValidationResult {
+export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<PlanParams> = {}, declaredUnderMin: Iterable<string> = [], opts: { relaxWeekdays?: boolean } = {}): ValidationResult {
   const p: PlanParams = { ...DEFAULT_PARAMS, ...over }
   const fails: string[] = []
   const warns: string[] = []
@@ -15,7 +15,6 @@ export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<
   const docs = new Map(inputs.doctors.map((d) => [d.doctor_id, d]))
   const dayInfo = new Map(inputs.days.map((d) => [d.day, d]))
   const openDays = inputs.days.filter((d) => !d.closed && (!inputs.fromDay || d.day >= inputs.fromDay)).map((d) => d.day).sort()
-  const openIdx = new Map(openDays.map((d, i) => [d, i]))
   const ws = inputs.window ? inputs.window.start : (toMin(p.defaultStart) as number)
   const we = inputs.window ? Math.max(inputs.window.end, ws) : (toMin(p.defaultEnd) as number)
   const pair = pairLookup(inputs.brickPairs)
@@ -95,7 +94,12 @@ export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<
   for (const r of rows) {
     const d = docs.get(r.doctor_id)
     const info = dayInfo.get(r.day)
-    if (d && info && d.allowed_dows && !d.allowed_dows.includes(info.isodow)) fails.push(`${d.name}: planned on ${r.day} but he is only visited on weekday${d.allowed_dows.length === 1 ? '' : 's'} ${d.allowed_dows.join(' and ')} (1 = Monday ... 7 = Sunday)`)
+    if (d && info && d.allowed_dows && !d.allowed_dows.includes(info.isodow)) {
+      const msg = `${d.name}: planned on ${r.day} but he is only visited on weekday${d.allowed_dows.length === 1 ? '' : 's'} ${d.allowed_dows.join(' and ')} (1 = Monday ... 7 = Sunday)`
+      // a weekday restriction is a rule of levels 1-2 only: from level 3 it is relaxed on purpose (the visit is graded C)
+      if (opts.relaxWeekdays) warns.push(msg)
+      else fails.push(msg)
+    }
   }
 
   // per doctor: never above the visits left, and a minimum gap between his visits
@@ -106,8 +110,12 @@ export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<
     if (!d) continue
     const left = Math.max(0, d.freq - (done[id] ?? 0))
     if (ds.length > left) fails.push(`${d.name}: ${ds.length} planned visits, only ${left} left`)
-    const idx = ds.map((x) => openIdx.get(x)).filter((x): x is number => x !== undefined).sort((a, b) => a - b)
-    for (let i = 1; i < idx.length; i++) if (idx[i] - idx[i - 1] < p.minGapDays) fails.push(`${d.name}: visits only ${idx[i] - idx[i - 1]} working day${idx[i] - idx[i - 1] === 1 ? '' : 's'} apart (minimum ${p.minGapDays})`)
+    // minimum gap in calendar days between consecutive visits (10 for 2 visits a month, 7 for 3, 5 for 4 or more), counted from a visit already done too
+    const gap = gapDaysFor(d.freq)
+    const nums = ds.map(dayNum).sort((a, b) => a - b)
+    const last = inputs.lastDone?.[id]
+    if (last) nums.unshift(dayNum(last))
+    for (let i = 1; i < nums.length; i++) if (nums[i] - nums[i - 1] < gap) fails.push(`${d.name}: visits only ${nums[i] - nums[i - 1]} calendar day${nums[i] - nums[i - 1] === 1 ? '' : 's'} apart (minimum ${gap})`)
   }
   const warnings = warns.length > MAX_LISTED ? [...warns.slice(0, MAX_LISTED), `…and ${warns.length - MAX_LISTED} more`] : warns
   if (fails.length > MAX_LISTED) return { ok: false, failures: [...fails.slice(0, MAX_LISTED), `…and ${fails.length - MAX_LISTED} more`], warnings }

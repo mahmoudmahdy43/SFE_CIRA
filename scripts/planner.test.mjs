@@ -274,13 +274,13 @@ t('re-plan from a date: earlier days are untouched, the visits already done are 
   const docs = bricked({ A: 10, B: 10, C: 10, D: 10 }, 2)
   const done = {}
   for (const d of docs.slice(0, 15)) done[d.doctor_id] = 1
-  const res = pl.generatePlan(input(docs, 9, [], { fromDay: '2026-09-13', done, brickPairs: allPairs(['A', 'B', 'C', 'D']) }))
-  assert.ok(res.rows.every((r) => r.day >= '2026-09-13'))
+  const res = pl.generatePlan(input(docs, 9, [], { fromDay: '2026-09-02', done, brickPairs: allPairs(['A', 'B', 'C', 'D']) }))
+  assert.ok(res.rows.every((r) => r.day >= '2026-09-02'))
   const per = new Map()
   for (const r of res.rows) per.set(r.doctor_id, (per.get(r.doctor_id) ?? 0) + 1)
   for (const d of docs) assert.ok((per.get(d.doctor_id) ?? 0) <= d.freq - (done[d.doctor_id] ?? 0))
   assert.equal(res.rows.length, 80 - 15)
-  assert.equal(res.summary.fromDay, '2026-09-13')
+  assert.equal(res.summary.fromDay, '2026-09-02')
   assert.ok(res.rows.filter((r) => r.doctor_id <= 15).every((r) => r.visit_no === 2))
   assert.equal(res.validation.ok, true, res.validation.failures.join('; '))
 })
@@ -530,6 +530,8 @@ t('(e) a doctor visited on 4+ weekdays is free any day; a doctor 100% on Sundays
     v('2026-08-02', 2), v('2026-08-09', 2), v('2026-08-16', 2), v('2026-08-23', 2),
     v('2026-08-02', 3), v('2026-08-09', 3), v('2026-08-16', 3), v('2026-08-23', 3), v('2026-08-24', 3),
     v('2026-08-02', 4), v('2026-08-03', 4),
+    // everybody else has one timed visit, so levels 1-2 can plan them (the weekday restriction is a rule of levels 1-2)
+    ...docs.filter((d) => d.doctor_id > 4).map((d) => v(`2026-08-${String(1 + (d.doctor_id % 27)).padStart(2, '0')}`, d.doctor_id)),
   ]
   const profiled = pl.doctorTimesFromHistory(history, docs)
   assert.equal(profiled[0].free_any_day, true)
@@ -572,7 +574,7 @@ t('(g) the validator rejects a broken plan and lists what is wrong', () => {
   assert.match(fails(mk('2026-09-07', six)), /closed day/)
   assert.match(fails(mk('2026-09-06', six, 20 * 60 + 30)), /outside the PM window/)
   assert.match(fails([...mk('2026-09-06', six), ...mk('2026-09-13', six), ...mk('2026-09-20', six)]), /3 planned visits, only 2 left/)
-  assert.match(fails([...mk('2026-09-06', six), ...mk('2026-09-08', six)]), /apart \(minimum 5\)/)
+  assert.match(fails([...mk('2026-09-06', six), ...mk('2026-09-08', six)]), /calendar days apart \(minimum 10\)/)
   assert.match(fails([row('2026-09-06', a(0), '17:00', 1), row('2026-09-06', a(1), '17:00', 2), ...mk('2026-09-06', [2, 3, 4, 5].map(a), 17 * 60 + 40)]), /two visits at 17:00/)
 })
 
@@ -627,6 +629,147 @@ t('backtest: a day with no visits stays open, the plan is validated, same metric
   assert.ok(b.plan.maxDay <= 12)
   assert.equal(b.valid, true)
   assert.ok(b.plan.cov15 >= b.actual.cov15 && b.plan.pcf >= b.actual.pcf)
+})
+
+/* ------------------------------ mandatory targets, relaxation levels, grades ------------------------------ */
+const hh2 = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+/** n timed visits for every doctor in August 2026 on several weekdays, between 18:00 and 19:30. */
+const richHistory = (docs, n = 8) => docs.flatMap((d) => Array.from({ length: n }, (_, k) => ({ day: `2026-08-${String(1 + ((d.doctor_id + k * 3) % 27)).padStart(2, '0')}`, doctor_id: d.doctor_id, visit_time: hh2(17 * 60 + ((d.doctor_id * 37 + k * 53) % 270)) })))
+const info2 = (n) => ({ list_doctors: n, doctors_with_any: n, doctors_with_time_any: n, visits_own: 0, doctors_with_own: 0, doctors_with_gps: n })
+const levelCount = (rows, g) => rows.filter((r) => r.grade === g).length
+
+t('(a) a rep with enough capacity and good history reaches PCF >= 90% and Coverage by day 15 >= 90% at level 1 or 2, mostly grade A', () => {
+  const docs = pl.doctorTimesFromHistory(richHistory(bricked(SIX, 3)), bricked(SIX, 3))
+  const res = pl.generatePlan(input(docs, 9, [], { brickPairs: allPairs(NAMES), brickRepeats: [], historyInfo: info2(60) }))
+  assert.equal(res.summary.targetsMet, true)
+  assert.ok(res.summary.level === 1 || res.summary.level === 2, `level ${res.summary.level}`)
+  assert.ok(res.summary.pcf.pct >= 0.9 && res.summary.cov15.pct >= 0.9)
+  assert.equal(res.summary.notReachable, null)
+  assert.equal(res.validation.ok, true, res.validation.failures.join('; '))
+  assert.ok(res.rows.every((r) => ['A', 'B', 'C'].includes(r.grade)))
+  assert.deepEqual(res.summary.grades, { A: levelCount(res.rows, 'A'), B: levelCount(res.rows, 'B'), C: levelCount(res.rows, 'C') })
+  for (const [day, g] of Object.entries(res.summary.dayGrades)) assert.equal(g.A + g.B + g.C, perDay(res)[day].length)
+  console.log('   level', res.summary.level, JSON.stringify(res.summary.grades))
+})
+
+t('(b) 270 visits in 18 open days: "Target not reachable" with the exact numbers and the reasons, the best plan is still shown', () => {
+  const docs = bricked({ A: 15, B: 15, C: 15, D: 15, E: 15, F: 15 }, 3)
+  const closed = days().map((d) => d.day).slice(0, 4)
+  const res = pl.generatePlan(input(docs, 9, closed, { brickPairs: allPairs(['A', 'B', 'C', 'D', 'E', 'F']), brickRepeats: [] }))
+  const nr = res.summary.notReachable
+  assert.equal(res.summary.targetsMet, false)
+  assert.ok(nr)
+  assert.equal(nr.targetVisits, 270)
+  assert.equal(nr.requiredVisits, 243)
+  assert.equal(nr.capacity, 12 * 18)
+  assert.ok(nr.bestPcf < 0.9 && nr.bestPcf === res.summary.pcf.pct)
+  assert.ok(nr.reasons.some((r) => r.startsWith('capacity: 12 x 18 open days = 216 is below the 243 visits needed')), nr.reasons.join(' | '))
+  assert.ok(res.summary.warnings[0].startsWith('Target not reachable'))
+  assert.ok(res.rows.length > 0 && res.validation.ok, res.validation.failures.join('; '))
+})
+
+t('(c) a doctor with no history is grade C and is planned only from level 3, next to the doctors of his brick', () => {
+  const all = bricked(SIX, 2)
+  const withHist = all.filter((d) => d.doctor_id % 5 !== 0)
+  const docs = [...pl.doctorTimesFromHistory(richHistory(withHist), withHist), ...pl.doctorTimesFromHistory([], all.filter((d) => d.doctor_id % 5 === 0))].sort((x, y) => x.doctor_id - y.doctor_id)
+  const res = pl.generatePlan(input(docs, 9, [], { brickPairs: allPairs(NAMES), brickRepeats: [], historyInfo: info2(60) }))
+  const none = new Set(docs.filter((d) => d.win_start == null).map((d) => d.doctor_id))
+  assert.equal(none.size, 12)
+  // 20% of the visits have no usable time: levels 1-2 stop at 80% PCF
+  assert.ok(res.summary.level >= 3, `level ${res.summary.level}`)
+  const mine = res.rows.filter((r) => none.has(r.doctor_id))
+  assert.ok(mine.length > 0)
+  assert.ok(mine.every((r) => r.grade === 'C' && /Confirm timing with the rep/.test(r.note)))
+  const l1 = pl.generatePlan(input(docs, 9, [], { brickPairs: allPairs(NAMES), brickRepeats: [], historyInfo: info2(60) }), { minPcf: 0.7, minCoverage: 0.7 })
+  assert.equal(l1.summary.level, 1)
+  assert.ok(l1.rows.every((r) => !none.has(r.doctor_id)), 'levels 1-2 never place a doctor with no usable time')
+  assert.equal(res.validation.ok, true, res.validation.failures.join('; '))
+})
+
+t('(d) a doctor with 8 visits, planned inside his P20-P80 window on a weekday he is visited on, is grade A', () => {
+  const [d] = pl.doctorTimesFromHistory(richHistory(bricked({ A: 1 }, 1)), bricked({ A: 1 }, 1))
+  assert.equal(d.n_timed, 8)
+  const mid = Math.round((d.win_start + d.win_end) / 2)
+  const g = pl.gradeVisit(d, 1, mid, 1)
+  assert.equal(g.grade, 'A', JSON.stringify(g))
+  assert.equal(pl.gradeVisit(d, 1, d.win_start - 20, 1).grade, 'A')
+  assert.equal(pl.gradeVisit(d, 1, d.win_end + 1, 1).grade, 'B', 'inside P5-P95 but outside P20-P80')
+  assert.equal(pl.gradeVisit(d, 1, d.win_hi + 5, 1).grade, 'C', 'after the end of his hours')
+  // 4 timed visits or fewer: B at best
+  const few = pl.doctorTimesFromHistory(richHistory(bricked({ A: 1 }, 1), 4), bricked({ A: 1 }, 1))[0]
+  assert.equal(pl.gradeVisit(few, 1, few.win_start + 30, 1).grade, 'B')
+  // no data: C
+  assert.equal(pl.gradeVisit(pl.doctorTimesFromHistory([], bricked({ A: 1 }, 1))[0], 1, 1000, 1).grade, 'C')
+})
+
+const mondayDocs = (n, hours = ['20:10', '20:20', '20:30', '20:45', '21:00']) => {
+  const base = bricked({ A: n }, 1)
+  const hist = base.flatMap((d) => hours.map((h, k) => ({ day: `2026-08-${String(3 + k * 7).padStart(2, '0')}`, doctor_id: d.doctor_id, visit_time: h })))
+  return pl.doctorTimesFromHistory(hist, base) // 2026-08-03/10/17/24/31 are Mondays
+}
+
+t('(e) a doctor visited on Mondays before: a 40-minute wait on a Monday is allowed, grade B, noted "Waits 40 min (doctor present that day)"', () => {
+  const docs = mondayDocs(6)
+  assert.deepEqual(docs[0].allowed_dows, [1])
+  assert.equal(docs[0].dow_n[1], 5)
+  const g = pl.gradeVisit(docs[0], 1, docs[0].win_lo - 40, 2)
+  assert.deepEqual([g.grade, g.wait, g.certain], ['B', 40, true])
+  // the planner: only Mondays are open and the PM window ends at 21:00, so the first doctor cannot arrive later than about 19:45
+  const notMondays = days().filter((d) => d.isodow !== 1).map((d) => d.day)
+  const res = pl.generatePlan(input(docs, 6, notMondays, { window: { start: 15 * 60, end: 21 * 60 }, brickPairs: [], brickRepeats: [] }), { minPcf: 0.1, minCoverage: 0.1, minLevel: 2 })
+  assert.equal(res.summary.level, 2)
+  const waited = res.rows.filter((r) => r.note && /^Waits [0-9]+ min \(doctor present that day\)/.test(r.note))
+  assert.ok(waited.length > 0, res.rows.map((r) => r.note).join('|'))
+  for (const r of waited) {
+    const w = Number(/Waits ([0-9]+)/.exec(r.note)[1])
+    assert.ok(w > 20 && w <= 45, r.note)
+    assert.equal(r.grade, 'B')
+  }
+  assert.ok(res.summary.waitAllowed.doctors > 0 && res.summary.waitAllowed.minutes >= 21)
+  assert.equal(res.summary.waits.length, 0)
+  assert.equal(res.validation.ok, true, res.validation.failures.join('; '))
+})
+
+t('(f) the same doctors on a Tuesday (no Tuesday history): the wait never exceeds 20 minutes, and a longer one is grade C', () => {
+  const docs = mondayDocs(6, ['19:00', '19:30', '20:30', '21:00', '21:30'])
+  assert.equal(pl.certainOn(docs[0], 2), false)
+  const g = pl.gradeVisit({ ...docs[0], allowed_dows: null }, 2, docs[0].win_lo - 30, 2)
+  assert.deepEqual([g.grade, g.certain], ['C', false])
+  assert.equal(pl.gradeVisit({ ...docs[0], allowed_dows: null }, 2, docs[0].win_lo - 20, 2).grade, 'B')
+  const notTuesdays = days().filter((d) => d.isodow !== 2).map((d) => d.day)
+  const res = pl.generatePlan(input(docs, 6, notTuesdays, { window: { start: 15 * 60, end: 22 * 60 }, brickPairs: [], brickRepeats: [] }), { minPcf: 0.1, minCoverage: 0.1 })
+  assert.ok(res.rows.length > 0 && res.summary.level >= 3, `level ${res.summary.level}`)
+  const byId = new Map(docs.map((d) => [d.doctor_id, d]))
+  for (const r of res.rows) {
+    assert.equal(dow(r.day), 2)
+    const wait = byId.get(r.doctor_id).win_lo - min(r.planned_time)
+    assert.ok(wait <= 20, `${r.day} ${r.planned_time} waits ${wait}`)
+    assert.equal(r.grade, 'C') // Tuesday is not one of his usual weekdays
+  }
+  assert.equal(res.validation.ok, true, res.validation.failures.join('; '))
+})
+
+t('the minimum gap between visits of one doctor is in calendar days: 2 visits -> 10, 3 -> 7, 4+ -> 5; validator and planner agree', () => {
+  assert.deepEqual([1, 2, 3, 4, 6].map(pl.gapDaysFor), [0, 10, 7, 5, 5])
+  for (const freq of [2, 3, 4]) {
+    const docs = pl.doctorTimesFromHistory(richHistory(bricked({ A: 12, B: 12, C: 12 }, freq)), bricked({ A: 12, B: 12, C: 12 }, freq))
+    const res = pl.generatePlan(input(docs, 9, [], { brickPairs: allPairs(['A', 'B', 'C']), brickRepeats: [] }))
+    const per = new Map()
+    for (const r of res.rows) per.set(r.doctor_id, [...(per.get(r.doctor_id) ?? []), pl.dayNum(r.day)])
+    for (const ds of per.values()) { ds.sort((x, y) => x - y); for (let i = 1; i < ds.length; i++) assert.ok(ds[i] - ds[i - 1] >= pl.gapDaysFor(freq), `freq ${freq}: ${ds.join(',')}`) }
+    assert.equal(res.validation.ok, true, res.validation.failures.join('; '))
+  }
+  // a visit already done counts for the gap in a re-plan
+  const one = pl.doctorTimesFromHistory([], bricked({ A: 1 }, 2))
+  const bad = pl.validatePlan(input(one, 9, [], { lastDone: { 1: '2026-09-05' }, done: { 1: 1 } }), [{ day: '2026-09-08', seq: 1, doctor_id: 1, planned_time: '19:00', fixed: false, visit_no: 2, note: null }])
+  assert.match(bad.failures.join('|'), /3 calendar days apart \(minimum 10\)/)
+})
+
+t('the validator checks only hard rules: a plan under the 90% targets is valid; a 1-5 visit day is not', () => {
+  const docs = bricked({ A: 12 }, 1)
+  const rowsFor = (n) => docs.slice(0, n).map((d, i) => ({ day: '2026-09-06', seq: i + 1, doctor_id: d.doctor_id, planned_time: hh2(17 * 60 + i * 17), fixed: false, visit_no: 1, note: null }))
+  assert.equal(pl.validatePlan(input(docs, 9), rowsFor(6)).ok, true)
+  assert.match(pl.validatePlan(input(docs, 9), rowsFor(5)).failures.join('|'), /5 visits, under the minimum of 6/)
 })
 
 console.log(`${n} tests passed`)

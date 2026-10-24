@@ -74,10 +74,11 @@ export async function fetchPlanInputs(rep: number, month: string, fromDay: strin
   const repeats = own ? repeatsOwn ?? repeatsAny : repeatsAny ?? repeatsOwn
   const brickSource: 'own' | 'any' = own || (pairsAny === undefined && repeatsAny === undefined) ? 'own' : 'any'
   const done: Record<number, number> = {}
-  for (const v of thisMonth) if (fromDay && v.day < fromDay) done[v.doctor_id] = (done[v.doctor_id] ?? 0) + 1
+  const lastDone: Record<number, string> = {}
+  for (const v of thisMonth) if (fromDay && v.day < fromDay) { done[v.doctor_id] = (done[v.doctor_id] ?? 0) + 1; if (!lastDone[v.doctor_id] || v.day > lastDone[v.doctor_id]) lastDone[v.doctor_id] = v.day }
   return {
     ...inputs, historyInfo: info, brickSource, doctors: doctorTimesFromHistory(docHist ?? history, inputs.doctors), window: windowFromTimes(history.map((v) => v.visit_time)),
-    brickRepeats: repeats, usualMaxDay: usualMaxDayFromHistory(history), brickPairs: pairs, fromDay: fromDay && fromDay > month ? fromDay : null, done,
+    brickRepeats: repeats, usualMaxDay: usualMaxDayFromHistory(history), brickPairs: pairs, fromDay: fromDay && fromDay > month ? fromDay : null, done, lastDone,
   }
 }
 
@@ -127,13 +128,15 @@ export async function fetchSavedPlan(rep: number, month: string): Promise<SavedP
   if (heads.length === 0) return null
   const h = heads[0]
   const id = Number(h.id)
-  const days = await fetchAll<Raw>('monthly_plan_days', 'day,seq,doctor_id,planned_time,fixed,visit_no,note', ['day', 'seq'], (q) => q.eq('plan_id', id))
+  // the grade column comes with 89_plan_grade.sql: until it is run the plan loads without grades
+  const days = await fetchAll<Raw>('monthly_plan_days', 'day,seq,doctor_id,planned_time,fixed,visit_no,note,grade', ['day', 'seq'], (q) => q.eq('plan_id', id))
+    .catch(() => fetchAll<Raw>('monthly_plan_days', 'day,seq,doctor_id,planned_time,fixed,visit_no,note', ['day', 'seq'], (q) => q.eq('plan_id', id)))
   const summary = h.summary && typeof h.summary === 'object' && Object.keys(h.summary as object).length > 0 ? (h.summary as PlanSummary) : null
   return {
     id, status: h.status === 'approved' ? 'approved' : 'draft', params: (h.params ?? {}) as Partial<PlanParams>, summary, generated_at: String(h.generated_at ?? ''),
     rows: days.map((d) => ({
       day: String(d.day).slice(0, 10), seq: Number(d.seq), doctor_id: Number(d.doctor_id), planned_time: d.planned_time ? String(d.planned_time).slice(0, 5) : null,
-      fixed: d.fixed === true, visit_no: Number(d.visit_no ?? 1), note: str(d.note),
+      fixed: d.fixed === true, visit_no: Number(d.visit_no ?? 1), note: str(d.note), grade: d.grade === 'A' || d.grade === 'B' || d.grade === 'C' ? d.grade : null,
     })),
   }
 }

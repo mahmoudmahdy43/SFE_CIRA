@@ -7,7 +7,7 @@ import { Button } from '../components/ui/button'
 import { Card, Input, Skeleton } from '../components/ui/misc'
 import { BacktestPanel } from '../features/plan/BacktestPanel'
 import { downloadPlanWorkbook } from '../features/plan/planExport'
-import { DEFAULT_PARAMS, MAX_PER_DAY, generatePlan, type PlanDoctor, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary, type ValidationResult } from '../features/plan/planner'
+import { DEFAULT_PARAMS, MAX_PER_DAY, generatePlan, type Grade, type PlanDoctor, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary, type ValidationResult } from '../features/plan/planner'
 import { useAsync } from '../features/dashboard/useAsync'
 import {
   addPlanRequest, approvePlan, deletePlanRequest, fetchPlanInputs, fetchPlanReps, fetchPlanRequests, fetchSavedPlan, savePlan,
@@ -19,6 +19,11 @@ const LOGO = `${import.meta.env.BASE_URL}assets/cira-logo.png`
 const SELECT = 'h-9 rounded-control border bg-card px-2 text-sm text-foreground'
 const KIND_LABEL = { activity: 'Activity', training: 'Training', other: 'Other' } as const
 const SHIFT_LABEL = { AM: 'AM', PM: 'PM', FULL: 'Full day' } as const
+const GRADE_TONE: Record<Grade, string> = { A: 'bg-green-100 text-green-900', B: 'bg-amber-100 text-amber-900', C: 'bg-gray-200 text-gray-800' }
+const GRADE_HELP: Record<Grade, string> = { A: 'A - good data: 5+ timed visits, inside his usual hours and weekday', B: 'B - data exists but does not fully match (few visits, outside his usual hours, or an allowed wait)', C: 'C - not enough time data: confirm the timing with the rep' }
+type GradeFilter = 'all' | Grade
+const GradeChip = ({ g }: { g: Grade | null | undefined }) => (g ? <span title={GRADE_HELP[g]} className={cn('inline-block min-w-6 rounded px-1.5 py-0.5 text-center text-xs font-bold', GRADE_TONE[g])}>{g}</span> : <span className="text-muted-foreground">–</span>)
+const share = (n: number, total: number) => (total > 0 ? `${Math.round((n / total) * 100)}%` : '0%')
 
 function currentMonth(): string {
   const d = new Date()
@@ -120,9 +125,36 @@ function Warn({ tone, title, children }: { tone: Tone; title: string; children?:
 }
 const names = (l: { name: string }[], max = 12) => `${l.slice(0, max).map((d) => d.name).join(', ')}${l.length > max ? ` and ${l.length - max} more` : ''}`
 
-function WarningCards({ s, params }: { s: PlanSummary; params: PlanParams }) {
+function WarningCards({ s, params, rows, doctors }: { s: PlanSummary; params: PlanParams; rows: PlanRow[]; doctors: Map<number, PlanDoctor> }) {
+  const nr = s.notReachable
+  const g = s.grades ?? { A: 0, B: 0, C: 0 }
+  const total = g.A + g.B + g.C
+  const cRows = rows.filter((r) => r.grade === 'C')
   return (
     <div className="grid gap-2 md:grid-cols-2">
+      {nr && (
+        <div className="md:col-span-2">
+          <Warn tone="red" title="Target not reachable">
+            PCF ≥ {Math.round(params.minPcf * 100)}% and Coverage by day {params.coverageDay} ≥ {Math.round(params.minCoverage * 100)}% could not both be met, even at level 4. This is the best plan found (level {s.level ?? '–'}).
+            <ul className="mt-1 list-disc pl-4">
+              <li>Available capacity ({MAX_PER_DAY} × {s.openDays} open days): {nr.capacity} visits</li>
+              <li>Required ({Math.round(params.minPcf * 100)}% × {nr.targetVisits} target visits): {nr.requiredVisits} visits</li>
+              <li>Best PCF achievable: {(nr.bestPcf * 100).toFixed(1)}% · best Coverage by day {params.coverageDay}: {s.cov15.done} of {s.cov15.total} ({(nr.bestCov15 * 100).toFixed(1)}%, {nr.requiredCov15} needed)</li>
+              {nr.reasons.map((r) => <li key={r}>{r}</li>)}
+            </ul>
+          </Warn>
+        </div>
+      )}
+      {!nr && s.targetsMet && s.level != null && <Warn tone="green" title={`Both targets met at level ${s.level}`}>PCF {(s.pcf.pct * 100).toFixed(1)}% · Coverage by day {params.coverageDay} {(s.cov15.pct * 100).toFixed(1)}%.{s.level > 1 ? ` Level ${s.level - 1} could not reach them, so softer rules were relaxed (L2 longer waits for doctors certain to be present, L3 doctors with no time data and weekday restrictions, L4 later PM end).` : ''}</Warn>}
+      {total > 0 && <Warn tone="grey" title={`Confidence: A ${share(g.A, total)} · B ${share(g.B, total)} · C ${share(g.C, total)}`}>{g.A} grade A, {g.B} grade B, {g.C} grade C visits. {s.waitAllowed && s.waitAllowed.doctors > 0 ? `${s.waitAllowed.doctors} doctor${s.waitAllowed.doctors === 1 ? '' : 's'} with an allowed wait (20-45 min, certain to be present that day), ${s.waitAllowed.minutes} min in total.` : 'No allowed waiting (20-45 min) was needed.'}</Warn>}
+      {cRows.length > 0 && (
+        <Warn tone="yellow" title={`${cRows.length} grade C visit${cRows.length === 1 ? '' : 's'} need timing confirmation from the rep`}>
+          <ul className="mt-0.5 list-disc pl-4">
+            {cRows.slice(0, 15).map((r) => <li key={`${r.day}-${r.seq}`}>{doctors.get(r.doctor_id)?.name ?? `Doctor #${r.doctor_id}`} · {r.day} {r.planned_time ?? ''}{r.note?.includes('Confirm timing with the rep: ') ? ` – ${r.note.split('Confirm timing with the rep: ')[1]}` : ''}</li>)}
+          </ul>
+          {cRows.length > 15 && <div>… and {cRows.length - 15} more (filter the table by grade C).</div>}
+        </Warn>
+      )}
       {s.listTooBig && <Warn tone="red" title="The list is bigger than the visit capacity">{s.overDays} day{s.overDays === 1 ? '' : 's'} above the target, highest day {s.peak} (list {s.targetVisits} visits). Capacity at target (Target x open days): {s.target} x {s.openDays} = {s.capacityAtTarget}. Capacity at max ({MAX_PER_DAY} x open days) = {s.capacityAtMax}.</Warn>}
       <Warn tone={s.cov15.ok ? 'green' : 'red'} title={`Coverage by day ${params.coverageDay}: ${s.cov15.done} of ${s.cov15.total} doctors (${Math.round(s.cov15.pct * 100)}%)`}>
         Required {Math.round(params.minCoverage * 100)}% = {s.cov15.required} doctors{s.cov15.ok ? '.' : `: short by ${s.cov15.required - s.cov15.done}.`} End of month: {s.covEnd.done} of {s.covEnd.total}.
@@ -135,20 +167,20 @@ function WarningCards({ s, params }: { s: PlanSummary; params: PlanParams }) {
       {s.aboveUsual.length > 0 && <Warn tone="yellow" title={`${s.aboveUsual.length} day${s.aboveUsual.length === 1 ? '' : 's'} more than 3 visits above his usual busiest day (${s.usualMaxDay})`}>{s.aboveUsual.slice(0, 8).map((d) => `${d.day} (${d.count})`).join(', ')}. A reference only: the hard maximum stays {MAX_PER_DAY}.</Warn>}
       {s.repeats.length > 0 && <Warn tone="yellow" title={`${s.repeats.length} same-brick repeat${s.repeats.length === 1 ? '' : 's'} on consecutive days (limit ${s.repeatLimit})`}>Allowed only because his history did it, as a last resort: {s.repeats.map((r) => `${r.day} ${r.why}`).join('; ')}</Warn>}
       {s.blockedDays.length > 0 && <Warn tone="red" title={`The no-repeat brick rule blocks finishing the visits (${s.blockedDays.length} day${s.blockedDays.length === 1 ? '' : 's'} left empty)`}>Every brick with visits left was used the day before: too few bricks. {s.shortfall.visits} visit{s.shortfall.visits === 1 ? '' : 's'} not placed ({s.shortfall.pcfLossPts.toFixed(1)} pts of PCF).</Warn>}
-      {s.waits.length > 0 && <Warn tone="yellow" title={`${s.waits.length} visit${s.waits.length === 1 ? '' : 's'} with a wait over 45 minutes`}>{s.waits.slice(0, 6).map((w) => `${w.name} ${w.day} (${w.minutes} min)`).join('; ')}</Warn>}
+      {s.waits.length > 0 && <Warn tone="yellow" title={`${s.waits.length} visit${s.waits.length === 1 ? '' : 's'} with a wait that is not allowed (over 20 min, or over 45 for a doctor certain to be present)`}>{s.waits.slice(0, 6).map((w) => `${w.name} ${w.day} (${w.minutes} min)`).join('; ')}</Warn>}
       {s.dropped.length > 0 && <Warn tone="yellow" title={`Shortfall: ${s.shortfall.visits} visit${s.shortfall.visits === 1 ? '' : 's'} of ${s.dropped.length} doctor${s.dropped.length === 1 ? '' : 's'} not placed`}>{s.dropped.slice(0, 10).map((d) => `${d.name} ${d.visits.join(', ')}`).join('; ')}{s.dropped.length > 10 ? ` and ${s.dropped.length - 10} more` : ''}. Placing them would add {s.shortfall.firstVisits} doctor{s.shortfall.firstVisits === 1 ? '' : 's'} to coverage ({s.shortfall.covLossPts.toFixed(1)} pts) and {s.shortfall.pcfLossPts.toFixed(1)} pts to PCF; no day goes above {MAX_PER_DAY} visits.</Warn>}
       {s.underMin.length > 0 && <Warn tone="red" title={`${s.underMin.length} day${s.underMin.length === 1 ? '' : 's'} under the minimum of ${params.minDay} visits`}>{s.underMin.map((d) => `${d.day} (${d.count})`).join(', ')}</Warn>}
       {s.emptyDays.length > 0 && <Warn tone="yellow" title={`${s.emptyDays.length} open day${s.emptyDays.length === 1 ? ' has' : 's have'} no visits`}>The list has {s.targetVisits} visits; {params.minDay} a day needs {params.minDay * s.openDays}. {s.emptyDays.slice(0, 10).join(', ')}</Warn>}
       {s.warnings.filter((w) => w.startsWith('No open') || w.includes('no PM call-rate')).map((w) => <Warn key={w} tone="red" title={w} />)}
       <Warn tone="grey" title="Summary">
-        {s.openDays} open PM days ({s.closedDays} closed). Capacity at target (Target x open days) {s.capacityAtTarget}; at max ({MAX_PER_DAY} x open days) {s.capacityAtMax}. Target visits {s.targetVisits}, in the plan {s.plannedVisits}. Days: highest {s.peak}, lowest {s.lowest}. Estimated distance (straight line x 1.35, not road distance): {s.avgEstKmPerDay.toFixed(1)} km a day on average. Stay in the day (first to last visit): {Math.round(s.avgStayMin)} min on average. Days with 1 brick: {s.oneBrickDays}, with 2 bricks: {s.twoBrickDays.length}. Waiting in total: {s.waitTotalMin} min. Same-brick repeats on consecutive days: {s.repeats.length} (limit {s.repeatLimit}). PM window {s.window.start}–{s.window.end}{s.window.own ? '' : ' (default)'}.
+        {s.openDays} open PM days ({s.closedDays} closed). Capacity at target (Target x open days) {s.capacityAtTarget}; at max ({MAX_PER_DAY} x open days) {s.capacityAtMax}. Target visits {s.targetVisits}, in the plan {s.plannedVisits}. Days: highest {s.peak}, lowest {s.lowest}. Estimated distance (straight line x 1.35, not road distance): {s.avgEstKmPerDay.toFixed(1)} km a day on average. Stay in the day (first to last visit): {Math.round(s.avgStayMin)} min on average. Days with 1 brick: {s.oneBrickDays}, with 2 bricks: {s.twoBrickDays.length}. Waiting in total: {s.waitTotalMin} min{s.waitAllowed && s.waitAllowed.doctors > 0 ? ` (allowed waits: ${s.waitAllowed.doctors} doctor${s.waitAllowed.doctors === 1 ? '' : 's'}, ${s.waitAllowed.minutes} min)` : ''}. Same-brick repeats on consecutive days: {s.repeats.length} (limit {s.repeatLimit}). PM window {s.window.start}–{s.window.end}{s.window.own ? '' : ' (default)'}.
       </Warn>
     </div>
   )
 }
 
 /* ------------------------------ the plan table ------------------------------ */
-function PlanTable({ rows, doctors, target, usual }: { rows: PlanRow[]; doctors: Map<number, PlanDoctor>; target: number; usual: number | null }) {
+function PlanTable({ rows, doctors, target, usual, filter }: { rows: PlanRow[]; doctors: Map<number, PlanDoctor>; target: number; usual: number | null; filter: GradeFilter }) {
   const days = useMemo(() => {
     const m = new Map<string, PlanRow[]>()
     for (const r of [...rows].sort((a, b) => a.day.localeCompare(b.day) || a.seq - b.seq)) m.set(r.day, [...(m.get(r.day) ?? []), r])
@@ -159,28 +191,32 @@ function PlanTable({ rows, doctors, target, usual }: { rows: PlanRow[]; doctors:
     <div className="overflow-auto rounded-card border bg-card">
       <table className="w-full text-sm">
         <thead className="sticky top-0 bg-muted text-xs">
-          <tr><th className="px-2 py-1.5 text-left">#</th><th className="px-2 py-1.5 text-left">Doctor</th><th className="px-2 py-1.5 text-left">Account</th><th className="px-2 py-1.5 text-left">Brick</th><th className="px-2 py-1.5 text-left">Time</th><th className="px-2 py-1.5 text-center">Visit</th><th className="px-2 py-1.5 text-left">Note</th></tr>
+          <tr><th className="px-2 py-1.5 text-left">#</th><th className="px-2 py-1.5 text-left">Doctor</th><th className="px-2 py-1.5 text-left">Account</th><th className="px-2 py-1.5 text-left">Brick</th><th className="px-2 py-1.5 text-left">Time</th><th className="px-2 py-1.5 text-center">Grade</th><th className="px-2 py-1.5 text-center">Visit</th><th className="px-2 py-1.5 text-left">Note</th></tr>
         </thead>
         <tbody>
           {days.map(([day, list]) => {
             const n = list.length
+            const gc = { A: list.filter((r) => r.grade === 'A').length, B: list.filter((r) => r.grade === 'B').length, C: list.filter((r) => r.grade === 'C').length }
+            const shown = filter === 'all' ? list : list.filter((r) => r.grade === filter)
+            if (shown.length === 0) return null
             const times = list.map((r) => r.planned_time).filter((x): x is string => !!x).sort()
             const spanMin = times.length > 1 ? hm(times[times.length - 1]) - hm(times[0]) : 0
             const span = times.length > 0 ? `${times[0]} → ${times[times.length - 1]}, ${Math.floor(spanMin / 60)}h${String(spanMin % 60).padStart(2, '0')}` : ''
             const color = n >= MAX_PER_DAY ? 'bg-red-100 text-red-900' : n > target ? 'bg-amber-100 text-amber-900' : 'bg-green-50 text-green-900'
             return (
-              <FragmentDay key={day} head={<tr className={cn('border-t-2', color)}><td colSpan={7} className="px-2 py-1.5 font-semibold">{day} <span className="font-normal">{dayName(day)}</span> — {n} visit{n === 1 ? '' : 's'} / target {target}{n > target ? ' (above target)' : ''}{span && <span className="ml-2 font-normal">· {span}</span>}{usual !== null && <span className="ml-2 font-normal">· his usual busiest day {usual}</span>}</td></tr>}>
-                {list.map((r) => {
+              <FragmentDay key={day} head={<tr className={cn('border-t-2', color)}><td colSpan={8} className="px-2 py-1.5 font-semibold">{day} <span className="font-normal">{dayName(day)}</span> — {n} visit{n === 1 ? '' : 's'} / target {target}{n > target ? ' (above target)' : ''}{span && <span className="ml-2 font-normal">· {span}</span>}{usual !== null && <span className="ml-2 font-normal">· his usual busiest day {usual}</span>}{gc.A + gc.B + gc.C > 0 && <span className="ml-2 font-normal">· grades <b>A {gc.A}</b> · <b>B {gc.B}</b> · <b>C {gc.C}</b></span>}</td></tr>}>
+                {shown.map((r) => {
                   const d = doctors.get(r.doctor_id)
                   return (
                     <tr key={`${r.day}-${r.seq}`} className="border-t">
                       <td className="tnum px-2 py-1">{r.seq}</td>
-                      <td className="px-2 py-1 font-medium">{d?.name ?? `Doctor #${r.doctor_id}`}</td>
+                      <td className="px-2 py-1 font-medium">{d?.name ?? `Doctor #${r.doctor_id}`}{d && d.lat === null && <span title="No GPS for this doctor" className="ml-1.5 rounded bg-slate-200 px-1 py-0.5 text-[10px] font-semibold text-slate-700">No GPS</span>}</td>
                       <td className="px-2 py-1 text-muted-foreground">{d?.account ?? ''}</td>
                       <td className="px-2 py-1 text-muted-foreground">{d?.brick ?? ''}</td>
                       <td className="tnum px-2 py-1">{r.planned_time ?? ''} {r.fixed && <span title="Confirmed time (usual day and hour)">🔒</span>}</td>
+                      <td className="px-2 py-1 text-center"><GradeChip g={r.grade} /></td>
                       <td className="tnum px-2 py-1 text-center">{r.visit_no}/{freqOf(r.doctor_id)}</td>
-                      <td className="px-2 py-1 text-xs text-muted-foreground">{[r.note, d && d.lat === null ? 'no GPS' : null].filter(Boolean).join(' · ')}</td>
+                      <td className="px-2 py-1 text-xs text-muted-foreground">{r.note ?? ''}</td>
                     </tr>
                   )
                 })}
@@ -218,6 +254,7 @@ function MonthlyPlanBody() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [fromDay, setFromDay] = useState('')
+  const [gradeFilter, setGradeFilter] = useState<GradeFilter>('all')
 
   const load = useCallback(async (repKey: number, m: string, keepWork: boolean) => {
     setLoading(true)
@@ -360,8 +397,14 @@ function MonthlyPlanBody() {
                       <ul className="mt-0.5 list-disc pl-5">{work.validation.warnings.slice(0, 12).map((w) => <li key={w}>{w}</li>)}</ul>
                     </div>
                   )}
-                  {work.summary && <WarningCards s={work.summary} params={work.params} />}
-                  <PlanTable rows={work.rows} doctors={doctors} target={work.summary?.target ?? inputs.daily_target ?? 8} usual={work.summary?.usualMaxDay ?? null} />
+                  {work.summary && <WarningCards s={work.summary} params={work.params} rows={work.rows} doctors={doctors} />}
+                  <div className="flex flex-wrap items-center gap-2 text-sm" role="group" aria-label="Filter by grade">
+                    <span className="text-muted-foreground">Grade</span>
+                    {(['all', 'A', 'B', 'C'] as GradeFilter[]).map((g) => (
+                      <button key={g} type="button" aria-pressed={gradeFilter === g} onClick={() => setGradeFilter(g)} className={cn('rounded-control border px-2.5 py-1 text-xs font-medium', gradeFilter === g ? 'border-foreground bg-foreground text-background' : 'bg-card hover:bg-muted')}>{g === 'all' ? 'All' : g}{g !== 'all' && <span className="ml-1 opacity-70">{work.rows.filter((r) => r.grade === g).length}</span>}</button>
+                    ))}
+                  </div>
+                  <PlanTable rows={work.rows} doctors={doctors} target={work.summary?.target ?? inputs.daily_target ?? 8} usual={work.summary?.usualMaxDay ?? null} filter={gradeFilter} />
                 </>
               ) : (
                 <Card><EmptyState icon={Sparkles} title="No plan yet" description="Press Generate plan to build the plan from the list, the open days and the requests above." /></Card>

@@ -15,9 +15,17 @@ export interface PlanDoctor {
   free_any_day?: boolean
   /** 3+ visits, 80%+ of them on one or two weekdays: he is planned on these weekdays only (hard). */
   allowed_dows?: number[] | null
+  /** The hours used for planning: P20-P80 of his visit times (or 90 minutes around the median with fewer than 5 timed visits). Level 2 and up use win_lo / win_hi. */
   win_start?: number | null
   win_end?: number | null
+  /** P5-P95 of his visit times (the same as win_start / win_end with fewer than 5 timed visits). */
+  win_lo?: number | null
+  win_hi?: number | null
   n_hist?: number
+  /** Visits of his history that have a recorded time (grade A needs 5). */
+  n_timed?: number
+  /** Visits of his history per weekday, index 1 = Monday ... 7 = Sunday (index 0 unused). */
+  dow_n?: number[]
 }
 export interface PlanDay { day: string; isodow: number; closed: boolean; reason: string | null }
 /** One pair of bricks the rep really worked in the same day before (plan_brick_pairs). */
@@ -31,7 +39,7 @@ export interface PlanInputs {
   month: string; list_month: string | null; box_id: number | null
   daily_target: number | null; days: PlanDay[]; doctors: PlanDoctor[]
   /** The rep's own PM window in minutes: earliest / latest visit start (5th-95th percentile of his last 3 months). Absent = default window. */
-  window?: { start: number; end: number } | null
+  window?: { start: number; end: number; end99?: number } | null
   /** How often the rep really worked the same brick two PM working days in a row (plan_brick_repeats); undefined = not loaded. */
   brickRepeats?: BrickRepeat[]
   /** Counts of the history of the rep's list; undefined = not loaded (then the plan is generated in History mode as before). */
@@ -46,6 +54,8 @@ export interface PlanInputs {
   fromDay?: string | null
   /** Visits already done this month per doctor (plan_actuals): the plan only covers freq - done. */
   done?: Record<number, number>
+  /** Date of the last visit already done this month per doctor (re-plan): the minimum gap counts from it. */
+  lastDone?: Record<number, string>
 }
 
 /** Hard cap: no day of any plan has more visits than this, whatever the constraint. */
@@ -57,7 +67,13 @@ export interface PlanParams {
   maxBricksPerDay: number; minSecondBrickDoctors: number
   visitMinutes: number; speedKmh: number; detourFactor: number; gapMin: number; gapMax: number
   minHistoryShare: number; minGpsShare: number; geoStart: string; geoEnd: string; minOwnVisitsForBricks: number
-  maxWaitMin: number; earlyToleranceMin: number; windowGapMaxMin: number; maxBrickRepeats: number; minGapDays: number
+  maxWaitMin: number; earlyToleranceMin: number; windowGapMaxMin: number; maxBrickRepeats: number
+  /** Level 4: the PM window ends at the rep's P99 (or l4End when unknown), never later than l4Cap. */
+  l4End: string; l4Cap: string
+  /** A doctor is certain to be present on a weekday when he was visited on it this many times before. */
+  certainSameDow: number
+  /** First relaxation level to try (1 = start from the strictest). */
+  minLevel: number
   defaultStart: string; defaultEnd: string; fallbackTarget: number; minHistory: number
 }
 export const DEFAULT_PARAMS: PlanParams = {
@@ -66,11 +82,15 @@ export const DEFAULT_PARAMS: PlanParams = {
   maxBricksPerDay: 2, minSecondBrickDoctors: 3,
   visitMinutes: 15, speedKmh: 25, detourFactor: 1.35, gapMin: 15, gapMax: 25,
   minHistoryShare: 0.5, minGpsShare: 0.7, geoStart: '17:00', geoEnd: '22:00', minOwnVisitsForBricks: 30,
-  maxWaitMin: 45, earlyToleranceMin: 20, windowGapMaxMin: 90, maxBrickRepeats: 3, minGapDays: 5,
+  maxWaitMin: 45, earlyToleranceMin: 20, windowGapMaxMin: 90, maxBrickRepeats: 3, l4End: '22:30', l4Cap: '23:00', certainSameDow: 2, minLevel: 1,
   defaultStart: '14:00', defaultEnd: '22:00', fallbackTarget: 8, minHistory: 30,
 }
 
-export interface PlanRow { day: string; seq: number; doctor_id: number; planned_time: string | null; fixed: boolean; visit_no: number; note: string | null }
+/** Confidence of one planned visit: A good data, B data exists but does not fully match, C needs timing confirmation from the rep. */
+export type Grade = 'A' | 'B' | 'C'
+/** Relaxation level: 1 strictest ... 4 loosest. */
+export type Level = 1 | 2 | 3 | 4
+export interface PlanRow { day: string; seq: number; doctor_id: number; planned_time: string | null; fixed: boolean; visit_no: number; note: string | null; grade?: Grade | null }
 interface Named { id: number; name: string }
 
 export interface ValidationResult { ok: boolean; failures: string[]; warnings: string[] }
@@ -115,6 +135,16 @@ export interface PlanSummary {
   window: { start: string; end: string; own: boolean }
   fromDay: string | null
   warnings: string[]
+  /** The relaxation level (1-4) at which the plan met both targets, or the level of the best plan found when it did not. null = nothing planned. */
+  level?: Level | null
+  targetsMet?: boolean
+  /** Set when even level 4 could not reach PCF and Coverage by day 15: the numbers and the reasons. */
+  notReachable?: { capacity: number; requiredVisits: number; targetVisits: number; bestPcf: number; bestCov15: number; requiredCov15: number; reasons: string[] } | null
+  /** Planned visits per grade, and per day. */
+  grades?: { A: number; B: number; C: number }
+  dayGrades?: Record<string, { A: number; B: number; C: number }>
+  /** Waiting of 20-45 minutes allowed because the doctor is certain to be present that day. */
+  waitAllowed?: { doctors: number; minutes: number }
 }
 export interface PlanResult { rows: PlanRow[]; summary: PlanSummary; params: PlanParams; validation: ValidationResult }
 
@@ -169,6 +199,11 @@ export function pairLookup(pairs: BrickPair[] | undefined): (a: string, b: strin
 export const pairAllowed = (p: BrickPair | null): boolean => p !== null && (p.pm_days >= 2 || p.any_days - p.pm_days >= 1)
 export const pairWhy = (p: BrickPair): string => (p.pm_days >= 2 ? `worked together ${p.pm_days} PM days before` : `worked together AM + PM ${p.any_days - p.pm_days} day${p.any_days - p.pm_days === 1 ? '' : 's'} before`)
 export const WEEKDAY = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+/** Minimum calendar days between two visits of one doctor: 2 visits a month -> 10, 3 -> 7, 4 or more -> 5, one visit -> none. */
+export const gapDaysFor = (freq: number): number => (freq >= 4 ? 5 : freq === 3 ? 7 : freq === 2 ? 10 : 0)
+/** Calendar day number (days since 1970-01-01) of an ISO date. */
+export const dayNum = (iso: string): number => Math.round(Date.parse(`${iso}T00:00:00Z`) / 86400000)
 
 /** One real PM visit of the rep (plan_actuals). */
 export interface ActualVisit { day: string; doctor_id: number; visit_time: string | null }

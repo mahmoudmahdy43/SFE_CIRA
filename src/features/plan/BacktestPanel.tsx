@@ -12,6 +12,8 @@ interface Result { rep: PlanRep; bt: Backtest | null; error: string | null }
 const pct = (v: number) => `${(v * 100).toFixed(0)}%`
 const pp = (a: number, b: number) => { const d = (a - b) * 100; return `${d >= 0 ? '+' : ''}${d.toFixed(0)} pp` }
 const km = (v: number) => v.toFixed(1)
+const gShare = (b: Backtest, g: 'A' | 'B' | 'C'): number => { const t = b.grades.A + b.grades.B + b.grades.C; return t > 0 ? b.grades[g] / t : 0 }
+const levelText = (b: Backtest): string => (b.targetsMet ? `L${b.level}` : b.level ? `not reached (best L${b.level})` : '-')
 const SELECT = 'h-8 rounded-control border bg-card px-2 text-sm text-foreground'
 
 function prevMonth(): string {
@@ -68,7 +70,7 @@ export function BacktestPanel({ reps, selected }: { reps: PlanRep[]; selected: P
   const avg = useMemo(() => {
     if (ok.length === 0) return null
     const m = (f: (b: Backtest) => number) => ok.reduce((a, r) => a + f(r.bt as Backtest), 0) / ok.length
-    return { cp: m((b) => b.plan.cov15), ca: m((b) => b.actual.cov15), pp: m((b) => b.plan.pcf), pa: m((b) => b.actual.pcf), kp: m((b) => b.plan.avgKm), ka: m((b) => b.actual.avgKm), op: m((b) => b.plan.daysOver), oa: m((b) => b.actual.daysOver), mp: m((b) => b.plan.maxDay), ma: m((b) => b.actual.maxDay) }
+    return { cp: m((b) => b.plan.cov15), ca: m((b) => b.actual.cov15), pp: m((b) => b.plan.pcf), pa: m((b) => b.actual.pcf), kp: m((b) => b.plan.avgKm), ka: m((b) => b.actual.avgKm), op: m((b) => b.plan.daysOver), oa: m((b) => b.actual.daysOver), mp: m((b) => b.plan.maxDay), ma: m((b) => b.actual.maxDay), ga: m((b) => gShare(b, 'A')), gb: m((b) => gShare(b, 'B')), gc: m((b) => gShare(b, 'C')), met: ok.filter((r) => (r.bt as Backtest).targetsMet).length }
   }, [ok])
 
   const exportXlsx = () => {
@@ -78,7 +80,9 @@ export function BacktestPanel({ reps, selected }: { reps: PlanRep[]; selected: P
       'PCF plan %': r.bt ? Math.round(r.bt.plan.pcf * 100) : null, 'PCF actual %': r.bt ? Math.round(r.bt.actual.pcf * 100) : null,
       'Avg daily km plan': r.bt ? Number(r.bt.plan.avgKm.toFixed(1)) : null, 'Avg daily km actual': r.bt ? Number(r.bt.actual.avgKm.toFixed(1)) : null,
       'Days over target plan': r.bt ? r.bt.plan.daysOver : null, 'Days over target actual': r.bt ? r.bt.actual.daysOver : null,
-      'Highest day plan': r.bt ? r.bt.plan.maxDay : null, 'Highest day actual': r.bt ? r.bt.actual.maxDay : null, Note: r.error ?? '',
+      'Highest day plan': r.bt ? r.bt.plan.maxDay : null, 'Highest day actual': r.bt ? r.bt.actual.maxDay : null,
+      'Grade A %': r.bt ? Math.round(gShare(r.bt, 'A') * 100) : null, 'Grade B %': r.bt ? Math.round(gShare(r.bt, 'B') * 100) : null, 'Grade C %': r.bt ? Math.round(gShare(r.bt, 'C') * 100) : null,
+      'Level reached': r.bt ? levelText(r.bt) : '', Note: r.error ?? '',
     })))
   }
 
@@ -103,6 +107,7 @@ export function BacktestPanel({ reps, selected }: { reps: PlanRep[]; selected: P
                 <th className="px-2 py-1.5 text-right">PCF plan</th><th className="px-2 py-1.5 text-right">actual</th>
                 <th className="px-2 py-1.5 text-right">Est. km/day plan</th><th className="px-2 py-1.5 text-right">actual</th>
                 <th className="px-2 py-1.5 text-right">Days over plan</th><th className="px-2 py-1.5 text-right">actual</th><th className="px-2 py-1.5 text-right">Peak day plan</th><th className="px-2 py-1.5 text-right">actual</th>
+                <th className="px-2 py-1.5 text-right">A %</th><th className="px-2 py-1.5 text-right">B %</th><th className="px-2 py-1.5 text-right">C %</th><th className="px-2 py-1.5 text-left">Level</th>
               </tr>
             </thead>
             <tbody>
@@ -113,6 +118,7 @@ export function BacktestPanel({ reps, selected }: { reps: PlanRep[]; selected: P
                   <td className="tnum px-2 py-1.5 text-right">{pct(avg.pp)}</td><td className="tnum px-2 py-1.5 text-right">{pct(avg.pa)}</td>
                   <td className="tnum px-2 py-1.5 text-right">{km(avg.kp)}</td><td className="tnum px-2 py-1.5 text-right">{km(avg.ka)}</td>
                   <td className="tnum px-2 py-1.5 text-right">{avg.op.toFixed(1)}</td><td className="tnum px-2 py-1.5 text-right">{avg.oa.toFixed(1)}</td><td className="tnum px-2 py-1.5 text-right">{avg.mp.toFixed(1)}</td><td className="tnum px-2 py-1.5 text-right">{avg.ma.toFixed(1)}</td>
+                  <td className="tnum px-2 py-1.5 text-right">{pct(avg.ga)}</td><td className="tnum px-2 py-1.5 text-right">{pct(avg.gb)}</td><td className="tnum px-2 py-1.5 text-right">{pct(avg.gc)}</td><td className="px-2 py-1.5">{avg.met} of {ok.length} met</td>
                 </tr>
               )}
               {results.map((r) => (
@@ -125,8 +131,10 @@ export function BacktestPanel({ reps, selected }: { reps: PlanRep[]; selected: P
                       <td className="tnum px-2 py-1 text-right">{pct(r.bt.plan.pcf)}</td><td className="tnum px-2 py-1 text-right">{pct(r.bt.actual.pcf)}</td>
                       <td className="tnum px-2 py-1 text-right">{km(r.bt.plan.avgKm)}</td><td className="tnum px-2 py-1 text-right">{km(r.bt.actual.avgKm)}</td>
                       <td className="tnum px-2 py-1 text-right">{r.bt.plan.daysOver}</td><td className="tnum px-2 py-1 text-right">{r.bt.actual.daysOver}</td><td className="tnum px-2 py-1 text-right">{r.bt.plan.maxDay}</td><td className={`tnum px-2 py-1 text-right ${r.bt.actual.maxDay > 12 ? 'font-bold text-red-700' : ''}`}>{r.bt.actual.maxDay}</td>
+                      <td className="tnum px-2 py-1 text-right">{pct(gShare(r.bt, 'A'))}</td><td className="tnum px-2 py-1 text-right">{pct(gShare(r.bt, 'B'))}</td><td className="tnum px-2 py-1 text-right">{pct(gShare(r.bt, 'C'))}</td>
+                      <td className={`px-2 py-1 ${r.bt.targetsMet ? '' : 'font-semibold text-red-700'}`}>{levelText(r.bt)}</td>
                     </>
-                  ) : <td colSpan={11} className="px-2 py-1 text-muted-foreground">{r.error}</td>}
+                  ) : <td colSpan={15} className="px-2 py-1 text-muted-foreground">{r.error}</td>}
                 </tr>
               ))}
             </tbody>

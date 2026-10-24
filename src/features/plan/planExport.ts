@@ -11,8 +11,10 @@ const HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
 const RELS = 'xmlns="http://schemas.openxmlformats.org/package/2006/relationships"'
 const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 
-const HEADERS = ['Date', 'Day', '#', 'Time', 'Doctor', 'Account', 'Brick', 'Visit', 'Confirmed', 'Note', 'Day visits / target']
-const WIDTHS = [13, 11, 5, 8, 34, 34, 18, 8, 11, 44, 34]
+const HEADERS = ['Date', 'Day', '#', 'Time', 'Grade', 'Doctor', 'Account', 'Brick', 'Visit', 'Confirmed', 'No GPS', 'Note', 'Day visits / target / grades']
+const WIDTHS = [13, 11, 5, 8, 8, 34, 34, 18, 8, 11, 8, 50, 40]
+/** Grade colors: A green, B yellow, C gray. */
+const GRADE_FILL: Record<string, string> = { A: 'C6EFCE', B: 'FFEB9C', C: 'D9D9D9' }
 const dayName = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })
 
 export interface PlanBook { rep: string; month: string; target: number; rows: PlanRow[]; doctors: Map<number, PlanDoctor>; summary: PlanSummary | null; status: string }
@@ -32,7 +34,10 @@ export async function downloadPlanWorkbook(book: PlanBook, logoUrl: string): Pro
   put(1, 2, `${book.month}  |  PM  |  daily target ${book.target}  |  ${book.status.toUpperCase()}`, { fill: fill(GREEN), font: font(11, { rgb: 'FFFFFF' }), alignment: { vertical: 'center' } })
   for (let c = 0; c <= last; c++) put(3, c, '', { fill: fill(STRIP) })
   const cov = book.summary
-  put(3, 0, cov ? `Visits ${book.rows.length} of ${cov.targetVisits}   |   Coverage by day 15: ${cov.cov15.done}/${cov.cov15.total} (${Math.round(cov.cov15.pct * 100)}%)   |   PCF ${(cov.pcf.pct * 100).toFixed(1)}%` : `Visits ${book.rows.length}`, { fill: fill(STRIP), font: font(11, { bold: true }) })
+  const gt = { A: book.rows.filter((x) => x.grade === 'A').length, B: book.rows.filter((x) => x.grade === 'B').length, C: book.rows.filter((x) => x.grade === 'C').length }
+  const gSum = gt.A + gt.B + gt.C
+  const gp = (n: number) => `${gSum > 0 ? Math.round((n / gSum) * 100) : 0}%`
+  put(3, 0, cov ? `Visits ${book.rows.length} of ${cov.targetVisits}   |   Coverage by day 15: ${cov.cov15.done}/${cov.cov15.total} (${Math.round(cov.cov15.pct * 100)}%)   |   PCF ${(cov.pcf.pct * 100).toFixed(1)}%   |   ${cov.targetsMet ? `Targets met at level ${cov.level}` : cov.notReachable ? 'TARGET NOT REACHABLE' : ''}   |   A ${gp(gt.A)}  B ${gp(gt.B)}  C ${gp(gt.C)}` : `Visits ${book.rows.length}`, { fill: fill(STRIP), font: font(11, { bold: true }) })
   HEADERS.forEach((h, c) => put(5, c, h, { fill: fill(GREEN), font: font(11, { bold: true, rgb: 'FFFFFF' }), alignment: { horizontal: 'center', vertical: 'center' } }))
 
   const days = [...new Set(book.rows.map((r) => r.day))].sort()
@@ -48,20 +53,25 @@ export async function downloadPlanWorkbook(book: PlanBook, logoUrl: string): Pro
       put(r, 1, dayName(day), base())
       put(r, 2, row.seq, base({ alignment: { horizontal: 'center' } }))
       put(r, 3, row.planned_time ?? '', base({ alignment: { horizontal: 'center' } }))
-      put(r, 4, d?.name ?? `Doctor #${row.doctor_id}`, base())
-      put(r, 5, d?.account ?? '', base())
-      put(r, 6, d?.brick ?? '', base())
-      put(r, 7, `${row.visit_no}/${d?.freq ?? '?'}`, base({ alignment: { horizontal: 'center' } }))
-      put(r, 8, row.fixed ? 'Yes' : '', base({ alignment: { horizontal: 'center' } }))
-      put(r, 9, [row.note, d && d.lat === null ? 'no GPS' : null].filter(Boolean).join(' - '), base())
+      put(r, 4, row.grade ?? '', base({ alignment: { horizontal: 'center' }, font: font(10, { bold: true }), ...(row.grade ? { fill: fill(GRADE_FILL[row.grade]) } : {}) }))
+      put(r, 5, d?.name ?? `Doctor #${row.doctor_id}`, base())
+      put(r, 6, d?.account ?? '', base())
+      put(r, 7, d?.brick ?? '', base())
+      put(r, 8, `${row.visit_no}/${d?.freq ?? '?'}`, base({ alignment: { horizontal: 'center' } }))
+      put(r, 9, row.fixed ? 'Yes' : '', base({ alignment: { horizontal: 'center' } }))
+      put(r, 10, d && d.lat === null ? 'No GPS' : '', base({ alignment: { horizontal: 'center' } }))
+      put(r, 11, row.note ?? '', base())
       const ts = list.map((x) => x.planned_time).filter((x): x is string => !!x).sort()
       const spanMin = ts.length > 1 ? Number(ts[ts.length - 1].slice(0, 2)) * 60 + Number(ts[ts.length - 1].slice(3, 5)) - (Number(ts[0].slice(0, 2)) * 60 + Number(ts[0].slice(3, 5))) : 0
-      put(r, 10, i === 0 ? `${list.length} / ${book.target}  ${ts[0] ?? ''}→${ts[ts.length - 1] ?? ''} (${Math.floor(spanMin / 60)}h${String(spanMin % 60).padStart(2, '0')})` : '', base({ alignment: { horizontal: 'center' }, ...(i === 0 && over ? { fill: fill(list.length >= 12 ? 'FECACA' : 'FDE68A') } : {}), font: font(10, { bold: i === 0 }) }))
+      const dg = `A ${list.filter((x) => x.grade === 'A').length} · B ${list.filter((x) => x.grade === 'B').length} · C ${list.filter((x) => x.grade === 'C').length}`
+      put(r, 12, i === 0 ? `${list.length} / ${book.target}  ${ts[0] ?? ''}→${ts[ts.length - 1] ?? ''} (${Math.floor(spanMin / 60)}h${String(spanMin % 60).padStart(2, '0')})  ${dg}` : '', base({ alignment: { horizontal: 'center' }, ...(i === 0 && over ? { fill: fill(list.length >= 12 ? 'FECACA' : 'FDE68A') } : {}), font: font(10, { bold: i === 0 }) }))
       r++
     })
   })
   ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(r - 1, 5), c: last } })
   ws['!cols'] = WIDTHS.map((wch) => ({ wch }))
+  // filter on the header row: filter by grade (or any other column)
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 5, c: 0 }, e: { r: Math.max(r - 1, 5), c: last } }) }
   ws['!rows'] = [{ hpt: 22 }, { hpt: 22 }, { hpt: 22 }]
   ws['!merges'] = [{ s: { r: 0, c: 2 }, e: { r: 0, c: last } }, { s: { r: 1, c: 2 }, e: { r: 1, c: last } }, { s: { r: 3, c: 0 }, e: { r: 3, c: last } }]
 
@@ -70,6 +80,10 @@ export async function downloadPlanWorkbook(book: PlanBook, logoUrl: string): Pro
   if (book.summary) {
     const s = book.summary
     const rows: (string | number)[][] = [
+      ['Targets', s.targetsMet ? `MET at level ${s.level} (L1 strictest ... L4 loosest)` : s.notReachable ? `NOT REACHABLE - best plan found, level ${s.level ?? '-'}` : '-'],
+      ...(s.notReachable ? [['Available capacity (12 x open days)', s.notReachable.capacity], [`Required (${Math.round(0.9 * 100)}% x ${s.notReachable.targetVisits} target visits)`, s.notReachable.requiredVisits], ['Best PCF / Coverage by day 15 achievable', `${(s.notReachable.bestPcf * 100).toFixed(1)}% / ${(s.notReachable.bestCov15 * 100).toFixed(1)}% (${s.notReachable.requiredCov15} doctors needed by day 15)`], ...s.notReachable.reasons.map((x) => ['Reason', x])] : []),
+      ['Grades A / B / C', `${gt.A} (${gp(gt.A)}) / ${gt.B} (${gp(gt.B)}) / ${gt.C} (${gp(gt.C)})`],
+      ['Allowed waiting (20-45 min, doctor certain to be present)', s.waitAllowed ? `${s.waitAllowed.doctors} doctors, ${s.waitAllowed.minutes} min` : '-'],
       ['Planning mode', s.mode === 'history' ? 'History mode' : s.mode === 'geography' ? 'Geography mode - Low confidence - geography only' : 'No plan'],
       ['Doctors with visit times / GPS / any history', `${s.modeInfo.withTime} / ${s.modeInfo.withGps} / ${s.modeInfo.withAny} of ${s.modeInfo.listDoctors}`],
       ['Brick history source', s.brickSource === 'own' ? "the rep's own" : s.brickSource === 'any' ? 'any rep who worked these bricks' : '-'],
