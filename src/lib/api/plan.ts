@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import { doctorTimesFromHistory, windowFromTimes, type ActualVisit, type BrickPair, type BrickRepeat, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary } from '../../features/plan/planner'
+import { doctorTimesFromHistory, usualMaxDayFromHistory, windowFromTimes, type ActualVisit, type BrickPair, type BrickRepeat, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary } from '../../features/plan/planner'
 import { fetchAll, rpc } from './core'
 
 type Raw = Record<string, unknown>
@@ -48,7 +48,7 @@ export async function fetchPlanInputs(rep: number, month: string, fromDay: strin
   for (const v of thisMonth) if (fromDay && v.day < fromDay) done[v.doctor_id] = (done[v.doctor_id] ?? 0) + 1
   return {
     ...inputs, doctors: doctorTimesFromHistory(history, inputs.doctors), window: windowFromTimes(history.map((v) => v.visit_time)),
-    brickRepeats: repeats, brickPairs: pairs, fromDay: fromDay && fromDay > month ? fromDay : null, done,
+    brickRepeats: repeats, usualMaxDay: usualMaxDayFromHistory(history), brickPairs: pairs, fromDay: fromDay && fromDay > month ? fromDay : null, done,
   }
 }
 

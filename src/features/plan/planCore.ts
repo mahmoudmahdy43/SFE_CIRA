@@ -23,6 +23,8 @@ export interface PlanInputs {
   window?: { start: number; end: number } | null
   /** How often the rep really worked the same brick two PM working days in a row (plan_brick_repeats); undefined = not loaded. */
   brickRepeats?: BrickRepeat[]
+  /** The most visits the rep did in one PM day (90th percentile of his days in the last 3 months): a soft reference, not a rule. */
+  usualMaxDay?: number | null
   /** Bricks worked together before; undefined = not loaded (then no day may have two bricks). */
   brickPairs?: BrickPair[]
   /** Plan only from this day on (mid-month re-plan); earlier days are not touched. */
@@ -82,6 +84,11 @@ export interface PlanSummary {
   repeats: { day: string; brick: string; why: string }[]; repeatLimit: number
   /** Days left empty because every brick with visits left was used the day before. */
   blockedDays: string[]
+  /** The rep's usual busiest day (P90) and the planned days more than 3 visits above it. */
+  usualMaxDay: number | null
+  aboveUsual: { day: string; count: number }[]
+  /** Why the coverage by day 15 is what it is (closed days, the 12 maximum, doctors moved to avoid waiting ...). */
+  cov15Why: string[]
   window: { start: string; end: string; own: boolean }
   fromDay: string | null
   warnings: string[]

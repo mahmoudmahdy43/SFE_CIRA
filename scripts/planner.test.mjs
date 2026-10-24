@@ -366,6 +366,65 @@ t('(d) the validator rejects two consecutive working days with the same brick, u
   assert.equal(limit.ok, true)
 })
 
+t('zero waiting first: a day that would make the rep arrive early is cut, the doctors with the latest hours move to another date', () => {
+  // 12 doctors of one brick, hours from 19:07, PM window ends 21:36: 12 visits (about 4 hours) would force a start near 18:00
+  const docs = bricked({ A: 12 }, 2, (i) => ({ win_start: 19 * 60 + 7 + Math.floor(i / 2) * 6, win_end: 21 * 60 + 50 }))
+  const res = pl.generatePlan(input(docs, 12, [], { window: { start: 15 * 60, end: 21 * 60 + 36 }, brickRepeats: [], brickPairs: [] }))
+  const per = perDay(res)
+  for (const [day, list] of Object.entries(per)) {
+    for (const r of list) {
+      const d = docs.find((x) => x.doctor_id === r.doctor_id)
+      assert.ok(d.win_start - min(r.planned_time) <= 20, `${day} ${r.planned_time} vs ${d.win_start}`)
+      assert.ok(!r.note || !r.note.startsWith('Waits'))
+    }
+    assert.ok(list.length >= 6 && list.length <= 12)
+  }
+  const first = Object.values(per)[0]
+  assert.ok(first.length < 12, 'the 12-visit day was cut')
+  assert.ok(res.summary.plannedVisits >= 22, String(res.summary.plannedVisits))
+  assert.equal(res.summary.waits.length, 0)
+  assert.equal(res.validation.ok, true, res.validation.failures.join('; '))
+})
+
+t('doctors with close hours are chosen for the same day and the early ones come first', () => {
+  const docs = bricked({ A: 24 }, 1, (i) => ({ win_start: i % 2 === 0 ? 16 * 60 : 19 * 60 + 15, win_end: i % 2 === 0 ? 17 * 60 : 20 * 60 + 15 }))
+  const res = pl.generatePlan(input(docs, 8, [], { window: { start: 14 * 60, end: 22 * 60 } }))
+  for (const list of Object.values(perDay(res))) {
+    const sorted = [...list].sort((x, y) => min(x.planned_time) - min(y.planned_time))
+    const starts = sorted.map((r) => docs.find((d) => d.doctor_id === r.doctor_id).win_start)
+    assert.deepEqual(starts, [...starts].sort((x, y) => x - y))
+    assert.equal(new Set(starts).size, 1)
+  }
+})
+
+t('his usual busiest day (P90 of his days) is a soft reference: a warning above it by more than 3, the hard 12 untouched', () => {
+  const hist = []
+  for (let d = 1; d <= 20; d++) for (let k = 0; k < (d <= 18 ? 6 : 9); k++) hist.push({ day: `2026-08-${String(d).padStart(2, '0')}`, doctor_id: k + 1, visit_time: '18:00' })
+  const u = pl.usualMaxDayFromHistory(hist)
+  assert.equal(u, 6)
+  assert.equal(pl.usualMaxDayFromHistory(hist.slice(0, 20)), null)
+  const docs = bricked({ A: 30, B: 30, C: 30, D: 30 }, 2)
+  const res = pl.generatePlan(input(docs, 9, [], { usualMaxDay: 4, brickPairs: [], brickRepeats: [] }))
+  assert.equal(res.summary.usualMaxDay, 4)
+  assert.ok(res.summary.aboveUsual.length > 0 && res.summary.aboveUsual.every((d) => d.count > 7))
+  assert.ok(res.summary.warnings.some((w) => w.includes('more than 3 visits above his usual busiest day (4)')))
+  assert.ok(res.summary.peak <= 12)
+  const none = pl.generatePlan(input(docs, 9, [], { usualMaxDay: 12, brickPairs: [], brickRepeats: [] }))
+  assert.equal(none.summary.aboveUsual.length, 0)
+})
+
+t('the coverage warning says why: closed days, the 12 maximum, doctors moved to avoid waiting', () => {
+  const docs = bricked({ A: 20, B: 20, C: 20, D: 20, E: 20, F: 20 }, 1)
+  const closed = days().filter((d) => d.day <= '2026-09-12').map((d) => d.day)
+  const res = pl.generatePlan(input(docs, 9, closed, { brickPairs: allPairs(['A', 'B', 'C', 'D', 'E', 'F']), brickRepeats: [] }))
+  assert.equal(res.summary.cov15.ok, false)
+  const w = res.summary.warnings.find((x) => x.startsWith('Coverage by day 15'))
+  assert.ok(w && w.includes('Why:') && w.includes('closed'), String(w))
+  assert.ok(res.summary.cov15Why.some((x) => x.includes('closed')))
+  const wait = pl.generatePlan(input(bricked({ A: 12 }, 1, (i) => ({ win_start: 19 * 60 + 7 + i * 4, win_end: 21 * 60 + 50 })), 12, [], { window: { start: 15 * 60, end: 21 * 60 + 36 }, brickPairs: [], brickRepeats: [] }))
+  assert.ok(Array.isArray(wait.summary.cov15Why))
+})
+
 t('(g) the validator rejects a broken plan and lists what is wrong', () => {
   const docs = bricked({ A: 12, B: 12, C: 12 }, 2)
   const inp = input(docs, 9, ['2026-09-07'], { brickPairs: [{ a: 'A', b: 'B', pm_days: 3, any_days: 3, last_day: null }], window: { start: 15 * 60, end: 21 * 60 } })

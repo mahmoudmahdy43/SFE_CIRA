@@ -184,6 +184,14 @@ export function doctorTimesFromHistory(history: ActualVisit[], doctors: PlanDoct
   })
 }
 
+/** The rep's usual busiest day: the 90th percentile of the number of PM visits per day in his history (null with fewer than 8 days). */
+export function usualMaxDayFromHistory(history: ActualVisit[]): number | null {
+  const per = new Map<string, number>()
+  for (const v of history) per.set(v.day, (per.get(v.day) ?? 0) + 1)
+  if (per.size < 8) return null
+  return pct([...per.values()].sort((a, b) => a - b), 0.9)
+}
+
 /* ------------------------------------ the planner ------------------------------------ */
 interface Unit { doc: PlanDoctor; round: number; brick: string; pos: number }
 interface Block { brick: string; units: Unit[] }
@@ -241,6 +249,54 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
   const plans: DayPlan[] = open.map(() => ({ blocks: [], why: null }))
   const countOf = (di: number): number => plans[di].blocks.reduce((a, b) => a + b.units.length, 0)
 
+  const gapBetween = (a: Unit, b: Unit): number => {
+    const km = hasGps(a.doc) && hasGps(b.doc) ? estKm(a.doc, b.doc, p.detourFactor) : 0
+    const g = Math.ceil(p.visitMinutes + (km / p.speedKmh) * 60)
+    return a.brick === b.brick ? clamp(g, p.gapMin, p.gapMax) : Math.max(p.gapMin, g)
+  }
+  /** Order of one brick block: by the start of each doctor's usual hours (doctors without hours sit in the middle), then by route. */
+  const orderBlock = (units: Unit[]): Unit[] => {
+    const known = units.map((u) => u.doc.win_start).filter((x): x is number => x != null).sort((a, b) => a - b)
+    const mid = known.length > 0 ? known[known.length >> 1] : 0
+    return [...units].sort((a, b) => (a.doc.win_start ?? mid) - (b.doc.win_start ?? mid) || a.pos - b.pos)
+  }
+  const blockKey = (b: Block): number => { const k = b.units.map((u) => u.doc.win_start).filter((x): x is number => x != null).sort((x, y) => x - y); return k.length > 0 ? k[k.length >> 1] : 0 }
+  const offsetsOf = (list: Unit[]): number[] => list.reduce<number[]>((a, u, i) => { a.push(i === 0 ? 0 : a[i - 1] + gapBetween(list[i - 1], u)); return a }, [])
+  /** Order of a day: the block whose doctors start earlier first, inside a block by the start of the usual hours. */
+  const daySeq = (blocks: Block[]): Unit[] => {
+    const o = [...blocks]
+    if (o.length === 2 && blockKey(o[1]) < blockKey(o[0])) o.reverse()
+    return o.flatMap((b) => orderBlock(b.units))
+  }
+  /** The earliest start at which every doctor arrives inside his own hours (not more than 20 min early, not late); ties to the earliest. */
+  const chooseStart = (seq: Unit[], offs: number[], lo: number, hi: number): number => {
+    const cost = (t0: number): number => seq.reduce((acc, u, i) => {
+      const a = u.doc.win_start
+      const c = u.doc.win_end
+      if (a == null || c == null) return acc
+      const at = t0 + offs[i]
+      return acc + Math.max(0, a - p.earlyToleranceMin - at) + 3 * Math.max(0, at - c)
+    }, 0)
+    const cands = new Set<number>([lo, hi])
+    seq.forEach((u, i) => {
+      if (u.doc.win_start != null) cands.add(u.doc.win_start - p.earlyToleranceMin - offs[i])
+      if (u.doc.win_end != null) cands.add(u.doc.win_end - offs[i])
+    })
+    let t0 = lo
+    let best = Infinity
+    for (const c of [...cands].map((x) => clamp(Math.round(x), lo, Math.max(lo, hi))).sort((a, b) => a - b)) {
+      const k = cost(c)
+      if (k < best - 1e-9) { best = k; t0 = c }
+    }
+    return t0
+  }
+  /** The most minutes any doctor of this day arrives before his hours, with the start chosen as above. */
+  const earlyMost = (seq: Unit[]): number => {
+    if (seq.length === 0) return 0
+    const offs = offsetsOf(seq)
+    const t0 = chooseStart(seq, offs, ws, we - offs[offs.length - 1])
+    return Math.max(0, ...seq.map((u, i) => (u.doc.win_start == null ? 0 : u.doc.win_start - (t0 + offs[i]))))
+  }
   /* ---- 1. compose the days ---- */
   let prevBrick: string | null = null
   const repStats = new Map((inputs.brickRepeats ?? []).map((r) => [r.brick, r]))
@@ -248,6 +304,8 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
   const repeatsUsedBy = new Map<string, number>()
   const repeats: PlanSummary['repeats'] = []
   const blockedDays: string[] = []
+  const waitDeferred = new Set<number>()
+  const gapDeferred = new Set<number>()
   const covered = new Set<number>(docs.filter((d) => (done[d.doctor_id] ?? 0) > 0).map((d) => d.doctor_id))
   for (let di = 0; di < W; di++) {
     // visits for today: the plan of the days that are left (recomputed every day, so a day that took more spreads the rest evenly)
@@ -268,7 +326,7 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
         const a = u.doc.win_start
         const c = u.doc.win_end
         if (a == null || c == null) return true
-        if (uE >= uS && Math.max(0, a - uE, uS - c) > p.windowGapMaxMin) return false
+        if (uE >= uS && Math.max(0, a - uE, uS - c) > p.windowGapMaxMin) { if (u.round === 1 && open[di].early) gapDeferred.add(u.doc.doctor_id); return false }
         uS = Math.min(uS, a)
         uE = Math.max(uE, c)
         return true
@@ -329,6 +387,21 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
 
     const blocks: Block[] = [{ brick: pick.a, units: pick.take }]
     if (pick.second) blocks.push({ brick: pick.second.brick, units: pick.second.take })
+    // zero waiting comes first: while a doctor would arrive more than 20 minutes before his hours, the day is cut from the end
+    // (the latest hours) and those doctors wait for another date; the day never goes under the minimum because of this
+    for (let guard = 0; guard < 24; guard++) {
+      const seq = daySeq(blocks)
+      if (seq.length <= minDay || earlyMost(seq) <= p.earlyToleranceMin) break
+      const last = seq[seq.length - 1]
+      const bl = blocks.find((b) => b.units.includes(last)) as Block
+      bl.units.splice(bl.units.indexOf(last), 1)
+      waitDeferred.add(last.doc.doctor_id)
+      if (bl.units.length === 0) blocks.splice(blocks.indexOf(bl), 1)
+      else if (blocks.length === 2) {
+        const small = blocks.find((b) => b.units.length < p.minSecondBrickDoctors)
+        if (small) { for (const u of small.units) waitDeferred.add(u.doc.doctor_id); blocks.splice(blocks.indexOf(small), 1) }
+      }
+    }
     for (const bl of blocks) {
       const gone = new Set(bl.units)
       pending.set(bl.brick, (pending.get(bl.brick) as Unit[]).filter((u) => !gone.has(u)))
@@ -397,51 +470,15 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
   const rows: PlanRow[] = []
   const dayRows: { u: Unit; time: number }[][] = open.map(() => [])
   const unplaced: Unit[] = []
-  const gapBetween = (a: Unit, b: Unit): number => {
-    const km = hasGps(a.doc) && hasGps(b.doc) ? estKm(a.doc, b.doc, p.detourFactor) : 0
-    const g = Math.ceil(p.visitMinutes + (km / p.speedKmh) * 60)
-    return a.brick === b.brick ? clamp(g, p.gapMin, p.gapMax) : Math.max(p.gapMin, g)
-  }
-  /** Order of one brick block: by the start of each doctor's usual hours (doctors without hours sit in the middle), then by route. */
-  const orderBlock = (units: Unit[]): Unit[] => {
-    const known = units.map((u) => u.doc.win_start).filter((x): x is number => x != null).sort((a, b) => a - b)
-    const mid = known.length > 0 ? known[known.length >> 1] : 0
-    return [...units].sort((a, b) => (a.doc.win_start ?? mid) - (b.doc.win_start ?? mid) || a.pos - b.pos)
-  }
-  const blockKey = (b: Block): number => { const k = b.units.map((u) => u.doc.win_start).filter((x): x is number => x != null).sort((x, y) => x - y); return k.length > 0 ? k[k.length >> 1] : 0 }
   for (let di = 0; di < W; di++) {
     const blocks = plans[di].blocks.filter((b) => b.units.length > 0)
     if (blocks.length === 0) continue
-    if (blocks.length === 2 && blockKey(blocks[1]) < blockKey(blocks[0])) blocks.reverse()
-    let seq: Unit[] = []
-    for (const b of blocks) seq = seq.concat(orderBlock(b.units))
-    const offsets = (list: Unit[]): number[] => list.reduce<number[]>((a, u, i) => { a.push(i === 0 ? 0 : a[i - 1] + gapBetween(list[i - 1], u)); return a }, [])
+    const seq = daySeq(blocks)
     // the outer window must hold the whole day: drop the last visits (reported as shortfall) if it cannot
-    let offs = offsets(seq)
-    while (seq.length > 0 && ws + offs[offs.length - 1] > we) { unplaced.push(seq.pop() as Unit); offs = offsets(seq) }
+    let offs = offsetsOf(seq)
+    while (seq.length > 0 && ws + offs[offs.length - 1] > we) { unplaced.push(seq.pop() as Unit); offs = offsetsOf(seq) }
     if (seq.length === 0) continue
-    const dur = offs[offs.length - 1]
-    // start: the earliest time at which every doctor arrives inside his own usual hours (not more than 20 min early, not late)
-    const cost = (t0: number): number => seq.reduce((acc, u, i) => {
-      const a = u.doc.win_start
-      const c = u.doc.win_end
-      if (a == null || c == null) return acc
-      const at = t0 + offs[i]
-      return acc + Math.max(0, a - p.earlyToleranceMin - at) + 3 * Math.max(0, at - c)
-    }, 0)
-    const lo = ws
-    const hi = we - dur
-    const cands = new Set<number>([lo, hi])
-    seq.forEach((u, i) => {
-      if (u.doc.win_start != null) cands.add(u.doc.win_start - p.earlyToleranceMin - offs[i])
-      if (u.doc.win_end != null) cands.add(u.doc.win_end - offs[i])
-    })
-    let t0 = lo
-    let best = Infinity
-    for (const c of [...cands].map((x) => clamp(Math.round(x), lo, hi)).sort((a, b) => a - b)) {
-      const k = cost(c)
-      if (k < best - 1e-9) { best = k; t0 = c }
-    }
+    const t0 = chooseStart(seq, offs, ws, we - offs[offs.length - 1])
     seq.forEach((u, i) => dayRows[di].push({ u, time: t0 + offs[i] }))
   }
 
@@ -508,13 +545,32 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
   const emptyDays = dayCounts.filter((d) => d.count === 0).map((d) => d.day)
   const listTooBig = Nrem > T * W
   const covPct = D > 0 ? cov15 / D : 0
+  const usualMax = inputs.usualMaxDay ?? null
+  const aboveUsual = usualMax === null ? [] : dayCounts.filter((d) => d.count > usualMax + 3)
+  // why the coverage by day 15 is short
+  const earlyAll = inputs.days.filter((d) => Number(d.day.slice(8, 10)) <= p.coverageDay && (!fromDay || d.day >= fromDay))
+  const uncovered = docs.filter((d) => !((done[d.doctor_id] ?? 0) > 0 || (firstDay.get(d.doctor_id) !== undefined && (firstDay.get(d.doctor_id) as string) <= cutoff)))
+  const byWait = uncovered.filter((d) => waitDeferred.has(d.doctor_id))
+  const byGap = uncovered.filter((d) => !waitDeferred.has(d.doctor_id) && gapDeferred.has(d.doctor_id))
+  const cov15Why: string[] = []
+  const earlyClosed = earlyAll.filter((d) => d.closed).length
+  if (earlyClosed > 0) cov15Why.push(`${earlyClosed} of the first ${p.coverageDay} days ${earlyClosed === 1 ? 'is' : 'are'} closed (leaves, requests or holidays)`)
+  const earlyAtMax = dayCounts.filter((d) => d.day <= cutoff && d.count >= p.maxDay).length
+  if (earlyAtMax > 0) cov15Why.push(`${earlyAtMax} early day${earlyAtMax === 1 ? ' is' : 's are'} at the maximum of ${p.maxDay} visits`)
+  if (byWait.length > 0) cov15Why.push(`${byWait.length} doctor${byWait.length === 1 ? ' was' : 's were'} moved to a later date so the rep does not wait for their usual hours`)
+  if (byGap.length > 0) cov15Why.push(`${byGap.length} doctor${byGap.length === 1 ? ' was' : 's were'} moved because their usual hours are more than ${p.windowGapMaxMin} minutes away from the rest of the day`)
+  const earlyBlocked = blockedDays.filter((d) => d <= cutoff).length
+  if (earlyBlocked > 0) cov15Why.push(`${earlyBlocked} early day${earlyBlocked === 1 ? ' was' : 's were'} left empty by the no-repeat brick rule`)
+  const otherUnc = uncovered.length - byWait.length - byGap.length
+  if (otherUnc > 0) cov15Why.push(`${otherUnc} other doctor${otherUnc === 1 ? '' : 's'} found no early day with room (brick rule, minimum gap or the daily capacity)`)
   const warnings: string[] = []
   if (W === 0) warnings.push('No open PM day in this month: nothing can be planned.')
   if (targetMissing) warnings.push(`The box has no PM call-rate target: ${p.fallbackTarget} a day was used.`)
   if (inputs.brickRepeats === undefined) warnings.push('Brick repeat history is not loaded (run 87_plan_brick_repeats.sql): the same brick is never repeated on consecutive days.')
   if (inputs.brickPairs === undefined) warnings.push('Brick history is not loaded (run 86_plan_brick_pairs.sql): every day has one brick only.')
   if (listTooBig) warnings.push(`The list (${Nrem} visits to plan) is bigger than the visit capacity. Capacity at target (Target x open days) = ${T} x ${W} = ${T * W}; Capacity at max (${p.maxDay} x open days) = ${p.maxDay} x ${W} = ${p.maxDay * W}. ${overDays} day${overDays === 1 ? '' : 's'} above the target, highest day ${Math.max(0, ...counts)}.`)
-  if (covPct < p.minCoverage) warnings.push(`Coverage by day ${p.coverageDay} is ${cov15} of ${D} doctors; ${required} are required (${Math.round(p.minCoverage * 100)}%): short by ${required - cov15}.`)
+  if (covPct < p.minCoverage) warnings.push(`Coverage by day ${p.coverageDay} is ${cov15} of ${D} doctors; ${required} are required (${Math.round(p.minCoverage * 100)}%): short by ${required - cov15}. Why: ${cov15Why.length > 0 ? cov15Why.join('; ') : 'not enough early capacity'}.`)
+  if (aboveUsual.length > 0) warnings.push(`${aboveUsual.length} planned day${aboveUsual.length === 1 ? ' is' : 's are'} more than 3 visits above his usual busiest day (${usualMax}): ${aboveUsual.slice(0, 8).map((d) => `${d.day} (${d.count})`).join(', ')}.`)
   if (pcf < p.minPcf) warnings.push(`Expected PCF is ${(pcf * 100).toFixed(1)}%, below ${Math.round(p.minPcf * 100)}%: ${N - pcfNum} visits cannot be placed.`)
   if (underMin.length > 0) warnings.push(`${underMin.length} day${underMin.length === 1 ? ' is' : 's are'} under the minimum of ${minDay} visits: ${underMin.map((d) => `${d.day} (${d.count})`).join(', ')}.`)
   if (emptyDays.length > 0 && Nrem < minDay * W) warnings.push(`${emptyDays.length} open day${emptyDays.length === 1 ? ' has' : 's have'} no visits: the list has ${Nrem} visits to plan, ${minDay} a day needs ${minDay * W}.`)
@@ -536,7 +592,7 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
     shortfall: { visits: missingVisits, firstVisits: missingFirst, covLossPts: D > 0 ? (missingFirst / D) * 100 : 0, pcfLossPts: N > 0 ? (missingVisits / N) * 100 : 0 },
     avgEstKmPerDay: kms.length > 0 ? kms.reduce((a, b) => a + b, 0) / kms.length : 0,
     avgStayMin: stays.length > 0 ? stays.reduce((a, b) => a + b, 0) / stays.length : 0,
-    waitTotalMin: waitTotal, waits, repeats, repeatLimit: p.maxBrickRepeats, blockedDays,
+    waitTotalMin: waitTotal, waits, repeats, repeatLimit: p.maxBrickRepeats, blockedDays, usualMaxDay: usualMax, aboveUsual, cov15Why,
     window: { start: fromMin(ws), end: fromMin(we), own: !!inputs.window },
     fromDay, warnings,
   }
