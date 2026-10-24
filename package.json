@@ -22,6 +22,7 @@
     "test:roi": "node scripts/specialityRoi.test.mjs",
     "test:daily": "node scripts/dailyReporting.test.mjs",
     "test:planner": "node scripts/planner.test.mjs",
+    "test:suspicious": "node scripts/suspicious.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

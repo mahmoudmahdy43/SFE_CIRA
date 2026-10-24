@@ -19,10 +19,13 @@ import { JointDaysTab } from '../features/reports/JointDaysTab'
 import { ManagerCoverageTab } from '../features/reports/ManagerCoverageTab'
 import { CoachingTab } from '../features/reports/CoachingTab'
 import { SalesTab } from '../features/reports/SalesTab'
+import { SuspiciousTab } from '../features/reports/SuspiciousTab'
+import { useAuth } from '../context/AuthContext'
 import type { ReportFilters } from '../features/reports/reportMath'
 
 export default function Reports() {
   const { month, from, to, isFullMonth } = useDateRange()
+  const { role } = useAuth()
   const [tab, setTab] = useState('employee-performance')
   const [filters, setFilters] = useState<ReportFilters>({ lineId: null, manager: '', search: '' })
   const lines = useAsync('lines:names', fetchLineNames)
@@ -51,6 +54,7 @@ export default function Reports() {
           <TabsTrigger value="coaching">Coaching</TabsTrigger>
           <TabsTrigger value="sales">Sales</TabsTrigger>
           <TabsTrigger value="speciality-roi">Speciality ROI</TabsTrigger>
+          {role === 'admin' && <TabsTrigger value="suspicious">Suspicious Cases</TabsTrigger>}
         </TabsList>
         <TabsContent value="employee-performance"><ErrorBoundary label="employee-performance report" resetKey={tab}><PeriodBanner className="mb-3" /><EmployeePerformanceTab {...shared} /></ErrorBoundary></TabsContent>
         <TabsContent value="call-rate"><ErrorBoundary label="call-rate report" resetKey={tab}><PeriodBanner monthly className="mb-3" /><CallRateTab {...shared} /></ErrorBoundary></TabsContent>
@@ -65,6 +69,7 @@ export default function Reports() {
         <TabsContent value="coaching"><ErrorBoundary label="coaching report" resetKey={tab}><PeriodBanner monthly own className="mb-3" /><CoachingTab {...shared} /></ErrorBoundary></TabsContent>
         <TabsContent value="sales"><ErrorBoundary label="sales report" resetKey={tab}><SalesTab {...shared} /></ErrorBoundary></TabsContent>
         <TabsContent value="speciality-roi"><ErrorBoundary label="speciality-roi report" resetKey={tab}><SpecialityRoiTab /></ErrorBoundary></TabsContent>
+        {role === 'admin' && <TabsContent value="suspicious"><ErrorBoundary label="suspicious-cases report" resetKey={tab}><SuspiciousTab /></ErrorBoundary></TabsContent>}
       </Tabs>
     </div>
   )
