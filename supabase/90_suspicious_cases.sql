@@ -17,17 +17,21 @@
 --   visit from far  = the clinic's average deviation is  > 300 m                (the clinic is registered elsewhere, the visit was logged here)
 --   night visit     = visit_time >= 23:00 or < 06:00
 --   other reps      = other reps with 3+ visits at the same cell in the range (a medical building shared by many reps is less suspicious)
---   severity (thresholds are in ONE place below, tune them there):
---       High   : clinics >= 2 x p_min_clinics  and  (visits >= 30% of the rep's PM visits  or  night visits >= 10)
---       Medium : clinics >= p_min_clinics      and   visits >= 10% of the rep's PM visits
+--   severity (thresholds are in ONE place, the CASE at the end of suspicious_clusters):
+--       High   : at least 25 clinics and no other rep at the point
+--       Medium : at least 15 clinics and at most one other rep at the point
 --       Low    : the rest
---       and one level lower when 2+ other reps work from the same cell.
+--   line_id / manager_id : from org_month of the month of p_from, else the latest earlier month the rep has a row in.
+--   v2: the functions are dropped and recreated (suspicious_clusters now also returns line_id).
 -- =====================================================================
 
-create or replace function suspicious_clusters(
+drop function if exists suspicious_clusters(date, date, int, int);
+drop function if exists suspicious_cluster_detail(int, numeric, numeric, date, date);
+
+create function suspicious_clusters(
   p_from date, p_to date, p_min_clinics int default 10, p_decimals int default 3)
 returns table(
-  rep_id int, rep_name text, rep_code text, rep_status text, resign_date date, manager_id int,
+  rep_id int, rep_name text, rep_code text, rep_status text, resign_date date, line_id int, manager_id int,
   cell_lat numeric, cell_lng numeric,
   clinics int, visits int, visit_days int, pct_of_rep_pm_visits numeric,
   clinics_registered_here int, clinics_far int, visits_far int, night_visits int, other_reps_at_cell int,
@@ -69,7 +73,7 @@ language sql stable security invoker set search_path = public as $$
   cell_days as (select rep_id, clat, clng, count(distinct visit_date)::int as visit_days from pos group by rep_id, clat, clng),
   cell_reps as (                                 -- reps with 3+ visits at a cell
     select clat, clng, count(*)::int as reps from (select rep_id, clat, clng from pos group by rep_id, clat, clng having count(*) >= 3) x group by clat, clng)
-  select c.rep_id, r.name, r.code, r.status, r.resign_date, o.manager_id,
+  select c.rep_id, r.name, r.code, r.status, r.resign_date, o.line_id::int, o.manager_id,
          c.clat, c.clng,
          c.clinics, c.visits, cd.visit_days,
          round(100.0 * c.visits / nullif(t.n, 0), 1),
@@ -77,27 +81,23 @@ language sql stable security invoker set search_path = public as $$
          greatest(coalesce(cr.reps, 1) - 1, 0),
          c.first_visit, c.last_visit,
          case
-           when sev.lvl - (case when greatest(coalesce(cr.reps, 1) - 1, 0) >= 2 then 1 else 0 end) >= 3 then 'High'
-           when sev.lvl - (case when greatest(coalesce(cr.reps, 1) - 1, 0) >= 2 then 1 else 0 end) = 2 then 'Medium'
+           when c.clinics >= 25 and greatest(coalesce(cr.reps, 1) - 1, 0) = 0 then 'High'
+           when c.clinics >= 15 and greatest(coalesce(cr.reps, 1) - 1, 0) <= 1 then 'Medium'
            else 'Low' end
     from cell c
     join reps r on r.id = c.rep_id
     join totals t on t.rep_id = c.rep_id
     join cell_days cd on cd.rep_id = c.rep_id and cd.clat = c.clat and cd.clng = c.clng
     left join cell_reps cr on cr.clat = c.clat and cr.clng = c.clng
-    left join lateral (select om.manager_id from org_month om
-                        where om.rep_id = c.rep_id and om.month <= date_trunc('month', p_to - 1)::date
-                        order by om.month desc limit 1) o on true
-    cross join lateral (select case
-             when c.clinics >= 2 * p_min_clinics and (100.0 * c.visits / nullif(t.n, 0) >= 30 or c.night_visits >= 10) then 3
-             when c.clinics >= p_min_clinics and 100.0 * c.visits / nullif(t.n, 0) >= 10 then 2
-             else 1 end as lvl) sev
+    left join lateral (select om.line_id, om.manager_id from org_month om
+                        where om.rep_id = c.rep_id and om.month <= date_trunc('month', p_from)::date
+                        order by om.month desc, om.territory_id limit 1) o on true
    where c.clinics >= p_min_clinics
    order by c.clinics desc, c.visits desc, c.rep_id
 $$;
 grant execute on function suspicious_clusters(date, date, int, int) to authenticated;
 
-create or replace function suspicious_cluster_detail(
+create function suspicious_cluster_detail(
   p_rep int, p_cell_lat numeric, p_cell_lng numeric, p_from date, p_to date)
 returns table(
   account text, acc_type_code text, visits int, first_visit date, last_visit date,

@@ -137,3 +137,44 @@ export async function downloadXlsxGrids(filename: string, sheets: GridSheet[], f
   }
   XLSX.writeFile(wb, filename)
 }
+
+/**
+ * Plain tables, one sheet each, with a bold grey header, a filter on the header row and the header frozen.
+ * Column widths follow the content (capped); a column named "...dates" is wide.
+ */
+export async function downloadXlsxTables(filename: string, sheets: { name: string; rows: Record<string, Cell>[] }[]): Promise<void> {
+  const used = sheets.filter((s) => s.rows.length > 0)
+  if (used.length === 0) return
+  const [mod, fflate] = await Promise.all([import('xlsx-js-style'), import('fflate')])
+  const XLSX = mod.default ?? (mod as unknown as typeof mod.default)
+  const wb = XLSX.utils.book_new()
+  const HEAD = { fill: { patternType: 'solid', fgColor: { rgb: 'E5E7EB' } }, font: { bold: true }, alignment: { vertical: 'center', wrapText: true } }
+  for (const sheet of used) {
+    const headers = Object.keys(sheet.rows[0])
+    const ws = XLSX.utils.json_to_sheet(sheet.rows, { header: headers }) as unknown as Record<string, unknown>
+    headers.forEach((_, c) => { const cell = ws[XLSX.utils.encode_cell({ r: 0, c })] as { s?: object } | undefined; if (cell) cell.s = HEAD })
+    ws['!cols'] = headers.map((h) => {
+      const longest = sheet.rows.reduce((a, r) => Math.max(a, String(r[h] ?? '').length), h.length)
+      return { wch: /dates$/i.test(h) ? 70 : Math.min(48, Math.max(10, longest + 2)) }
+    })
+    ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: sheet.rows.length, c: headers.length - 1 } }) }
+    XLSX.utils.book_append_sheet(wb, ws as never, sheet.name.slice(0, 31))
+  }
+  // freeze the header row: SheetJS has no option for it, so the sheet views are patched in the file
+  const raw = XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer
+  const files = fflate.unzipSync(new Uint8Array(raw))
+  for (const name of Object.keys(files)) {
+    if (!/^xl\/worksheets\/sheet\d+\.xml$/.test(name)) continue
+    let xml = fflate.strFromU8(files[name])
+    const pane = '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/>'
+    if (/<sheetView[^>]*\/>/.test(xml)) xml = xml.replace(/<sheetView([^>]*)\/>/, `<sheetView$1>${pane}</sheetView>`)
+    else if (!/<sheetViews>/.test(xml)) xml = xml.replace('<sheetData', `<sheetViews><sheetView workbookViewId="0">${pane}</sheetView></sheetViews><sheetData`)
+    files[name] = fflate.strToU8(xml)
+  }
+  const blob = new Blob([fflate.zipSync(files) as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
