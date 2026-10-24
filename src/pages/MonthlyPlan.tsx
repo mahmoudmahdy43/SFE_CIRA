@@ -89,6 +89,22 @@ function RequestsSection({ rep, month, requests, locked, onChanged }: { rep: num
   )
 }
 
+/* ------------------------------ planning mode ------------------------------ */
+function ModeBadge({ s }: { s: PlanSummary }) {
+  const label = s.mode === 'history' ? 'History mode' : s.mode === 'geography' ? 'Geography mode · Low confidence – geography only' : 'No plan'
+  const tone = s.mode === 'history' ? 'bg-green-100 text-green-900' : s.mode === 'geography' ? 'bg-amber-100 text-amber-900' : 'bg-red-100 text-red-900'
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <span className={cn('rounded-full px-2.5 py-0.5 font-semibold', tone)}>{label}</span>
+      <span className="text-muted-foreground">
+        {s.modeInfo.withTime} of {s.modeInfo.listDoctors} doctors have visit times · {s.modeInfo.withGps} have GPS · {s.modeInfo.withAny} have any history
+        {s.mode === 'history' && ` · ${s.restrictedDoctors} doctors only on their usual weekdays, ${s.freeDoctors} free any day`}
+        {s.brickSource && ` · brick history: ${s.brickSource === 'own' ? "the rep's own" : 'any rep who worked these bricks'}`}
+      </span>
+    </div>
+  )
+}
+
 /* ------------------------------ warnings ------------------------------ */
 type Tone = 'red' | 'green' | 'yellow' | 'grey'
 const TONE: Record<Tone, string> = { red: 'border-red-300 bg-red-50 text-red-900', green: 'border-green-300 bg-green-50 text-green-900', yellow: 'border-amber-300 bg-amber-50 text-amber-900', grey: 'border bg-muted text-foreground' }
@@ -267,7 +283,7 @@ function MonthlyPlanBody() {
       .catch((e) => toast.error(errText(e)))
   }
 
-  const failed = work?.validation ? !work.validation.ok : false
+  const failed = (work?.validation ? !work.validation.ok : false) || work?.summary?.mode === 'none'
   const refreshRequests = () => { if (repId !== null) void load(repId, month, true) }
 
   return (
@@ -325,6 +341,13 @@ function MonthlyPlanBody() {
               </div>
               {work ? (
                 <>
+                  {work.summary && <ModeBadge s={work.summary} />}
+                  {work.summary?.mode === 'none' && (
+                    <div role="alert" className="rounded-card border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+                      <div className="font-semibold">No plan was generated</div>
+                      <p className="mt-1 text-xs">{work.summary.warnings[0]}</p>
+                    </div>
+                  )}
                   {work.validation && !work.validation.ok && (
                     <div role="alert" className="rounded-card border border-red-400 bg-red-50 px-4 py-3 text-sm text-red-900">
                       <div className="font-semibold">⛔ Validation failed — this plan is shown for review only and cannot be saved</div>

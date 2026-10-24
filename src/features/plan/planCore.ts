@@ -7,6 +7,14 @@ export interface PlanDoctor {
   usual_isodow: number | null; usual_hour: string | null; n_visits: number
   /** From the rep's own last 3 months (strong preferences, not hard rules): the usual weekday and the hours he is usually visited in. */
   pref_isodow?: number | null
+  /** From the history of the doctor with ANY rep (plan_doctor_history): the weekdays he is usually visited on (a preference, small penalty). */
+  pref_dows?: number[]
+  /** Weekdays he was visited on at least once. Needed to put him in a second brick by weekday history. */
+  hist_dows?: number[]
+  /** Visited on 4+ different weekdays: any day is fine, only his hours matter. */
+  free_any_day?: boolean
+  /** 3+ visits, 80%+ of them on one or two weekdays: he is planned on these weekdays only (hard). */
+  allowed_dows?: number[] | null
   win_start?: number | null
   win_end?: number | null
   n_hist?: number
@@ -14,6 +22,9 @@ export interface PlanDoctor {
 export interface PlanDay { day: string; isodow: number; closed: boolean; reason: string | null }
 /** One pair of bricks the rep really worked in the same day before (plan_brick_pairs). */
 export interface BrickPair { a: string; b: string; pm_days: number; any_days: number; last_day: string | null }
+/** What the history tells about the rep's list (plan_history_info): it decides History / Geography / No plan. */
+export interface HistoryInfo { list_doctors: number; doctors_with_any: number; doctors_with_time_any: number; visits_own: number; doctors_with_own: number; doctors_with_gps: number }
+export type PlanMode = 'history' | 'geography' | 'none'
 export interface BrickRepeat { brick: string; repeat_days: number; brick_days: number; last_repeat: string | null }
 export interface PlanInputs {
   rep: { id: number; name: string; code: string } | null
@@ -23,6 +34,10 @@ export interface PlanInputs {
   window?: { start: number; end: number } | null
   /** How often the rep really worked the same brick two PM working days in a row (plan_brick_repeats); undefined = not loaded. */
   brickRepeats?: BrickRepeat[]
+  /** Counts of the history of the rep's list; undefined = not loaded (then the plan is generated in History mode as before). */
+  historyInfo?: HistoryInfo
+  /** Whose brick history was used: the rep's own (30+ PM visits in 3 months) or any rep's. */
+  brickSource?: 'own' | 'any'
   /** The most visits the rep did in one PM day (90th percentile of his days in the last 3 months): a soft reference, not a rule. */
   usualMaxDay?: number | null
   /** Bricks worked together before; undefined = not loaded (then no day may have two bricks). */
@@ -41,6 +56,7 @@ export interface PlanParams {
   maxDay: number; minDay: number; extraLevels: number[]
   maxBricksPerDay: number; minSecondBrickDoctors: number
   visitMinutes: number; speedKmh: number; detourFactor: number; gapMin: number; gapMax: number
+  minHistoryShare: number; minGpsShare: number; geoStart: string; geoEnd: string; minOwnVisitsForBricks: number
   maxWaitMin: number; earlyToleranceMin: number; windowGapMaxMin: number; maxBrickRepeats: number; minGapDays: number
   defaultStart: string; defaultEnd: string; fallbackTarget: number; minHistory: number
 }
@@ -49,6 +65,7 @@ export const DEFAULT_PARAMS: PlanParams = {
   maxDay: MAX_PER_DAY, minDay: 6, extraLevels: [11, 12],
   maxBricksPerDay: 2, minSecondBrickDoctors: 3,
   visitMinutes: 15, speedKmh: 25, detourFactor: 1.35, gapMin: 15, gapMax: 25,
+  minHistoryShare: 0.5, minGpsShare: 0.7, geoStart: '17:00', geoEnd: '22:00', minOwnVisitsForBricks: 30,
   maxWaitMin: 45, earlyToleranceMin: 20, windowGapMaxMin: 90, maxBrickRepeats: 3, minGapDays: 5,
   defaultStart: '14:00', defaultEnd: '22:00', fallbackTarget: 8, minHistory: 30,
 }
@@ -87,6 +104,12 @@ export interface PlanSummary {
   /** The rep's usual busiest day (P90) and the planned days more than 3 visits above it. */
   usualMaxDay: number | null
   aboveUsual: { day: string; count: number }[]
+  /** History mode (doctors' own hours and days), Geography mode (brick + GPS only, low confidence) or No plan. */
+  mode: PlanMode; confidence: string | null
+  modeInfo: { listDoctors: number; withTime: number; withGps: number; withAny: number }
+  brickSource: 'own' | 'any' | null
+  /** Doctors planned only on their usual weekdays, and doctors for whom any weekday is fine. */
+  restrictedDoctors: number; freeDoctors: number
   /** Why the coverage by day 15 is what it is (closed days, the 12 maximum, doctors moved to avoid waiting ...). */
   cov15Why: string[]
   window: { start: string; end: string; own: boolean }
@@ -142,9 +165,10 @@ export function pairLookup(pairs: BrickPair[] | undefined): (a: string, b: strin
   for (const p of pairs ?? []) { m.set(`${p.a}|${p.b}`, p); m.set(`${p.b}|${p.a}`, p) }
   return (a, b) => m.get(`${a}|${b}`) ?? null
 }
-/** Two bricks may share a day only if the rep worked them together before: both in the PM, or in any shift (AM in one, PM in the other). */
-export const pairAllowed = (p: BrickPair | null): boolean => p !== null && (p.pm_days >= 1 || p.any_days >= 1)
-export const pairWhy = (p: BrickPair): string => (p.pm_days >= 1 ? `worked together ${p.pm_days} PM day${p.pm_days === 1 ? '' : 's'} before` : `worked together ${p.any_days} day${p.any_days === 1 ? '' : 's'} before (AM + PM)`)
+/** Two bricks may share a day if they were worked together in the PM at least twice, or in the same day in different shifts (AM in one, PM in the other). */
+export const pairAllowed = (p: BrickPair | null): boolean => p !== null && (p.pm_days >= 2 || p.any_days - p.pm_days >= 1)
+export const pairWhy = (p: BrickPair): string => (p.pm_days >= 2 ? `worked together ${p.pm_days} PM days before` : `worked together AM + PM ${p.any_days - p.pm_days} day${p.any_days - p.pm_days === 1 ? '' : 's'} before`)
+export const WEEKDAY = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 /** One real PM visit of the rep (plan_actuals). */
 export interface ActualVisit { day: string; doctor_id: number; visit_time: string | null }

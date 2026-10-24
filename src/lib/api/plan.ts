@@ -1,6 +1,7 @@
 import { supabase } from '../supabase'
-import { doctorTimesFromHistory, usualMaxDayFromHistory, windowFromTimes, type ActualVisit, type BrickPair, type BrickRepeat, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary } from '../../features/plan/planner'
+import { DEFAULT_PARAMS, doctorTimesFromHistory, usualMaxDayFromHistory, windowFromTimes, type ActualVisit, type BrickPair, type BrickRepeat, type HistoryInfo, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary } from '../../features/plan/planner'
 import { fetchAll, rpc } from './core'
+import { rpcAll } from './reports'
 
 type Raw = Record<string, unknown>
 const num = (v: unknown): number | null => (v === null || v === undefined || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null)
@@ -15,10 +16,32 @@ export async function fetchRepHistory(rep: number, month: string): Promise<Actua
   return parts.flat()
 }
 
-/** plan_brick_pairs (86_plan_brick_pairs.sql): bricks the rep worked in the same day in the last 6 months. undefined when the function is not installed. */
-export async function fetchBrickPairs(rep: number, month: string): Promise<BrickPair[] | undefined> {
+/** plan_history_info (88_plan_history_any_rep.sql): how much history the rep's list has. undefined when the function is not installed. */
+export async function fetchHistoryInfo(rep: number, month: string): Promise<HistoryInfo | undefined> {
   try {
-    const rows = await rpc<Raw[] | null>('plan_brick_pairs', { p_rep: rep, p_month: month, p_months_back: 6 })
+    const j = ((await rpc<Raw | null>('plan_history_info', { p_rep: rep, p_month: month, p_months_back: 6 })) ?? null) as Raw | null
+    if (!j) return undefined
+    const n = (v: unknown): number => Number(v ?? 0)
+    return { list_doctors: n(j.list_doctors), doctors_with_any: n(j.doctors_with_any), doctors_with_time_any: n(j.doctors_with_time_any), visits_own: n(j.visits_own), doctors_with_own: n(j.doctors_with_own), doctors_with_gps: n(j.doctors_with_gps) }
+  } catch {
+    return undefined
+  }
+}
+
+/** plan_doctor_history (88): the PM visits of the rep's list doctors by ANY rep in the last 6 months. undefined when the function is not installed. */
+export async function fetchDoctorHistory(rep: number, month: string): Promise<ActualVisit[] | undefined> {
+  try {
+    const rows = await rpcAll('plan_doctor_history', { p_rep: rep, p_month: month, p_months_back: 6 }, ['doctor_id', 'visit_date'])
+    return rows.map((r) => ({ day: String(r.visit_date).slice(0, 10), doctor_id: Number(r.doctor_id), visit_time: str(r.visit_time) }))
+  } catch {
+    return undefined
+  }
+}
+
+/** plan_brick_pairs (86_plan_brick_pairs.sql): bricks the rep worked in the same day in the last 6 months. undefined when the function is not installed. */
+export async function fetchBrickPairs(rep: number, month: string, any = false): Promise<BrickPair[] | undefined> {
+  try {
+    const rows = await rpc<Raw[] | null>(any ? 'plan_brick_pairs_any' : 'plan_brick_pairs', { p_rep: rep, p_month: month, p_months_back: 6 })
     return (rows ?? []).map((r) => ({ a: String(r.brick_a), b: String(r.brick_b), pm_days: Number(r.pm_days_together ?? 0), any_days: Number(r.any_days_together ?? 0), last_day: r.last_day ? String(r.last_day).slice(0, 10) : null }))
   } catch {
     return undefined
@@ -26,9 +49,9 @@ export async function fetchBrickPairs(rep: number, month: string): Promise<Brick
 }
 
 /** plan_brick_repeats (87_plan_brick_repeats.sql): how often the rep worked the same brick two PM working days in a row. undefined when the function is not installed. */
-export async function fetchBrickRepeats(rep: number, month: string): Promise<BrickRepeat[] | undefined> {
+export async function fetchBrickRepeats(rep: number, month: string, any = false): Promise<BrickRepeat[] | undefined> {
   try {
-    const rows = await rpc<Raw[] | null>('plan_brick_repeats', { p_rep: rep, p_month: month, p_months_back: 6 })
+    const rows = await rpc<Raw[] | null>(any ? 'plan_brick_repeats_any' : 'plan_brick_repeats', { p_rep: rep, p_month: month, p_months_back: 6 })
     return (rows ?? []).map((r) => ({ brick: String(r.brick), repeat_days: Number(r.repeat_days ?? 0), brick_days: Number(r.brick_days ?? 0), last_repeat: r.last_repeat ? String(r.last_repeat).slice(0, 10) : null }))
   } catch {
     return undefined
@@ -40,14 +63,20 @@ export async function fetchBrickRepeats(rep: number, month: string): Promise<Bri
  * (3 months before the month), the brick pairs, and - for a re-plan from `fromDay` - the visits already done this month.
  */
 export async function fetchPlanInputs(rep: number, month: string, fromDay: string | null = null): Promise<PlanInputs> {
-  const [inputs, history, pairs, repeats, thisMonth] = await Promise.all([
-    fetchPlanInputsRaw(rep, month), fetchRepHistory(rep, month), fetchBrickPairs(rep, month), fetchBrickRepeats(rep, month),
+  const [inputs, history, info, docHist, pairsOwn, repeatsOwn, pairsAny, repeatsAny, thisMonth] = await Promise.all([
+    fetchPlanInputsRaw(rep, month), fetchRepHistory(rep, month), fetchHistoryInfo(rep, month), fetchDoctorHistory(rep, month),
+    fetchBrickPairs(rep, month), fetchBrickRepeats(rep, month), fetchBrickPairs(rep, month, true), fetchBrickRepeats(rep, month, true),
     fromDay && fromDay > month ? fetchPlanActuals(rep, month) : Promise.resolve([] as ActualVisit[]),
   ])
+  // brick history: the rep's own when he has 30+ PM visits in the last 3 months, else the history of any rep who worked these bricks
+  const own = history.length >= DEFAULT_PARAMS.minOwnVisitsForBricks
+  const pairs = own ? pairsOwn ?? pairsAny : pairsAny ?? pairsOwn
+  const repeats = own ? repeatsOwn ?? repeatsAny : repeatsAny ?? repeatsOwn
+  const brickSource: 'own' | 'any' = own || (pairsAny === undefined && repeatsAny === undefined) ? 'own' : 'any'
   const done: Record<number, number> = {}
   for (const v of thisMonth) if (fromDay && v.day < fromDay) done[v.doctor_id] = (done[v.doctor_id] ?? 0) + 1
   return {
-    ...inputs, doctors: doctorTimesFromHistory(history, inputs.doctors), window: windowFromTimes(history.map((v) => v.visit_time)),
+    ...inputs, historyInfo: info, brickSource, doctors: doctorTimesFromHistory(docHist ?? history, inputs.doctors), window: windowFromTimes(history.map((v) => v.visit_time)),
     brickRepeats: repeats, usualMaxDay: usualMaxDayFromHistory(history), brickPairs: pairs, fromDay: fromDay && fromDay > month ? fromDay : null, done,
   }
 }

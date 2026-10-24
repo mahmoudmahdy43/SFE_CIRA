@@ -70,6 +70,10 @@ export async function downloadPlanWorkbook(book: PlanBook, logoUrl: string): Pro
   if (book.summary) {
     const s = book.summary
     const rows: (string | number)[][] = [
+      ['Planning mode', s.mode === 'history' ? 'History mode' : s.mode === 'geography' ? 'Geography mode - Low confidence - geography only' : 'No plan'],
+      ['Doctors with visit times / GPS / any history', `${s.modeInfo.withTime} / ${s.modeInfo.withGps} / ${s.modeInfo.withAny} of ${s.modeInfo.listDoctors}`],
+      ['Brick history source', s.brickSource === 'own' ? "the rep's own" : s.brickSource === 'any' ? 'any rep who worked these bricks' : '-'],
+      ['Doctors only on their usual weekdays / free any day', `${s.restrictedDoctors} / ${s.freeDoctors}`],
       ['Open PM days', s.openDays], ['Closed days', s.closedDays], ['Daily target', s.target], ['Capacity at target (Target x open days)', s.capacityAtTarget], ['Capacity at max (12 x open days)', s.capacityAtMax], ['Target visits (list)', s.targetVisits], ['Visits in the plan', s.plannedVisits],
       ['Days above target', s.overDays], ['Highest day', s.peak], ['Lowest day', s.lowest], ['His usual busiest day (P90, last 3 months)', s.usualMaxDay ?? 'not enough history'], ['Days with 1 brick / 2 bricks', `${s.oneBrickDays} / ${s.twoBrickDays.length}`], ['Average stay (first to last visit)', `${Math.round(s.avgStayMin)} min`], ['Waiting time in total', `${s.waitTotalMin} min`], ['Same-brick repeats on consecutive days', `${s.repeats.length} (limit ${s.repeatLimit}) ${s.repeats.map((r) => r.why).join('; ')}`], ['PM window', `${s.window.start} - ${s.window.end}${s.window.own ? '' : ' (default)'}`], ['Coverage by day 15', `${s.cov15.done} of ${s.cov15.total} (needs ${s.cov15.required})`], ['Expected PCF', `${(s.pcf.pct * 100).toFixed(1)}%`],
       ['Average estimated km a day (straight line x 1.35)', Number(s.avgEstKmPerDay.toFixed(1))], ['', ''], ['Warnings', ''], ...s.warnings.map((w) => ['', w]),

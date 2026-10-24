@@ -59,7 +59,13 @@ export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<
     if (seq.length > distinct.length) fails.push(`${day}: bricks are not in blocks (${seq.join(' > ')})`)
     if (distinct.length === 2) {
       const [a, b] = distinct
-      if (!pairAllowed(pair(a, b))) fails.push(`${day}: ${a} and ${b} were never worked together before`)
+      // allowed by the history of the two bricks together, or by the weekday history of every doctor of one of them (3+)
+      const dow = info ? info.isodow : 0
+      const byWeekday = distinct.some((br) => {
+        const rs = ordered.filter((r) => { const d = docs.get(r.doctor_id); return d && brickOf(d) === br })
+        return rs.length >= p.minSecondBrickDoctors && rs.every((r) => docs.get(r.doctor_id)?.hist_dows?.includes(dow))
+      })
+      if (!pairAllowed(pair(a, b)) && !byWeekday) fails.push(`${day}: ${a} and ${b} were never worked together before and his doctors were not visited on this weekday before`)
       for (const br of distinct) {
         const n = ordered.filter((r) => { const d = docs.get(r.doctor_id); return d && brickOf(d) === br }).length
         if (n < p.minSecondBrickDoctors) fails.push(`${day}: only ${n} doctor${n === 1 ? '' : 's'} in ${br}, a second brick needs ${p.minSecondBrickDoctors}`)
@@ -84,6 +90,13 @@ export function validatePlan(inputs: PlanInputs, rows: PlanRow[], over: Partial<
     }
   }
   if (usedTotal > p.maxBrickRepeats) fails.push(`${usedTotal} same-brick repeats on consecutive days, the limit is ${p.maxBrickRepeats}`)
+
+  // doctors restricted to their usual weekdays are only planned on them
+  for (const r of rows) {
+    const d = docs.get(r.doctor_id)
+    const info = dayInfo.get(r.day)
+    if (d && info && d.allowed_dows && !d.allowed_dows.includes(info.isodow)) fails.push(`${d.name}: planned on ${r.day} but he is only visited on weekday${d.allowed_dows.length === 1 ? '' : 's'} ${d.allowed_dows.join(' and ')} (1 = Monday ... 7 = Sunday)`)
+  }
 
   // per doctor: never above the visits left, and a minimum gap between his visits
   const perDoc = new Map<number, string[]>()

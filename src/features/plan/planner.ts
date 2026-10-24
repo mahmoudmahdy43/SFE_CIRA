@@ -17,7 +17,7 @@
  */
 import {
   brickOf, clamp, DEFAULT_PARAMS, estKm, fromMin, hasGps, haversineKm, isoDow, pairAllowed, pairLookup, pairWhy, routeKm, toMin,
-  type ActualVisit, type Gps, type PlanDoctor, type PlanInputs, type PlanParams, type PlanResult, type PlanRow, type PlanSummary,
+  WEEKDAY, type ActualVisit, type Gps, type HistoryInfo, type PlanDoctor, type PlanInputs, type PlanMode, type PlanParams, type PlanResult, type PlanRow, type PlanSummary,
 } from './planCore.ts'
 import { validatePlan } from './validatePlan.ts'
 
@@ -163,24 +163,35 @@ export function windowFromTimes(times: (string | null)[], minVisits: number = DE
 }
 
 /**
- * Each doctor's own preferences from the rep's visit history: his usual weekday and the hours he is visited in
- * (20th-80th percentile of the times; with fewer than 5 visits, 90 minutes around the median).
+ * Each doctor's own profile from his visit history (by ANY rep: a doctor keeps his habits when the rep is new):
+ *  - hours: 20th-80th percentile of his visit times (with fewer than 5 timed visits, 90 minutes around the median);
+ *  - 4+ different weekdays: any day is fine (free), only his hours matter;
+ *  - 3+ visits with 80%+ on one or two weekdays: restricted to these weekdays (hard rule);
+ *  - the rest: a small preference for the weekdays he is usually visited on (for a doctor with one visit a month: any weekday of his history).
  */
 export function doctorTimesFromHistory(history: ActualVisit[], doctors: PlanDoctor[]): PlanDoctor[] {
   const by = new Map<number, ActualVisit[]>()
   for (const v of history) { const a = by.get(v.doctor_id) ?? []; a.push(v); by.set(v.doctor_id, a) }
   return doctors.map((d) => {
     const list = by.get(d.doctor_id) ?? []
-    if (list.length === 0) return { ...d, pref_isodow: null, win_start: null, win_end: null, n_hist: 0 }
+    if (list.length === 0) return { ...d, pref_isodow: null, pref_dows: [], hist_dows: [], free_any_day: false, allowed_dows: null, win_start: null, win_end: null, n_hist: 0 }
+    const n = list.length
     const dows = new Map<number, number>()
     for (const v of list) { const k = isoDow(v.day); dows.set(k, (dows.get(k) ?? 0) + 1) }
-    const [dow, cnt] = [...dows].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]
+    const ranked = [...dows].sort((a, b) => b[1] - a[1] || a[0] - b[0])
+    const free = dows.size >= 4
+    let allowed: number[] | null = null
+    if (!free && n >= 3) {
+      if (ranked[0][1] / n >= 0.8) allowed = [ranked[0][0]]
+      else if (ranked.length >= 2 && (ranked[0][1] + ranked[1][1]) / n >= 0.8) allowed = [ranked[0][0], ranked[1][0]].sort((a, b) => a - b)
+    }
+    const pref = allowed ?? (free ? [] : d.freq === 1 ? [...dows.keys()].sort((a, b) => a - b) : ranked.filter(([, c]) => c / n >= 0.25).map(([k]) => k).sort((a, b) => a - b))
     const mins = list.map((v) => toMin(v.visit_time)).filter((m): m is number => m !== null).sort((a, b) => a - b)
     let ws: number | null = null
     let we: number | null = null
     if (mins.length >= 5) { ws = pct(mins, 0.2); we = pct(mins, 0.8) }
     else if (mins.length > 0) { const med = pct(mins, 0.5); ws = med - 90; we = med + 90 }
-    return { ...d, pref_isodow: list.length >= 2 && cnt / list.length >= 0.4 ? dow : null, win_start: ws, win_end: we, n_hist: list.length }
+    return { ...d, pref_isodow: n >= 2 && ranked[0][1] / n >= 0.4 ? ranked[0][0] : null, pref_dows: pref, hist_dows: [...dows.keys()].sort((a, b) => a - b), free_any_day: free, allowed_dows: allowed, win_start: ws, win_end: we, n_hist: n }
   })
 }
 
@@ -194,14 +205,94 @@ export function usualMaxDayFromHistory(history: ActualVisit[]): number | null {
 
 /* ------------------------------------ the planner ------------------------------------ */
 interface Unit { doc: PlanDoctor; round: number; brick: string; pos: number }
-interface Block { brick: string; units: Unit[] }
-interface DayPlan { blocks: Block[]; why: string | null }
 
-export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {}): PlanResult {
-  const p: PlanParams = { ...DEFAULT_PARAMS, ...over }
-  const T0 = inputs.daily_target
-  const targetMissing = T0 === null || !(T0 > 0)
-  const T = targetMissing ? p.fallbackTarget : Math.round(T0 as number)
+/** Shortest GPS path through the doctors of one brick (best nearest-neighbour start, then 2-opt). Used in Geography mode. */
+function shortestPath(units: Unit[]): Unit[] {
+  const base = [...units].sort((a, b) => a.pos - b.pos)
+  const n = base.length
+  if (n <= 2) return base
+  const d = (a: Unit, b: Unit): number => (hasGps(a.doc) && hasGps(b.doc) ? haversineKm(a.doc, b.doc) : 0)
+  let best = base
+  let bestLen = Infinity
+  for (const start of base) {
+    const rest = base.filter((x) => x !== start)
+    const path = [start]
+    while (rest.length > 0) {
+      const cur = path[path.length - 1]
+      let at = 0
+      let bd = Infinity
+      rest.forEach((u, i) => { const x = d(cur, u); if (x < bd - 1e-9) { bd = x; at = i } })
+      path.push(rest.splice(at, 1)[0])
+    }
+    for (let improved = true, pass = 0; improved && pass < 30; pass++) {
+      improved = false
+      for (let i = 0; i < n - 1; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const a = path[i - 1]
+          const e = path[j + 1]
+          const before = (a ? d(a, path[i]) : 0) + (e ? d(path[j], e) : 0)
+          const after = (a ? d(a, path[j]) : 0) + (e ? d(path[i], e) : 0)
+          if (after < before - 1e-9) { for (let lo = i, hi = j; lo < hi; lo++, hi--) { const x = path[lo]; path[lo] = path[hi]; path[hi] = x } improved = true }
+        }
+      }
+    }
+    const len = path.reduce((acc, u, i) => acc + (i > 0 ? d(path[i - 1], u) : 0), 0)
+    if (len < bestLen - 1e-9) { best = path; bestLen = len }
+  }
+  return best
+}
+
+/** A summary with nothing planned (No plan mode). */
+function emptySummary(inputs: PlanInputs, p: PlanParams, T: number, targetMissing: boolean, mode: PlanMode, modeInfo: PlanSummary['modeInfo'], warnings: string[]): PlanSummary {
+  const W = inputs.days.filter((d) => !d.closed).length
+  return {
+    target: T, targetMissing, openDays: W, closedDays: inputs.days.length - W, capacityAtTarget: T * W, capacityAtMax: p.maxDay * W,
+    targetVisits: inputs.doctors.reduce((a, d) => a + d.freq, 0), plannedVisits: 0, doctors: inputs.doctors.length, listTooBig: false, overDays: 0, peak: 0, lowest: 0, daysAtMax: 0,
+    cov15: { done: 0, required: 0, total: inputs.doctors.length, pct: 0, ok: false }, covEnd: { done: 0, total: inputs.doctors.length, pct: 0 }, pcf: { pct: 0, ok: false },
+    dayCounts: [], underMin: [], emptyDays: [], twoBrickDays: [], oneBrickDays: 0, noGps: [], noTime: [], dropped: [],
+    shortfall: { visits: 0, firstVisits: 0, covLossPts: 0, pcfLossPts: 0 }, avgEstKmPerDay: 0, avgStayMin: 0, waitTotalMin: 0, waits: [], repeats: [], repeatLimit: p.maxBrickRepeats,
+    blockedDays: [], usualMaxDay: null, aboveUsual: [], cov15Why: [], mode, confidence: null, modeInfo, brickSource: inputs.brickSource ?? null, restrictedDoctors: 0, freeDoctors: 0,
+    window: { start: p.defaultStart, end: p.defaultEnd, own: false }, fromDay: inputs.fromDay ?? null, warnings,
+  }
+}
+interface Block { brick: string; units: Unit[] }
+interface DayPlan { blocks: Block[]; why: string | null; second: string | null }
+
+export function generatePlan(rawInputs: PlanInputs, over: Partial<PlanParams> = {}): PlanResult {
+  const p0: PlanParams = { ...DEFAULT_PARAMS, ...over }
+  const info: HistoryInfo | undefined = rawInputs.historyInfo
+  const listN = rawInputs.doctors.filter((d) => d.freq > 0).length
+  const modeInfo: PlanSummary['modeInfo'] = info
+    ? { listDoctors: info.list_doctors, withTime: info.doctors_with_time_any, withGps: info.doctors_with_gps, withAny: info.doctors_with_any }
+    : { listDoctors: listN, withTime: rawInputs.doctors.filter((d) => d.win_start != null).length, withGps: rawInputs.doctors.filter(hasGps).length, withAny: rawInputs.doctors.filter((d) => (d.n_hist ?? 0) > 0).length }
+  // the planning mode: History when half of the doctors have visit times, Geography when only the GPS is good, else no plan
+  let mode: PlanMode = 'history'
+  if (info) {
+    if (info.list_doctors <= 0) mode = 'none'
+    else if (info.doctors_with_time_any / info.list_doctors >= p0.minHistoryShare) mode = 'history'
+    else if (info.doctors_with_gps / info.list_doctors >= p0.minGpsShare) mode = 'geography'
+    else mode = 'none'
+  }
+  const T0 = rawInputs.daily_target
+  const targetMissing0 = T0 === null || !(T0 > 0)
+  if (mode === 'none') {
+    const msg = modeInfo.listDoctors === 0
+      ? 'This rep has no PM list (Clinics / Poly Clinics) in this month or any earlier one: there is nothing to plan.'
+      : `Not enough visit history or GPS to plan this rep: ${modeInfo.withTime} of ${modeInfo.listDoctors} doctors have a visit with a time (${Math.round(p0.minHistoryShare * 100)}% needed) and ${modeInfo.withGps} have GPS (${Math.round(p0.minGpsShare * 100)}% needed). ${modeInfo.withAny} have any visit history.`
+    const summary = emptySummary(rawInputs, p0, targetMissing0 ? p0.fallbackTarget : Math.round(T0 as number), targetMissing0, 'none', modeInfo, [msg])
+    return { rows: [], summary, params: p0, validation: { ok: true, failures: [], warnings: [] } }
+  }
+  // Geography mode: brick + GPS only. One brick a day, shortest GPS path, default PM window, no doctor hours or weekdays, no repeats.
+  const inputs: PlanInputs = mode === 'geography'
+    ? {
+      ...rawInputs, brickPairs: [], brickRepeats: [], window: rawInputs.window ?? { start: toMin(p0.geoStart) as number, end: toMin(p0.geoEnd) as number },
+      doctors: rawInputs.doctors.map((d) => ({ ...d, win_start: null, win_end: null, pref_isodow: null, pref_dows: [], hist_dows: [], free_any_day: false, allowed_dows: null })),
+    }
+    : rawInputs
+  const p: PlanParams = mode === 'geography' ? { ...p0, maxBricksPerDay: 1 } : p0
+  const T0b = inputs.daily_target
+  const targetMissing = T0b === null || !(T0b > 0)
+  const T = targetMissing ? p.fallbackTarget : Math.round(T0b as number)
   const fromDay = inputs.fromDay ?? null
   const docs = inputs.doctors.filter((d) => d.freq > 0)
   const done = inputs.done ?? {}
@@ -246,7 +337,7 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
   const visitDays = new Map<number, number[]>()
   const spaced = (id: number, di: number, except = -1): boolean => (visitDays.get(id) ?? []).every((v) => v === except || Math.abs(v - di) >= p.minGapDays)
   const addVisit = (id: number, di: number) => { const a = visitDays.get(id) ?? []; a.push(di); visitDays.set(id, a) }
-  const plans: DayPlan[] = open.map(() => ({ blocks: [], why: null }))
+  const plans: DayPlan[] = open.map(() => ({ blocks: [], why: null, second: null }))
   const countOf = (di: number): number => plans[di].blocks.reduce((a, b) => a + b.units.length, 0)
 
   const gapBetween = (a: Unit, b: Unit): number => {
@@ -256,6 +347,7 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
   }
   /** Order of one brick block: by the start of each doctor's usual hours (doctors without hours sit in the middle), then by route. */
   const orderBlock = (units: Unit[]): Unit[] => {
+    if (mode === 'geography') return shortestPath(units)
     const known = units.map((u) => u.doc.win_start).filter((x): x is number => x != null).sort((a, b) => a - b)
     const mid = known.length > 0 ? known[known.length >> 1] : 0
     return [...units].sort((a, b) => (a.doc.win_start ?? mid) - (b.doc.win_start ?? mid) || a.pos - b.pos)
@@ -314,14 +406,18 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
     const needFirst = Math.max(0, Math.ceil(p.minCoverage * D) - covered.size)
     const want = computeCaps(open.slice(di), remaining, needFirst, T, hard, minDay, p)[0]
     if (want === 0) continue
-    const mismatch = (u: Unit): number => (u.doc.pref_isodow != null && u.doc.pref_isodow !== open[di].isodow ? 1 : 0)
+    const mismatch = (u: Unit): number => {
+      const d = u.doc
+      if (d.pref_dows) return d.pref_dows.length > 0 && !d.pref_dows.includes(open[di].isodow) ? 1 : 0
+      return d.pref_isodow != null && d.pref_isodow !== open[di].isodow ? 1 : 0
+    }
     const eligs = new Map<string, Unit[]>()
     for (const [b, list] of pending) {
       // one visit per doctor per day: only his next owed visit (lowest round) is eligible
       const seenDoc = new Set<number>()
       let uS = Infinity
       let uE = -Infinity
-      const e = list.filter((u) => spaced(u.doc.doctor_id, di)).sort((a, c) => a.round - c.round || mismatch(a) - mismatch(c) || a.pos - c.pos).filter((u) => (seenDoc.has(u.doc.doctor_id) ? false : (seenDoc.add(u.doc.doctor_id), true))).filter((u) => {
+      const e = list.filter((u) => spaced(u.doc.doctor_id, di) && (!u.doc.allowed_dows || u.doc.allowed_dows.includes(open[di].isodow))).sort((a, c) => a.round - c.round || mismatch(a) - mismatch(c) || a.pos - c.pos).filter((u) => (seenDoc.has(u.doc.doctor_id) ? false : (seenDoc.add(u.doc.doctor_id), true))).filter((u) => {
         // doctors whose usual hours are more than 90 minutes away from the others of the day wait for another date
         const a = u.doc.win_start
         const c = u.doc.win_end
@@ -371,6 +467,19 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
           if (best === null || cand.pm > best.pm || (cand.pm === best.pm && (cand.dist < best.dist - 1e-9 || (Math.abs(cand.dist - best.dist) <= 1e-9 && (cand.rest < best.rest || (cand.rest === best.rest && cand.b < best.b)))))) best = cand
         }
         if (best) second = { brick: best.b, take: (eligs.get(best.b) as Unit[]).slice(0, best.tb), why: pairWhy(best.pair as NonNullable<typeof best.pair>) }
+        else {
+          // no history of the two bricks together: any other brick whose doctors (3+, all of them) were visited on this weekday before
+          let alt: { b: string; take: Unit[]; dist: number; rest: number } | null = null
+          for (const [b, eB] of eligs) {
+            if (b === a) continue
+            const same = eB.filter((u) => u.doc.hist_dows != null && u.doc.hist_dows.includes(open[di].isodow))
+            if (same.length < p.minSecondBrickDoctors) continue
+            const take2 = same.slice(0, Math.min(r, same.length))
+            const cand = { b, take: take2, dist: distBricks(a, b), rest: (pending.get(b) as Unit[]).length - take2.length }
+            if (alt === null || cand.dist < alt.dist - 1e-9 || (Math.abs(cand.dist - alt.dist) <= 1e-9 && (cand.rest < alt.rest || (cand.rest === alt.rest && cand.b < alt.b)))) alt = cand
+          }
+          if (alt) second = { brick: alt.b, take: alt.take, why: `his doctors were visited on a ${WEEKDAY[open[di].isodow]} before` }
+        }
       }
       return { a, take, second, reach: take.length + (second ? second.take.length : 0) }
     }
@@ -407,7 +516,7 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
       pending.set(bl.brick, (pending.get(bl.brick) as Unit[]).filter((u) => !gone.has(u)))
       for (const u of bl.units) addVisit(u.doc.doctor_id, di)
     }
-    plans[di] = { blocks, why: pick.second ? pick.second.why : null }
+    plans[di] = { blocks, why: pick.second ? pick.second.why : null, second: pick.second ? pick.second.brick : null }
     if (repeatBrick) {
       repeatsUsedBy.set(repeatBrick, (repeatsUsedBy.get(repeatBrick) ?? 0) + 1)
       repeats.push({ day: open[di].day, brick: repeatBrick, why: `${repeatBrick}: repeated ${repStats.get(repeatBrick)?.repeat_days ?? 0} times in his history` })
@@ -466,10 +575,19 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
     }
   }
 
+  /* ---- a day under the minimum is never planned: what is left of it is reported as shortfall ---- */
+  const unplaced: Unit[] = []
+  const purged = new Set<number>()
+  for (let di = 0; di < W; di++) {
+    const n = countOf(di)
+    if (n === 0 || n >= minDay) continue
+    for (const u of unitsOf(di)) { purged.add(u.doc.doctor_id); unplaced.push(u) }
+    plans[di] = { blocks: [], why: null, second: null }
+  }
+
   /* ---- 3. order and times ---- */
   const rows: PlanRow[] = []
   const dayRows: { u: Unit; time: number }[][] = open.map(() => [])
-  const unplaced: Unit[] = []
   for (let di = 0; di < W; di++) {
     const blocks = plans[di].blocks.filter((b) => b.units.length > 0)
     if (blocks.length === 0) continue
@@ -480,6 +598,8 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
     if (seq.length === 0) continue
     const t0 = chooseStart(seq, offs, ws, we - offs[offs.length - 1])
     seq.forEach((u, i) => dayRows[di].push({ u, time: t0 + offs[i] }))
+    // the outer window may have cut the day under the minimum: a day under 6 is never planned
+    if (dayRows[di].length < minDay) { for (const r of dayRows[di]) { purged.add(r.u.doc.doctor_id); unplaced.push(r.u) } dayRows[di] = [] }
   }
 
   const waits: PlanSummary['waits'] = []
@@ -496,6 +616,10 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
         waitTotal += w
         if (w > p.maxWaitMin) { note = `Waits ${w} min (his usual hours start ${fromMin(ws2)})`; waits.push({ id: u.doc.doctor_id, name: u.doc.name, day: open[di].day, minutes: w }) }
         else if (w > p.earlyToleranceMin) note = `Arrives early ${w} min (his usual hours start ${fromMin(ws2)})`
+      }
+      if (plans[di].second && plans[di].why && i === dayRows[di].findIndex((x) => x.u.brick === plans[di].second)) {
+        const tag = `Second brick ${plans[di].second}: ${plans[di].why}`
+        note = note ? `${note}; ${tag}` : tag
       }
       rows.push({ day: open[di].day, seq: i + 1, doctor_id: u.doc.doctor_id, planned_time: fromMin(time), fixed: false, visit_no: (done[u.doc.doctor_id] ?? 0) + nth, note })
     })
@@ -536,7 +660,7 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
     const miss = left(d) - got
     if (miss > 0) {
       const base = (done[d.doctor_id] ?? 0) + got
-      dropped.push({ id: d.doctor_id, name: d.name, missing: miss, visits: Array.from({ length: miss }, (_, i) => `${base + i + 1}/${d.freq}`), reason: 'no room that respects the daily maximum, the brick rule and the minimum gap' })
+      dropped.push({ id: d.doctor_id, name: d.name, missing: miss, visits: Array.from({ length: miss }, (_, i) => `${base + i + 1}/${d.freq}`), reason: purged.has(d.doctor_id) ? 'his day could not reach 6 visits, and a day under 6 is never planned' : d.allowed_dows ? 'no free date on his usual weekdays' : 'no room that respects the daily maximum, the brick rules and the minimum gap' })
     }
   }
   const missingVisits = dropped.reduce((a, d) => a + d.missing, 0)
@@ -564,6 +688,7 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
   const otherUnc = uncovered.length - byWait.length - byGap.length
   if (otherUnc > 0) cov15Why.push(`${otherUnc} other doctor${otherUnc === 1 ? '' : 's'} found no early day with room (brick rule, minimum gap or the daily capacity)`)
   const warnings: string[] = []
+  if (mode === 'geography') warnings.push(`Low confidence - geography only: only ${modeInfo.withTime} of ${modeInfo.listDoctors} doctors have a visit time (${Math.round(p.minHistoryShare * 100)}% needed), so the plan uses bricks and GPS only: one brick a day, shortest GPS path, PM window ${fromMin(ws)}-${fromMin(we)}, no doctor hours or weekdays.`)
   if (W === 0) warnings.push('No open PM day in this month: nothing can be planned.')
   if (targetMissing) warnings.push(`The box has no PM call-rate target: ${p.fallbackTarget} a day was used.`)
   if (inputs.brickRepeats === undefined) warnings.push('Brick repeat history is not loaded (run 87_plan_brick_repeats.sql): the same brick is never repeated on consecutive days.')
@@ -593,8 +718,10 @@ export function generatePlan(inputs: PlanInputs, over: Partial<PlanParams> = {})
     avgEstKmPerDay: kms.length > 0 ? kms.reduce((a, b) => a + b, 0) / kms.length : 0,
     avgStayMin: stays.length > 0 ? stays.reduce((a, b) => a + b, 0) / stays.length : 0,
     waitTotalMin: waitTotal, waits, repeats, repeatLimit: p.maxBrickRepeats, blockedDays, usualMaxDay: usualMax, aboveUsual, cov15Why,
-    window: { start: fromMin(ws), end: fromMin(we), own: !!inputs.window },
+    window: { start: fromMin(ws), end: fromMin(we), own: !!rawInputs.window },
     fromDay, warnings,
+    mode, confidence: mode === 'geography' ? 'Low confidence - geography only' : null, modeInfo, brickSource: inputs.brickSource ?? null,
+    restrictedDoctors: docs.filter((d) => d.allowed_dows != null).length, freeDoctors: docs.filter((d) => d.free_any_day === true).length,
   }
   void unplaced
   const validation = validatePlan(inputs, rows, p, underMin.map((d) => d.day))
