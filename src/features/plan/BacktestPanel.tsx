@@ -101,7 +101,7 @@ export function BacktestPanel({ reps, selected }: { reps: PlanRep[]; selected: P
                 <th className="px-2 py-1.5 text-left">Line</th><th className="px-2 py-1.5 text-left">Manager</th><th className="px-2 py-1.5 text-left">Rep</th>
                 <th className="px-2 py-1.5 text-right">Cov d15 plan</th><th className="px-2 py-1.5 text-right">actual</th><th className="px-2 py-1.5 text-right">gain</th>
                 <th className="px-2 py-1.5 text-right">PCF plan</th><th className="px-2 py-1.5 text-right">actual</th>
-                <th className="px-2 py-1.5 text-right">Km/day plan</th><th className="px-2 py-1.5 text-right">actual</th>
+                <th className="px-2 py-1.5 text-right">Est. km/day plan</th><th className="px-2 py-1.5 text-right">actual</th>
                 <th className="px-2 py-1.5 text-right">Days over plan</th><th className="px-2 py-1.5 text-right">actual</th><th className="px-2 py-1.5 text-right">Peak day plan</th><th className="px-2 py-1.5 text-right">actual</th>
               </tr>
             </thead>

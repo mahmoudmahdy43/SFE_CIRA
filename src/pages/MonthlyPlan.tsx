@@ -7,7 +7,7 @@ import { Button } from '../components/ui/button'
 import { Card, Input, Skeleton } from '../components/ui/misc'
 import { BacktestPanel } from '../features/plan/BacktestPanel'
 import { downloadPlanWorkbook } from '../features/plan/planExport'
-import { DEFAULT_PARAMS, MAX_PER_DAY, generatePlan, type PlanDoctor, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary } from '../features/plan/planner'
+import { DEFAULT_PARAMS, MAX_PER_DAY, generatePlan, type PlanDoctor, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary, type ValidationResult } from '../features/plan/planner'
 import { useAsync } from '../features/dashboard/useAsync'
 import {
   addPlanRequest, approvePlan, deletePlanRequest, fetchPlanInputs, fetchPlanReps, fetchPlanRequests, fetchSavedPlan, savePlan,
@@ -27,7 +27,7 @@ function currentMonth(): string {
 const dayName = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })
 const errText = (e: unknown) => (e instanceof Error ? e.message : 'Failed')
 
-interface Working { rows: PlanRow[]; summary: PlanSummary | null; params: PlanParams; dirty: boolean }
+interface Working { rows: PlanRow[]; summary: PlanSummary | null; params: PlanParams; dirty: boolean; validation: ValidationResult | null }
 
 /* ------------------------------ requests ------------------------------ */
 function RequestsSection({ rep, month, requests, locked, onChanged }: { rep: number; month: string; requests: PlanRequest[]; locked: boolean; onChanged: () => void }) {
@@ -113,13 +113,14 @@ function WarningCards({ s, params }: { s: PlanSummary; params: PlanParams }) {
       <Warn tone={s.pcf.ok ? 'green' : 'red'} title={`Expected PCF: ${(s.pcf.pct * 100).toFixed(1)}%`}>Required {Math.round(params.minPcf * 100)}% at least.</Warn>
       {s.noGps.length > 0 && <Warn tone="yellow" title={`${s.noGps.length} doctor${s.noGps.length === 1 ? '' : 's'} without GPS`}>{names(s.noGps)}</Warn>}
       {s.noTime.length > 0 && <Warn tone="yellow" title={`${s.noTime.length} doctor${s.noTime.length === 1 ? '' : 's'} without a known usual time`}>{names(s.noTime, 8)}</Warn>}
-      {s.moved.length > 0 && <Warn tone="yellow" title={`${s.moved.length} confirmed-time visit${s.moved.length === 1 ? '' : 's'} moved (usual day closed or full)`}>{s.moved.slice(0, 8).map((m) => `${m.name} ${m.from} → ${m.to} (${m.reason})`).join('; ')}</Warn>}
+      {s.twoBrickDays.length > 0 && <Warn tone="yellow" title={`${s.twoBrickDays.length} day${s.twoBrickDays.length === 1 ? '' : 's'} with a second brick`}>{s.twoBrickDays.slice(0, 8).map((d) => `${d.day}: ${d.a} + ${d.b} (${d.why})`).join('; ')}{s.twoBrickDays.length > 8 ? ' …' : ''}</Warn>}
+      {s.waits.length > 0 && <Warn tone="yellow" title={`${s.waits.length} visit${s.waits.length === 1 ? '' : 's'} with a wait over 45 minutes`}>{s.waits.slice(0, 6).map((w) => `${w.name} ${w.day} (${w.minutes} min)`).join('; ')}</Warn>}
       {s.dropped.length > 0 && <Warn tone="yellow" title={`Shortfall: ${s.shortfall.visits} visit${s.shortfall.visits === 1 ? '' : 's'} of ${s.dropped.length} doctor${s.dropped.length === 1 ? '' : 's'} not placed`}>{s.dropped.slice(0, 10).map((d) => `${d.name} ${d.visits.join(', ')}`).join('; ')}{s.dropped.length > 10 ? ` and ${s.dropped.length - 10} more` : ''}. Placing them would add {s.shortfall.firstVisits} doctor{s.shortfall.firstVisits === 1 ? '' : 's'} to coverage ({s.shortfall.covLossPts.toFixed(1)} pts) and {s.shortfall.pcfLossPts.toFixed(1)} pts to PCF; no day goes above {MAX_PER_DAY} visits.</Warn>}
       {s.underMin.length > 0 && <Warn tone="red" title={`${s.underMin.length} day${s.underMin.length === 1 ? '' : 's'} under the minimum of ${params.minDay} visits`}>{s.underMin.map((d) => `${d.day} (${d.count})`).join(', ')}</Warn>}
       {s.emptyDays.length > 0 && <Warn tone="yellow" title={`${s.emptyDays.length} open day${s.emptyDays.length === 1 ? ' has' : 's have'} no visits`}>The list has {s.targetVisits} visits; {params.minDay} a day needs {params.minDay * s.openDays}. {s.emptyDays.slice(0, 10).join(', ')}</Warn>}
       {s.warnings.filter((w) => w.startsWith('No open') || w.includes('no PM call-rate')).map((w) => <Warn key={w} tone="red" title={w} />)}
       <Warn tone="grey" title="Summary">
-        {s.openDays} open PM days ({s.closedDays} closed). Capacity at target (Target x open days) {s.capacityAtTarget}; at max ({MAX_PER_DAY} x open days) {s.capacityAtMax}. Target visits {s.targetVisits}, in the plan {s.plannedVisits}. Days: highest {s.peak}, lowest {s.lowest}. Average {s.avgDailyKm.toFixed(1)} km a day, {s.avgBricksPerDay.toFixed(1)} bricks a day (up to {s.maxBricksPerDay}). PM window {s.window.start}–{s.window.end}{s.window.own ? '' : ' (default)'}.
+        {s.openDays} open PM days ({s.closedDays} closed). Capacity at target (Target x open days) {s.capacityAtTarget}; at max ({MAX_PER_DAY} x open days) {s.capacityAtMax}. Target visits {s.targetVisits}, in the plan {s.plannedVisits}. Days: highest {s.peak}, lowest {s.lowest}. Estimated distance (straight line x 1.35, not road distance): {s.avgEstKmPerDay.toFixed(1)} km a day on average. Stay in the day (first to last visit): {Math.round(s.avgStayMin)} min on average. Days with 1 brick: {s.oneBrickDays}, with 2 bricks: {s.twoBrickDays.length}. Waiting in total: {s.waitTotalMin} min. PM window {s.window.start}–{s.window.end}{s.window.own ? '' : ' (default)'}.
       </Warn>
     </div>
   )
@@ -192,22 +193,23 @@ function MonthlyPlanBody() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [fromDay, setFromDay] = useState('')
 
   const load = useCallback(async (repKey: number, m: string, keepWork: boolean) => {
     setLoading(true)
     setError(null)
     try {
-      const [inp, req, sp] = await Promise.all([fetchPlanInputs(repKey, m), fetchPlanRequests(repKey, m), fetchSavedPlan(repKey, m)])
+      const [inp, req, sp] = await Promise.all([fetchPlanInputs(repKey, m, fromDay || null), fetchPlanRequests(repKey, m), fetchSavedPlan(repKey, m)])
       setInputs(inp)
       setRequests(req)
       setSaved(sp)
-      if (!keepWork) setWork(sp ? { rows: sp.rows, summary: sp.summary, params: { ...DEFAULT_PARAMS, ...sp.params }, dirty: false } : null)
+      if (!keepWork) setWork(sp ? { rows: sp.rows, summary: sp.summary, params: { ...DEFAULT_PARAMS, ...sp.params }, dirty: false, validation: null } : null)
     } catch (e) {
       setError(errText(e))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [fromDay])
 
   useEffect(() => {
     setInputs(null); setRequests([]); setSaved(null); setWork(null); setError(null)
@@ -222,7 +224,7 @@ function MonthlyPlanBody() {
     if (!inputs) return
     try {
       const res = generatePlan(inputs)
-      setWork({ rows: res.rows, summary: res.summary, params: res.params, dirty: true })
+      setWork({ rows: res.rows, summary: res.summary, params: res.params, dirty: true, validation: res.validation })
     } catch (e) {
       toast.error(`The planner failed: ${errText(e)}`)
     }
@@ -230,6 +232,7 @@ function MonthlyPlanBody() {
 
   const persist = async (): Promise<number | null> => {
     if (!work || !work.summary || repId === null) return null
+    if (work.validation && !work.validation.ok) { toast.error('The plan failed the validation and cannot be saved. Fix the requests or the list and generate again.'); return null }
     const id = await savePlan(repId, month, work.params, work.summary, work.rows)
     if (id === null) { toast.error('This plan is already approved and cannot be changed.'); return null }
     return id
@@ -256,6 +259,7 @@ function MonthlyPlanBody() {
       .catch((e) => toast.error(errText(e)))
   }
 
+  const failed = work?.validation ? !work.validation.ok : false
   const refreshRequests = () => { if (repId !== null) void load(repId, month, true) }
 
   return (
@@ -298,16 +302,27 @@ function MonthlyPlanBody() {
             <>
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="primary" disabled={locked || busy} onClick={generate}><Sparkles className="h-4 w-4" aria-hidden /> Generate plan</Button>
-                <Button disabled={!work || !work.dirty || locked || busy} onClick={() => void saveDraft()}><Save className="h-4 w-4" aria-hidden /> Save draft</Button>
-                <Button disabled={!work || locked || busy} onClick={() => void approve()}><CheckCircle2 className="h-4 w-4" aria-hidden /> Approve</Button>
+                <Button disabled={!work || !work.dirty || locked || busy || failed} onClick={() => void saveDraft()}><Save className="h-4 w-4" aria-hidden /> Save draft</Button>
+                <Button disabled={!work || locked || busy || failed} onClick={() => void approve()}><CheckCircle2 className="h-4 w-4" aria-hidden /> Approve</Button>
                 <Button disabled={!work} onClick={exportXlsx}><FileSpreadsheet className="h-4 w-4" aria-hidden /> Download Excel</Button>
+                <label className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+                  Plan from
+                  <Input type="date" aria-label="Plan from" className="h-9 w-40" min={month} max={`${month.slice(0, 8)}31`} value={fromDay} disabled={locked} onChange={(e) => setFromDay(e.target.value)} />
+                </label>
+                <Button size="sm" disabled={locked} onClick={() => { const t = new Date().toISOString().slice(0, 10); setFromDay(t.slice(0, 7) === month.slice(0, 7) ? t : '') }}>From today</Button>
                 <span className="text-xs text-muted-foreground">
-                  List of {inputs.list_month?.slice(0, 7) ?? '—'} · {inputs.doctors.length} doctors · {inputs.doctors.reduce((a, d) => a + d.freq, 0)} visits · PM target {inputs.daily_target ?? 'not set'} a day
+                  {inputs.fromDay ? `Re-plan from ${inputs.fromDay}: visits already done this month are subtracted · ` : ''}List of {inputs.list_month?.slice(0, 7) ?? '—'} · {inputs.doctors.length} doctors · {inputs.doctors.reduce((a, d) => a + d.freq, 0)} visits · PM target {inputs.daily_target ?? 'not set'} a day
                   {work?.dirty && ' · unsaved changes'}
                 </span>
               </div>
               {work ? (
                 <>
+                  {work.validation && !work.validation.ok && (
+                    <div role="alert" className="rounded-card border border-red-400 bg-red-50 px-4 py-3 text-sm text-red-900">
+                      <div className="font-semibold">⛔ Validation failed — this plan is shown for review only and cannot be saved</div>
+                      <ul className="mt-1 list-disc pl-5 text-xs">{work.validation.failures.map((f) => <li key={f}>{f}</li>)}</ul>
+                    </div>
+                  )}
                   {work.summary && <WarningCards s={work.summary} params={work.params} />}
                   <PlanTable rows={work.rows} doctors={doctors} target={work.summary?.target ?? inputs.daily_target ?? 8} />
                 </>

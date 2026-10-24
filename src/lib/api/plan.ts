@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import { usualFromHistory, windowFromTimes, type ActualVisit, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary } from '../../features/plan/planner'
+import { dayStartFromHistory, doctorTimesFromHistory, windowFromTimes, type ActualVisit, type BrickPair, type PlanInputs, type PlanParams, type PlanRow, type PlanSummary } from '../../features/plan/planner'
 import { fetchAll, rpc } from './core'
 
 type Raw = Record<string, unknown>
@@ -15,11 +15,31 @@ export async function fetchRepHistory(rep: number, month: string): Promise<Actua
   return parts.flat()
 }
 
-/** plan_inputs (85_monthly_plan.sql): everything the planner needs for one rep and month, plus the rep's own PM window. */
-export async function fetchPlanInputs(rep: number, month: string): Promise<PlanInputs> {
-  const [inputs, history] = await Promise.all([fetchPlanInputsRaw(rep, month), fetchRepHistory(rep, month)])
-  // window and the usual weekday / hour / share of each doctor come from the rep's own last 3 months
-  return { ...inputs, doctors: usualFromHistory(history, inputs.doctors), window: windowFromTimes(history.map((v) => v.visit_time)) }
+/** plan_brick_pairs (86_plan_brick_pairs.sql): bricks the rep worked in the same day in the last 6 months. undefined when the function is not installed. */
+export async function fetchBrickPairs(rep: number, month: string): Promise<BrickPair[] | undefined> {
+  try {
+    const rows = await rpc<Raw[] | null>('plan_brick_pairs', { p_rep: rep, p_month: month, p_months_back: 6 })
+    return (rows ?? []).map((r) => ({ a: String(r.brick_a), b: String(r.brick_b), pm_days: Number(r.pm_days_together ?? 0), any_days: Number(r.any_days_together ?? 0), last_day: r.last_day ? String(r.last_day).slice(0, 10) : null }))
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * plan_inputs (85_monthly_plan.sql) plus what comes from the rep's own history: PM window, usual start of the day, each doctor's usual weekday and hours
+ * (3 months before the month), the brick pairs, and - for a re-plan from `fromDay` - the visits already done this month.
+ */
+export async function fetchPlanInputs(rep: number, month: string, fromDay: string | null = null): Promise<PlanInputs> {
+  const [inputs, history, pairs, thisMonth] = await Promise.all([
+    fetchPlanInputsRaw(rep, month), fetchRepHistory(rep, month), fetchBrickPairs(rep, month),
+    fromDay && fromDay > month ? fetchPlanActuals(rep, month) : Promise.resolve([] as ActualVisit[]),
+  ])
+  const done: Record<number, number> = {}
+  for (const v of thisMonth) if (fromDay && v.day < fromDay) done[v.doctor_id] = (done[v.doctor_id] ?? 0) + 1
+  return {
+    ...inputs, doctors: doctorTimesFromHistory(history, inputs.doctors), window: windowFromTimes(history.map((v) => v.visit_time)),
+    dayStart: dayStartFromHistory(history), brickPairs: pairs, fromDay: fromDay && fromDay > month ? fromDay : null, done,
+  }
 }
 
 async function fetchPlanInputsRaw(rep: number, month: string): Promise<PlanInputs> {
