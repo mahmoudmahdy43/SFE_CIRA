@@ -1,5 +1,6 @@
+import { supabase } from '../supabase'
 import { fetchAll, rpc } from './core'
-import type { ClinicRow, Cluster, Severity } from '../../features/reports/suspiciousMath'
+import { monthRange, monthsBetween, type ClinicRow, type Cluster, type Severity } from '../../features/reports/suspiciousMath'
 
 type Raw = Record<string, unknown>
 const num = (v: unknown): number => Number(v ?? 0)
@@ -27,6 +28,26 @@ export async function fetchSuspiciousDetail(rep: number, lat: number, lng: numbe
     pattern: r.pattern === null || r.pattern === undefined ? null : String(r.pattern),
     visit_log: Array.isArray(r.visit_log) ? (r.visit_log as Raw[]).map((v) => ({ d: String(v.d).slice(0, 10), t: v.t === null || v.t === undefined ? null : String(v.t) })) : [],
   }))
+}
+
+async function visitDateEdge(ascending: boolean, from?: string, to?: string): Promise<string | null> {
+  let q = supabase.from('visits').select('visit_date')
+  if (from) q = q.gte('visit_date', from)
+  if (to) q = q.lt('visit_date', to)
+  const { data, error } = await q.order('visit_date', { ascending }).limit(1)
+  if (error) throw new Error(error.message)
+  const d = (data as { visit_date: string }[] | null)?.[0]?.visit_date
+  return d ? d.slice(0, 10) : null
+}
+
+/** Month (YYYY-MM) -> latest visit date in `visits` (null = no visits that month), from the first to the last month that has visits. Always read fresh. */
+export async function fetchVisitMonths(): Promise<Record<string, string | null>> {
+  const [min, max] = await Promise.all([visitDateEdge(true), visitDateEdge(false)])
+  if (!min || !max) return {}
+  const months = monthsBetween(min.slice(0, 7), max.slice(0, 7))
+  const out: Record<string, string | null> = {}
+  await Promise.all(months.map(async (m) => { const { from, to } = monthRange(m); out[m] = m === max.slice(0, 7) ? max : await visitDateEdge(false, from, to) }))
+  return out
 }
 
 /** Manager and line names, resolved from the managers and lines tables (an id is shown when a name is missing). */

@@ -45,6 +45,36 @@ export function monthRange(ym: string): { from: string; to: string } {
   const m = Number(ym.slice(5, 7))
   return { from: `${y}-${pad(m)}-01`, to: m === 12 ? `${y + 1}-01-01` : `${y}-${pad(m + 1)}-01` }
 }
+/** A month (YYYY-MM) moved by `delta` months. */
+export function shiftMonth(ym: string, delta: number): string {
+  const d = new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1 + delta, 1))
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`
+}
+/** Every month from `minYm` to `maxYm`, ascending. */
+export function monthsBetween(minYm: string, maxYm: string): string[] {
+  const out: string[] = []
+  for (let m = minYm; m <= maxYm && out.length < 600; m = shiftMonth(m, 1)) out.push(m)
+  return out
+}
+export interface MonthOption { month: string; label: string; inProgress: boolean; maxDate: string }
+/**
+ * The month selector: only months that have visits (`maxByMonth`: month -> latest visit date, null = no visits), newest first.
+ * The month `today` is in is still running and is labelled with the date its data reaches.
+ */
+export function buildMonthOptions(maxByMonth: Record<string, string | null>, today: Date): MonthOption[] {
+  const current = `${today.getFullYear()}-${pad(today.getMonth() + 1)}`
+  return Object.entries(maxByMonth)
+    .filter((e): e is [string, string] => e[1] !== null && e[1] !== undefined)
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([month, maxDate]) => {
+      const inProgress = month === current
+      return { month, inProgress, maxDate, label: inProgress ? `${monthLabel(month)} — In progress (data to ${fmtDate(maxDate)})` : monthLabel(month) }
+    })
+}
+/** The month to open: the one asked for when it has visits, else the latest month that has visits. */
+export const pickMonth = (options: MonthOption[], wanted: string | null): string | null =>
+  (wanted && options.some((o) => o.month === wanted) ? wanted : options[0]?.month ?? null)
+export const isMonth = (s: string | null | undefined): s is string => !!s && /^\d{4}-(0[1-9]|1[0-2])$/.test(s)
 export const monthLabel = (ym: string): string => `${MONTH_NAMES[Number(ym.slice(5, 7)) - 1] ?? ''} ${ym.slice(0, 4)}`
 export const fmtDate = (iso: string | null): string => (iso ? `${Number(iso.slice(8, 10))} ${MON[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '')
 /** Every day of [from, to). */
@@ -110,7 +140,7 @@ export const mapsUrl = (lat: number, lng: number): string => `https://www.google
 export const nameOrId = (id: number | null | undefined, names: Map<number, string>): string => (id === null || id === undefined ? '' : names.get(id) ?? `#${id}`)
 
 /* ------------------------------ filters and sort ------------------------------ */
-export interface Filters { severities: Severity[]; search: string; lineId: number | null; managerId: number | null }
+export interface Filters { severities: Severity[]; search: string; lineId: number | null; managerId: number | null; /** Only these reps (the "New only" filter). */ onlyReps?: Set<number> | null }
 /** Severity (High first), then clinics descending. */
 export const sortClusters = (rows: Cluster[]): Cluster[] =>
   [...rows].sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 3) - (SEVERITY_ORDER[b.severity] ?? 3) || b.clinics - a.clinics || b.visits - a.visits || a.rep_id - b.rep_id)
@@ -120,8 +150,42 @@ export function filterClusters(rows: Cluster[], f: Filters): Cluster[] {
     .filter((r) => f.severities.includes(r.severity))
     .filter((r) => f.managerId === null || r.manager_id === f.managerId)
     .filter((r) => f.lineId === null || r.line_id === f.lineId)
+    .filter((r) => !f.onlyReps || f.onlyReps.has(r.rep_id))
     .filter((r) => q === '' || r.rep_name.toLowerCase().includes(q) || r.rep_code.toLowerCase().includes(q)))
 }
+/* ------------------------------ change against previous months ------------------------------ */
+/** Months back that count towards the "repeated" streak. */
+export const STREAK_MONTHS_BACK = 3
+export type Change = { kind: 'new' } | { kind: 'repeated'; months: number; capped: boolean }
+export interface Comparison { byRep: Map<number, Change>; newCount: number; repeatedCount: number; goneCount: number; gone: Cluster[] }
+const isFlagged = (c: Pick<Cluster, 'severity'>): boolean => c.severity === 'High' || c.severity === 'Medium'
+/**
+ * Reps with a High or Medium case this month against the previous months (`prev[0]` = last month, `prev[1]` = the month before...;
+ * null = no data for that month). New: not flagged last month. Repeated: flagged last month too, with the number of consecutive
+ * months (this one included, up to 3 months back). Gone: flagged last month, not this month (one cluster per rep, the worst).
+ * Returns null when last month has no data: there is nothing to compare with.
+ */
+export function classifyChanges(current: Cluster[], prev: (Cluster[] | null)[]): Comparison | null {
+  const last = prev[0]
+  if (!last) return null
+  const flaggedReps = (rows: Cluster[] | null) => new Set((rows ?? []).filter(isFlagged).map((r) => r.rep_id))
+  const now = flaggedReps(current)
+  const before = prev.slice(0, STREAK_MONTHS_BACK).map(flaggedReps)
+  const byRep = new Map<number, Change>()
+  for (const rep of now) {
+    let streak = 0
+    while (streak < before.length && prev[streak] !== null && before[streak].has(rep)) streak++
+    byRep.set(rep, streak === 0 ? { kind: 'new' } : { kind: 'repeated', months: streak + 1, capped: streak === STREAK_MONTHS_BACK })
+  }
+  const seen = new Set<number>()
+  const gone = sortClusters(last.filter((r) => isFlagged(r) && !now.has(r.rep_id))).filter((r) => (seen.has(r.rep_id) ? false : (seen.add(r.rep_id), true)))
+  const changes = [...byRep.values()]
+  return { byRep, newCount: changes.filter((c) => c.kind === 'new').length, repeatedCount: changes.filter((c) => c.kind === 'repeated').length, goneCount: gone.length, gone }
+}
+export const changeLabel = (c: Change | undefined): string => (!c ? '' : c.kind === 'new' ? 'New' : `Repeated · ${c.months}${c.capped ? '+' : ''} months`)
+/** Reps whose case is new this month (for the "New only" filter). */
+export const newReps = (cmp: Comparison | null): Set<number> => new Set(cmp ? [...cmp.byRep].filter(([, c]) => c.kind === 'new').map(([id]) => id) : [])
+
 export interface Kpis { reps: number; clinics: number; visits: number; shareOfPmVisits: number }
 /** Reps flagged, clinics sharing a location, visits involved, and their share of those reps' PM visits (the rep's total comes from visits / pct). */
 export function summarize(rows: Cluster[]): Kpis {
@@ -175,7 +239,7 @@ export function stripWeeks(days: StripDay[]): (StripDay | null)[][] {
 
 /* ------------------------------ Excel rows ------------------------------ */
 type Cell = string | number | null
-export interface RowNames { month: string; line: string; manager: string }
+export interface RowNames { month: string; line: string; manager: string; /** Against the previous month ('' when there is no comparison). */ change?: string }
 const repStatus = (c: Cluster): string => { const rb = resignedBadge(c.rep_status, c.resign_date); return rb.show ? rb.text : c.rep_status ?? '' }
 /** The main table, same columns. */
 export function summaryRow(c: Cluster, n: RowNames): Record<string, Cell> {
@@ -185,6 +249,7 @@ export function summaryRow(c: Cluster, n: RowNames): Record<string, Cell> {
     'Clinics registered at the point': c.clinics_registered_here, 'Visits registered at the point': c.visits - c.visits_far,
     'Clinics visited from far': c.clinics_far, 'Visits from far': c.visits_far, 'Night visits': c.night_visits, 'Other reps at the point': c.other_reps_at_cell,
     'First visit': c.first_visit ?? '', 'Last visit': c.last_visit ?? '', 'Point latitude': c.cell_lat, 'Point longitude': c.cell_lng,
+    ...(n.change === undefined ? {} : { 'Vs previous month': n.change }),
   }
 }
 /** One row per account of a rep and point. */

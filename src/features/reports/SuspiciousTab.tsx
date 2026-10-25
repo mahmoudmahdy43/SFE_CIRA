@@ -1,22 +1,23 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
-import { FileSpreadsheet, MapPin, Moon, Search, X } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { FileSpreadsheet, MapPin, Moon, RefreshCw, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '../../components/ui/button'
 import { Card, Input, Skeleton } from '../../components/ui/misc'
 import { downloadXlsxTables } from '../../lib/xlsxExport'
-import { fetchSuspiciousClusters, fetchSuspiciousDetail, fetchSuspiciousNames } from '../../lib/api/suspicious'
+import { fetchSuspiciousClusters, fetchSuspiciousDetail, fetchSuspiciousNames, fetchVisitMonths } from '../../lib/api/suspicious'
 import { cn } from '../../lib/utils'
 import { useAsync } from '../dashboard/useAsync'
 import {
-  BUSY_DAY_VISITS, CHIPS_BEFORE_TOGGLE, DEFAULT_SEVERITIES, DISCLAIMER, MIN_CLINICS, NO_CASES, STRIP_WEEKDAYS, buildDayStrip, clusterKey, detailRows, exportFileName, fmtDate, fmtPct, fmtPctPoints,
-  filterClusters, latestClosedMonth, mapsUrl, monthLabel, monthRange, nameOrId, orderedVisits, patternChip, readingNote, resignedBadge, severityChip, severityReason, stripWeeks, summarize,
-  summaryRow, visitChip, type ClinicRow, type Cluster, type Severity,
+  BUSY_DAY_VISITS, CHIPS_BEFORE_TOGGLE, DEFAULT_SEVERITIES, DISCLAIMER, MIN_CLINICS, NO_CASES, STRIP_WEEKDAYS, buildDayStrip, buildMonthOptions, changeLabel, classifyChanges, clusterKey, detailRows, exportFileName, fmtDate, fmtPct, fmtPctPoints,
+  filterClusters, isMonth, mapsUrl, monthLabel, monthRange, nameOrId, newReps, orderedVisits, patternChip, pickMonth, readingNote, resignedBadge, severityChip, severityReason, shiftMonth, stripWeeks, summarize,
+  summaryRow, visitChip, type ClinicRow, type Cluster, type MonthOption, type Severity,
 } from './suspiciousMath'
 
 const SEVERITIES: Severity[] = ['High', 'Medium', 'Low']
 const SELECT = 'h-9 rounded-control border bg-card px-2 text-sm'
 const CHIP: Record<'red' | 'amber' | 'grey', string> = { red: 'bg-red-100 text-red-900', amber: 'bg-amber-100 text-amber-900', grey: 'bg-gray-200 text-gray-800' }
-const COLS = 11
+const COLS = 12
 
 interface DetailState { loading: boolean; error: string | null; data: ClinicRow[] | null }
 
@@ -126,30 +127,80 @@ function DetailCard({ c, state, month, managerName, onClose }: { c: Cluster; sta
   )
 }
 
+interface Loaded { data: Cluster[] | null; prev: (Cluster[] | null)[]; error: string | null; prevError: string | null; loading: boolean }
+
 export function SuspiciousTab() {
-  const latest = useMemo(() => latestClosedMonth(new Date()), [])
-  const [month, setMonth] = useState(latest)
+  const [params] = useSearchParams()
+  const wanted = params.get('month')
+  const [picked, setPicked] = useState<string | null>(isMonth(wanted) ? wanted : null)
+  const [nonce, setNonce] = useState(0)
+  const [monthsState, setMonthsState] = useState<{ options: MonthOption[]; error: string | null; loading: boolean }>({ options: [], error: null, loading: true })
   const [severities, setSeverities] = useState<Severity[]>(DEFAULT_SEVERITIES)
   const [lineId, setLineId] = useState<number | null>(null)
   const [managerId, setManagerId] = useState<number | null>(null)
   const [search, setSearch] = useState('')
+  const [newOnly, setNewOnly] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
   const [details, setDetails] = useState<Map<string, DetailState>>(new Map())
   const [exporting, setExporting] = useState(false)
+  const [loaded, setLoaded] = useState<Loaded>({ data: null, prev: [], error: null, prevError: null, loading: true })
 
-  const { from, to } = useMemo(() => monthRange(month), [month])
-  const data = useAsync(`suspicious:${from}:${to}`, () => fetchSuspiciousClusters(from, to, MIN_CLINICS))
+  // The month list always comes from the visits table: on open, and on Refresh (never cached across uploads).
+  useEffect(() => {
+    let cancelled = false
+    setMonthsState((s) => ({ ...s, error: null, loading: true }))
+    fetchVisitMonths()
+      .then((m) => !cancelled && setMonthsState({ options: buildMonthOptions(m, new Date()), error: null, loading: false }))
+      .catch((e: unknown) => !cancelled && setMonthsState({ options: [], error: e instanceof Error ? e.message : 'Could not read the months', loading: false }))
+    return () => { cancelled = true }
+  }, [nonce])
+
+  const options = monthsState.options
+  const month = pickMonth(options, picked) ?? ''
+  const { from, to } = useMemo(() => (month ? monthRange(month) : { from: '', to: '' }), [month])
+  const prevMonths = useMemo(() => (month ? [1, 2, 3].map((k) => shiftMonth(month, -k)) : []), [month])
+
+  // The selected month, and the 3 months before it (to mark New / Repeated / Gone).
+  useEffect(() => {
+    if (!month) return
+    let cancelled = false
+    setLoaded({ data: null, prev: [], error: null, prevError: null, loading: true })
+    setOpen(null)
+    setDetails(new Map())
+    const hasData = (m: string) => options.some((o) => o.month === m)
+    const range = (m: string) => monthRange(m)
+    const get = (m: string) => fetchSuspiciousClusters(range(m).from, range(m).to, MIN_CLINICS)
+    void (async () => {
+      const [cur, ...prev] = await Promise.allSettled([get(month), ...prevMonths.map((m) => (hasData(m) ? get(m) : Promise.resolve(null)))])
+      if (cancelled) return
+      const prevErr = prev.find((p) => p.status === 'rejected') as PromiseRejectedResult | undefined
+      setLoaded({
+        data: cur.status === 'fulfilled' ? cur.value : null,
+        error: cur.status === 'rejected' ? (cur.reason instanceof Error ? cur.reason.message : 'Failed to load') : null,
+        prev: prev.map((p) => (p.status === 'fulfilled' ? p.value : null)),
+        prevError: prevErr ? (prevErr.reason instanceof Error ? prevErr.reason.message : 'Failed to load') : null,
+        loading: false,
+      })
+    })()
+    return () => { cancelled = true }
+    // `options` is a new array on every month-list load (open, month change, Refresh), so it re-runs the fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month, options])
+
+  const data = { data: loaded.data, error: loaded.error ?? monthsState.error, loading: loaded.loading && !monthsState.error && (monthsState.loading || !!month), reload: () => setNonce((n) => n + 1) }
+  const comparison = useMemo(() => (loaded.loading || loaded.error ? null : classifyChanges(loaded.data ?? [], loaded.prev)), [loaded])
   const names = useAsync('suspicious:names', fetchSuspiciousNames)
   const managers = useMemo(() => names.data?.managers ?? new Map<number, string>(), [names.data])
   const lines = useMemo(() => names.data?.lines ?? new Map<number, string>(), [names.data])
   const mgrName = useCallback((id: number | null) => nameOrId(id, managers), [managers])
   const lineName = useCallback((id: number | null) => nameOrId(id, lines), [lines])
 
-  useEffect(() => { setOpen(null); setDetails(new Map()) }, [from, to])
-
   const all = useMemo(() => data.data ?? [], [data.data])
-  const rows = useMemo(() => filterClusters(all, { severities, search, lineId, managerId }), [all, severities, search, lineId, managerId])
+  const newSet = useMemo(() => newReps(comparison), [comparison])
+  const rows = useMemo(() => filterClusters(all, { severities, search, lineId, managerId, onlyReps: newOnly && comparison ? newSet : null }), [all, severities, search, lineId, managerId, newOnly, comparison, newSet])
+  const goneRows = useMemo(() => (comparison ? filterClusters(comparison.gone, { severities: SEVERITIES, search, lineId, managerId }) : []), [comparison, search, lineId, managerId])
   const kpis = useMemo(() => summarize(rows), [rows])
+  const changeOf = (c: Cluster): string => (comparison ? changeLabel(comparison.byRep.get(c.rep_id)) : '')
   const lineOptions = useMemo(() => [...new Set(all.map((r) => r.line_id).filter((x): x is number => x !== null))].map((id) => [id, lineName(id)] as const).sort((a, b) => a[1].localeCompare(b[1])), [all, lineName])
   const managerOptions = useMemo(() => [...new Set(all.filter((r) => lineId === null || r.line_id === lineId).map((r) => r.manager_id).filter((x): x is number => x !== null))].map((id) => [id, mgrName(id)] as const).sort((a, b) => a[1].localeCompare(b[1])), [all, lineId, mgrName])
 
@@ -183,7 +234,7 @@ export function SuspiciousTab() {
         for (let c = queue.shift(); c; c = queue.shift()) detailByKey.set(clusterKey(c), details.get(clusterKey(c))?.data ?? (await fetchSuspiciousDetail(c.rep_id, c.cell_lat, c.cell_lng, from, to)))
       }
       await Promise.all([worker(), worker(), worker()])
-      const nm = (c: Cluster) => ({ month, line: lineName(c.line_id), manager: mgrName(c.manager_id) })
+      const nm = (c: Cluster) => ({ month, line: lineName(c.line_id), manager: mgrName(c.manager_id), ...(comparison ? { change: changeOf(c) } : {}) })
       await downloadXlsxTables(exportFileName(month), [
         { name: 'Summary', rows: ordered.map((c) => summaryRow(c, nm(c))) },
         { name: 'Detail', rows: ordered.flatMap((c) => detailRows(c, nm(c), detailByKey.get(clusterKey(c)) ?? [])) },
@@ -203,7 +254,11 @@ export function SuspiciousTab() {
       <div role="note" className="rounded-card border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">{DISCLAIMER}</div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <input type="month" aria-label="Month" className={SELECT} value={month} max={latest} onChange={(e) => e.target.value && setMonth(e.target.value)} />
+        <select aria-label="Month" className={cn(SELECT, 'max-w-[20rem]')} value={month} disabled={options.length === 0} onChange={(e) => setPicked(e.target.value)}>
+          {options.length === 0 && <option value="">{monthsState.loading ? 'Loading months…' : 'No months with visits'}</option>}
+          {options.map((o) => <option key={o.month} value={o.month}>{o.label}</option>)}
+        </select>
+        <Button size="sm" disabled={monthsState.loading || loaded.loading} onClick={() => setNonce((n) => n + 1)}><RefreshCw className={cn('h-4 w-4', (monthsState.loading || loaded.loading) && 'animate-spin')} aria-hidden /> Refresh</Button>
         <select aria-label="Line" className={SELECT} value={lineId ?? ''} onChange={(e) => { setLineId(e.target.value === '' ? null : Number(e.target.value)); setManagerId(null) }}>
           <option value="">All lines</option>
           {lineOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
@@ -217,6 +272,7 @@ export function SuspiciousTab() {
             <button key={s} type="button" aria-pressed={severities.includes(s)} onClick={() => toggleSeverity(s)} className={cn('rounded-full border px-3 py-1 text-sm', severities.includes(s) ? `${severityChip(s).classes} border-transparent font-medium` : 'bg-card text-muted-foreground hover:bg-muted')}>{s}</button>
           ))}
         </div>
+        <button type="button" aria-pressed={newOnly} disabled={!comparison} title={comparison ? 'Only reps with a High or Medium case this month and none last month' : 'No comparison available'} onClick={() => setNewOnly((v) => !v)} className={cn('rounded-full border px-3 py-1 text-sm disabled:opacity-50', newOnly ? 'border-transparent bg-blue-100 font-medium text-blue-900' : 'bg-card text-muted-foreground hover:bg-muted')}>New only</button>
         <div className="relative min-w-44 flex-1 sm:max-w-xs">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden />
           <Input aria-label="Search rep" placeholder="Rep name or code…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
@@ -225,11 +281,17 @@ export function SuspiciousTab() {
       </div>
       <div className="text-sm text-muted-foreground"><span className="font-medium text-foreground">{monthLabel(month)}</span> · PM clinics (C and PC) · {MIN_CLINICS}+ clinics sharing a ~110 m point of the device position</div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {loaded.prevError && <div role="alert" className="rounded-card border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">The previous months could not be loaded, so New / Repeated / Gone are not shown: {loaded.prevError}</div>}
+      {!loading && !data.error && !comparison && !loaded.prevError && month && <div className="text-xs text-muted-foreground">No visits in the previous month ({monthLabel(shiftMonth(month, -1))}): no comparison.</div>}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         <Kpi loading={loading} label="Reps flagged" value={String(kpis.reps)} />
         <Kpi loading={loading} label="Clinics sharing a location" value={kpis.clinics.toLocaleString('en-US')} hint="clinics of one rep in one ~110 m cell, summed" />
         <Kpi loading={loading} label="Visits involved" value={kpis.visits.toLocaleString('en-US')} />
         <Kpi loading={loading} label="Share of those reps' PM visits" value={fmtPct(kpis.shareOfPmVisits)} />
+        <Kpi loading={loading} label="New" value={comparison ? String(comparison.newCount) : '–'} hint="High / Medium now, none last month" />
+        <Kpi loading={loading} label="Repeated" value={comparison ? String(comparison.repeatedCount) : '–'} hint="High / Medium last month too" />
+        <Kpi loading={loading} label="Gone" value={comparison ? String(comparison.goneCount) : '–'} hint="High / Medium last month, not now" />
       </div>
 
       {data.error ? (
@@ -247,7 +309,7 @@ export function SuspiciousTab() {
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10 bg-muted text-xs">
               <tr>
-                <th className="px-2 py-1.5 text-left">Severity</th><th className="px-2 py-1.5 text-left">Line</th><th className="px-2 py-1.5 text-left">Manager</th><th className="px-2 py-1.5 text-left">Medical Rep</th>
+                <th className="px-2 py-1.5 text-left">Severity</th><th className="px-2 py-1.5 text-left" title="Against the previous month">Vs last month</th><th className="px-2 py-1.5 text-left">Line</th><th className="px-2 py-1.5 text-left">Manager</th><th className="px-2 py-1.5 text-left">Medical Rep</th>
                 <th className="px-2 py-1.5 text-right">Clinics</th><th className="px-2 py-1.5 text-right">Visits</th><th className="px-2 py-1.5 text-right">Visit days</th><th className="px-2 py-1.5 text-left">% of rep&apos;s PM visits</th>
                 <th className="px-2 py-1.5 text-left" title="Clinics and visits registered at the point / clinics and visits logged here with the clinic far away">Registered at the point / Visited from far</th>
                 <th className="px-2 py-1.5 text-right">Night visits</th><th className="px-2 py-1.5 text-left">First / last visit</th>
@@ -263,6 +325,10 @@ export function SuspiciousTab() {
                   <Fragment key={key}>
                     <tr className={cn('cursor-pointer border-t hover:bg-muted/50', isOpen && 'bg-muted/40')} onClick={() => toggle(c)} aria-expanded={isOpen}>
                       <td className={cn('border-l-4 px-2 py-1.5', sev.border)}><span title={severityReason(c)} className={cn('cursor-help rounded-full px-2.5 py-0.5 text-xs font-semibold', sev.classes)}>{sev.label}</span></td>
+                      <td className="whitespace-nowrap px-2 py-1.5">{(() => {
+                        const ch = comparison?.byRep.get(c.rep_id)
+                        return ch ? <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', ch.kind === 'new' ? 'bg-blue-100 text-blue-900' : 'bg-gray-200 text-gray-800')}>{changeLabel(ch)}</span> : <span className="text-muted-foreground">–</span>
+                      })()}</td>
                       <td className="px-2 py-1.5">{lineName(c.line_id) || '–'}</td>
                       <td className="px-2 py-1.5">{mgrName(c.manager_id) || '–'}</td>
                       <td className="px-2 py-1.5">
@@ -294,6 +360,30 @@ export function SuspiciousTab() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {comparison && !loading && goneRows.length > 0 && (
+        <details className="rounded-card border bg-card">
+          <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Gone: High or Medium in {monthLabel(shiftMonth(month, -1))}, not in {monthLabel(month)} ({goneRows.length})</summary>
+          <div className="overflow-auto border-t">
+            <table className="w-full text-sm">
+              <thead className="bg-muted text-xs"><tr>
+                <th className="px-2 py-1.5 text-left">Last month</th><th className="px-2 py-1.5 text-left">Line</th><th className="px-2 py-1.5 text-left">Manager</th><th className="px-2 py-1.5 text-left">Medical Rep</th>
+                <th className="px-2 py-1.5 text-right">Clinics</th><th className="px-2 py-1.5 text-right">Visits</th>
+              </tr></thead>
+              <tbody>
+                {goneRows.map((c) => (
+                  <tr key={clusterKey(c)} className="border-t">
+                    <td className="px-2 py-1.5"><span className={cn('rounded-full px-2.5 py-0.5 text-xs font-semibold', severityChip(c.severity).classes)}>{severityChip(c.severity).label}</span></td>
+                    <td className="px-2 py-1.5">{lineName(c.line_id) || '–'}</td><td className="px-2 py-1.5">{mgrName(c.manager_id) || '–'}</td>
+                    <td className="px-2 py-1.5"><div className="font-medium leading-tight">{c.rep_name}</div><div className="tnum text-[11px] text-muted-foreground">{c.rep_code}</div></td>
+                    <td className="tnum px-2 py-1.5 text-right">{c.clinics}</td><td className="tnum px-2 py-1.5 text-right">{c.visits}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
       )}
     </div>
   )

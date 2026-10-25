@@ -24,6 +24,55 @@ t('month: the latest closed month, and the range with an exclusive end', () => {
   assert.equal(s.MIN_CLINICS, 10)
 })
 
+t('month list: only months with visits, newest first, the running month labelled with the data date', () => {
+  assert.equal(s.shiftMonth('2026-01', -1), '2025-12')
+  assert.equal(s.shiftMonth('2026-11', 3), '2027-02')
+  assert.deepEqual(s.monthsBetween('2026-08', '2026-10'), ['2026-08', '2026-09', '2026-10'])
+  assert.deepEqual(s.monthsBetween('2025-11', '2026-02'), ['2025-11', '2025-12', '2026-01', '2026-02'])
+  const opts = s.buildMonthOptions({ '2026-08': '2026-08-31', '2026-09': null, '2026-10': '2026-10-24', '2026-07': '2026-07-30' }, new Date(2026, 9, 26))
+  assert.deepEqual(opts.map((o) => o.month), ['2026-10', '2026-08', '2026-07'])
+  assert.equal(opts[0].inProgress, true)
+  assert.equal(opts[0].label, 'October 2026 — In progress (data to 24 Oct 2026)')
+  assert.equal(opts[1].label, 'August 2026')
+  assert.equal(opts[1].inProgress, false)
+  assert.equal(s.pickMonth(opts, null), '2026-10')
+  assert.equal(s.pickMonth(opts, '2026-08'), '2026-08')
+  assert.equal(s.pickMonth(opts, '2026-09'), '2026-10', 'a month without visits falls back to the latest')
+  assert.equal(s.pickMonth([], '2026-09'), null)
+  assert.deepEqual([s.isMonth('2026-10'), s.isMonth('2026-13'), s.isMonth(null), s.isMonth('x')], [true, false, false, false])
+  assert.deepEqual(s.monthRange('2026-10'), { from: '2026-10-01', to: '2026-11-01' })
+})
+
+t('changes: New, Repeated (consecutive months, up to 3 back) and Gone; no comparison without last month', () => {
+  const at = (rep, severity) => cluster({ rep_id: rep, severity })
+  const cur = [at(36, 'High'), at(61, 'High'), at(50, 'Medium'), at(7, 'Low'), at(8, 'High')]
+  const m1 = [at(61, 'Medium'), at(50, 'High'), at(7, 'High'), at(99, 'High'), at(98, 'Low')]
+  const m2 = [at(61, 'High'), at(50, 'Low'), at(99, 'High')]
+  const m3 = [at(61, 'High'), at(8, 'Medium')]
+  const c = s.classifyChanges(cur, [m1, m2, m3])
+  assert.deepEqual(c.byRep.get(36), { kind: 'new' })
+  assert.deepEqual(c.byRep.get(8), { kind: 'new' }, 'flagged only 3 months ago: the streak is broken, so it is new')
+  assert.deepEqual(c.byRep.get(61), { kind: 'repeated', months: 4, capped: true })
+  assert.deepEqual(c.byRep.get(50), { kind: 'repeated', months: 2, capped: false }, 'Low two months ago does not extend the streak')
+  assert.equal(c.byRep.has(7), false, 'a Low case is not compared')
+  assert.deepEqual([c.newCount, c.repeatedCount, c.goneCount], [2, 2, 2])
+  assert.deepEqual(c.gone.map((r) => r.rep_id).sort((a, b) => a - b), [7, 99])
+  assert.equal(s.changeLabel(c.byRep.get(36)), 'New')
+  assert.equal(s.changeLabel(c.byRep.get(61)), 'Repeated · 4+ months')
+  assert.equal(s.changeLabel(c.byRep.get(50)), 'Repeated · 2 months')
+  assert.deepEqual([...s.newReps(c)].sort((a, b) => a - b), [8, 36])
+  assert.equal(s.classifyChanges(cur, [null, m2, m3]), null)
+  assert.equal(s.classifyChanges(cur, []), null)
+  const c2 = s.classifyChanges(cur, [m1, null, null])
+  assert.deepEqual(c2.byRep.get(61), { kind: 'repeated', months: 2, capped: false })
+  const two = s.classifyChanges([cluster({ rep_id: 5, severity: 'High' }), cluster({ rep_id: 5, cell_lat: 31, severity: 'Medium' })], [[at(5, 'High')]])
+  assert.equal(two.repeatedCount, 1, 'a rep with two points counts once')
+  const base = { severities: ['High', 'Medium', 'Low'], search: '', lineId: null, managerId: null }
+  assert.deepEqual(s.filterClusters(cur, { ...base, onlyReps: s.newReps(c) }).map((r) => r.rep_id), [8, 36])
+  assert.equal(s.summaryRow(cluster(), { ...names, change: 'New' })['Vs previous month'], 'New')
+  assert.equal('Vs previous month' in s.summaryRow(cluster(), names), false)
+})
+
 t('severity chip: colors, the left-border color of the expanded card, and the reason on hover', () => {
   assert.match(s.severityChip('High').classes, /red/)
   assert.match(s.severityChip('Medium').classes, /amber/)

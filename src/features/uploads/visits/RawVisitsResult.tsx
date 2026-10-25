@@ -7,6 +7,7 @@ import { fetchRawSummary } from '../../../lib/api/visitsRaw'
 import RejectedGroups from '../RejectedGroups'
 import type { LoadOutcome } from '../types'
 import VisitsResultPanel from './VisitsResultPanel'
+import SuspiciousBanner from './SuspiciousBanner'
 import { normalizeSummary, splitOwnerRejections, type NameCount, type RawSummary } from './rawVisitsSummary'
 
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`
@@ -48,6 +49,7 @@ export default function RawVisitsResult({ outcome, onViewChanges, showLinks = tr
 
   return (
     <div className="space-y-4">
+      <SuspiciousBanner months={outcome.months} />
       <VisitsResultPanel outcome={outcome} onViewChanges={onViewChanges} />
 
       {split.owners.length > 0 && (

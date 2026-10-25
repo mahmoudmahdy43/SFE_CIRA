@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ErrorBoundary } from '../components/app/ErrorBoundary'
 import { PageHeader } from '../components/app/states'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/overlay'
@@ -26,7 +27,8 @@ import type { ReportFilters } from '../features/reports/reportMath'
 export default function Reports() {
   const { month, from, to, isFullMonth } = useDateRange()
   const { role } = useAuth()
-  const [tab, setTab] = useState('employee-performance')
+  const [params] = useSearchParams()
+  const [tab, setTab] = useState(params.get('tab') === 'suspicious' && role === 'admin' ? 'suspicious' : 'employee-performance')
   const [filters, setFilters] = useState<ReportFilters>({ lineId: null, manager: '', search: '' })
   const lines = useAsync('lines:names', fetchLineNames)
   const shared = { month, lines: lines.data ?? [], filters, onFilters: setFilters }
