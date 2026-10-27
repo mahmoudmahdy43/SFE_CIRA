@@ -29,7 +29,7 @@ export async function fetchSuspiciousDetail(rep: number, lat: number, lng: numbe
     doctors: num(r.doctors), visits: num(r.visits), double_visits: num(r.double_visits), single_visits: num(r.single_visits),
     first_visit: strOrNull(r.first_visit), last_visit: strOrNull(r.last_visit), avg_deviation_m: numOrNull(r.avg_deviation_m), acc_lat: numOrNull(r.acc_lat), acc_lng: numOrNull(r.acc_lng),
     pattern: textOrNull(r.pattern),
-    visit_log: Array.isArray(r.visit_log) ? (r.visit_log as Raw[]).map((v) => ({ d: String(v.d).slice(0, 10), t: textOrNull(v.t), dbl: v.dbl === true, mgr: textOrNull(v.mgr) })) : [],
+    visit_log: Array.isArray(r.visit_log) ? (r.visit_log as Raw[]).map((v) => ({ d: strOrNull(v.d) ?? '', t: v.t == null ? null : String(v.t).slice(0, 5), dbl: v.dbl === true, mgr: textOrNull(v.mgr) })).filter((v) => v.d !== '') : [],
   }))
 }
 

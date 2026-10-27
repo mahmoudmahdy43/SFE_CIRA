@@ -91,15 +91,27 @@ export const pickMonth = (options: MonthOption[], wanted: string | null): string
   (wanted && options.some((o) => o.month === wanted) ? wanted : options[0]?.month ?? null)
 export const isMonth = (s: string | null | undefined): s is string => !!s && /^\d{4}-(0[1-9]|1[0-2])$/.test(s)
 export const monthLabel = (ym: string): string => `${MONTH_NAMES[Number(ym.slice(5, 7)) - 1] ?? ''} ${ym.slice(0, 4)}`
-export const fmtDate = (iso: string | null): string => (iso ? `${Number(iso.slice(8, 10))} ${MON[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '')
+/** 'D Mon YYYY' from the first 10 characters (YYYY-MM-DD, or a timestamp); '' for null, empty or malformed input. Never goes through Date. */
+export const fmtDate = (iso: string | null | undefined): string => {
+  const d = typeof iso === 'string' ? iso.slice(0, 10) : ''
+  return /^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(d) ? `${Number(d.slice(8, 10))} ${MON[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}` : ''
+}
+/** 'HH:MM' from a time string ('19:40:00' -> '19:40'); '' for null or malformed input. */
+export const fmtTime = (t: string | null | undefined): string => { const m = typeof t === 'string' ? /^(\d{2}):(\d{2})/.exec(t) : null; return m ? `${m[1]}:${m[2]}` : '' }
 /* ------------------------------ date range (From / To, both inclusive) ------------------------------ */
 export interface DateRange { from: string; to: string }
 export const MAX_RANGE_MONTHS = 12
 const DAY_MS = 86400000
-export const addDays = (iso: string, n: number): string => new Date(Date.parse(`${iso}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10)
-export const isIsoDate = (s: string | null | undefined): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && addDays(s, 0) === s
+/** iso + n days from the year / month / day parts (UTC, no time zone shift); '' when iso is not a real YYYY-MM-DD date. */
+export function addDays(iso: string, n: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? '')
+  if (!m) return ''
+  const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + n)
+  return Number.isNaN(t) ? '' : new Date(t).toISOString().slice(0, 10)
+}
+export const isIsoDate = (s: string | null | undefined): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && addDays(s, 0) === s
 /** A date moved by `n` months (29 Feb + 12 months is 1 Mar, so the range from a leap day still ends on 28 Feb). */
-const addMonthsDate = (iso: string, n: number): string => new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1 + n, Number(iso.slice(8, 10)))).toISOString().slice(0, 10)
+const addMonthsDate = (iso: string, n: number): string => !isIsoDate(iso) ? '' : new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1 + n, Number(iso.slice(8, 10)))).toISOString().slice(0, 10)
 export const lastDayOfMonth = (ym: string): string => addDays(monthRange(ym).to, -1)
 /** Choosing a month fills From = first day, To = last day (the running month: the latest visit date). */
 export function monthToRange(ym: string, latestVisit?: string | null): DateRange {
@@ -108,8 +120,8 @@ export function monthToRange(ym: string, latestVisit?: string | null): DateRange
   return { from, to: latestVisit && latestVisit >= from && latestVisit < last ? latestVisit : last }
 }
 /** The RPC parameters: p_from = From, p_to = To + 1 day (p_to is exclusive). */
-export const rangeToRpc = (r: DateRange): { from: string; to: string } => ({ from: r.from, to: addDays(r.to, 1) })
-export const rangeDays = (r: DateRange): number => Math.round((Date.parse(`${r.to}T00:00:00Z`) - Date.parse(`${r.from}T00:00:00Z`)) / DAY_MS) + 1
+export const rangeToRpc = (r: DateRange): { from: string; to: string } => ({ from: isIsoDate(r.from) ? r.from : '', to: addDays(r.to, 1) })
+export const rangeDays = (r: DateRange): number => !isIsoDate(r.from) || !isIsoDate(r.to) ? 0 : Math.round((Date.parse(`${r.to}T00:00:00Z`) - Date.parse(`${r.from}T00:00:00Z`)) / DAY_MS) + 1
 /** The calendar month (YYYY-MM) when the range is exactly one whole month, else null. */
 export function exactMonth(r: DateRange): string | null {
   const ym = r.from.slice(0, 7)
@@ -139,19 +151,20 @@ export const rangeText = (r: DateRange): string => exactMonth(r) ?? `${r.from} t
 /** Every day of [from, to). */
 export function daysOf(from: string, to: string): string[] {
   const out: string[] = []
-  for (let t = Date.parse(`${from}T00:00:00Z`); t < Date.parse(`${to}T00:00:00Z`); t += 86400000) out.push(new Date(t).toISOString().slice(0, 10))
+  if (!isIsoDate(from) || !isIsoDate(to)) return out
+  for (let d = from; d < to && out.length < 4000; d = addDays(d, 1)) out.push(d)
   return out
 }
 
 /* ------------------------------ visit dates ------------------------------ */
 /** Ascending by date, then time (a visit without a time first). */
 export function orderedVisits(log: VisitStamp[] | null | undefined): VisitStamp[] {
-  return [...(log ?? [])].sort((a, b) => a.d.localeCompare(b.d) || (a.t ?? '').localeCompare(b.t ?? ''))
+  return [...(log ?? [])].sort((a, b) => (a.d ?? '').localeCompare(b.d ?? '') || (a.t ?? '').localeCompare(b.t ?? ''))
 }
 /** "07 Sep 19:40" (the chip). */
-export const visitChip = (v: VisitStamp): string => `${v.d.slice(8, 10)} ${MON[Number(v.d.slice(5, 7)) - 1]}${v.t ? ` ${v.t}` : ''}`
+export const visitChip = (v: VisitStamp): string => { const d = fmtDate(v.d) ? `${v.d.slice(8, 10)} ${MON[Number(v.d.slice(5, 7)) - 1]}` : ''; return `${d}${d && fmtTime(v.t) ? ' ' : ''}${fmtTime(v.t)}` }
 /** "07/09 19:40" (the Excel cell). */
-export const visitExcel = (v: VisitStamp): string => `${v.d.slice(8, 10)}/${v.d.slice(5, 7)}${v.t ? ` ${v.t}` : ''}`
+export const visitExcel = (v: VisitStamp): string => `${(v.d ?? '').slice(8, 10)}/${(v.d ?? '').slice(5, 7)}${fmtTime(v.t) ? ` ${fmtTime(v.t)}` : ''}`
 export const visitDatesCell = (log: VisitStamp[] | null | undefined): string => orderedVisits(log).map(visitExcel).join('; ')
 /** The Double visits only, with the manager: "07/10 20:46 (Ahmed Niazi)". */
 export const doubleDatesCell = (log: VisitStamp[] | null | undefined): string =>
