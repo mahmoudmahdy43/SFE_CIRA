@@ -62,7 +62,8 @@ await t('Vacant -> Rep within a box: history stays on the Vacant row, later mont
   const root = s.buildTree(rows, MONTHS, 'value')
   const mona = root.children[0].children.find((m) => m.label === 'Total Mona')
   const labels = mona.children.map((c) => c.label)
-  assert.deepEqual(labels, ['Rep Two', 'Rep One', 'Vacant - Box A'], 'reps by total desc, Vacant last')
+  assert.deepEqual(labels, ['Rep Two', 'Rep One', 'Terr A1, Terr A2'], 'reps by total desc, Vacant last (named by territory)')
+  assert.equal(mona.children[2].box, 'Box A'); assert.equal(s.boxHint(mona.children[2].territory, mona.children[2].box), 'Box A')
   const vacant = mona.children[2]
   assert.deepEqual([...vacant.months.keys()], ['2026-07-01'], 'July only: the earlier month stays on the Vacant row')
   assert.equal(vacant.total.s, 180)
@@ -177,23 +178,29 @@ await t('Excel rows: hierarchy with indentation, all months, Total, Target, Ach 
   assert.equal(h[0]['Avg per month'], Math.round(sumRows('s_value') / 3))
   const f = s.flatRows(root, MONTHS)
   assert.equal(f.length, 6)
-  assert.deepEqual(Object.keys(f[0]).slice(0, 5), ['Line', 'Manager', 'Rep', 'Type', 'Territory'])
-  assert.deepEqual(Object.keys(f[0]).slice(5), ['Jul 26', 'Aug 26', 'Sep 26', 'Total', 'Target', 'Ach %', 'Avg per month'])
+  
+  assert.deepEqual(Object.keys(f[0]).slice(6), ['Jul 26', 'Aug 26', 'Sep 26', 'Total', 'Target', 'Ach %', 'Avg per month'])
   assert.deepEqual(f.map((r) => r.Type), ['Rep', 'Rep', 'Vacant', 'Rep', 'Vacant', 'Rep'])
   const vacRow = f.find((r) => r.Type === 'Vacant' && r.Manager === 'Mona')
-  assert.deepEqual([vacRow.Rep, vacRow.Territory, vacRow['Jul 26'], vacRow['Aug 26'], vacRow.Total], ['Vacant - Box A', 'Terr A1, Terr A2', 180, null, 180])
+  assert.deepEqual([vacRow.Rep, vacRow.Territory, vacRow['Jul 26'], vacRow['Aug 26'], vacRow.Total], ['', 'Terr A1, Terr A2', 180, null, 180])
+  assert.equal(vacRow.Box, 'Box A'); assert.deepEqual(Object.keys(f[0]).slice(0, 6), ['Line', 'Manager', 'Rep', 'Type', 'Territory', 'Box'])
   assert.equal(f.reduce((a, r) => a + r.Total, 0), h[0].Total, 'flat rows add up to the Company total')
   assert.equal(s.exportFileName('2026-07-01', '2026-09-01'), 'Sales_by_Employee_2026-07_2026-09.xlsx')
 })
 
-await t('Vacant label: box name, else territory, else (box not set); the box name comes from the rows', () => {
-  assert.equal(s.vacantLabel('Faisal', 'T1'), 'Vacant - Faisal')
-  assert.equal(s.vacantLabel('', 'Terr A1'), 'Vacant - Terr A1')
-  assert.equal(s.vacantLabel(null, '  '), 'Vacant - (box not set)')
-  assert.equal(s.vacantLabel(undefined, undefined), 'Vacant - (box not set)')
-  assert.equal(s.vacantLabel('  Faisal ', null), 'Vacant - Faisal')
-  const noBox = s.buildTree([vac(7, null, 'Terr Z', '2026-07-01', 10, 0), vac(8, null, null, '2026-07-01', 5, 0)], ['2026-07-01'], 'value')
-  assert.deepEqual(noBox.children[0].children[0].children.map((c) => c.label).sort(), ['Vacant - (box not set)', 'Vacant - Terr Z'])
+await t('Vacant name: the territory first, the box in gray after it (once), never the box alone when a territory exists', () => {
+  assert.equal(s.vacantName('Assiut 2', 'Box Assuit'), 'Assiut 2')
+  assert.equal(s.boxHint('Assiut 2', 'Box Assuit'), 'Box Assuit')
+  assert.equal(s.boxHint('Faisal', 'Faisal'), '', 'territory equal to the box: shown once')
+  assert.equal(s.boxHint('Faisal', ' faisal '), '')
+  assert.equal(s.boxHint('Assiut 2', ''), ''); assert.equal(s.boxHint('Assiut 2', null), '')
+  assert.equal(s.vacantName('', 'Box Z'), 'Box Z', 'no territory: fall back to the box')
+  assert.equal(s.vacantName(null, '  '), '(territory not set)')
+  assert.ok(!/vacant/i.test(s.vacantName('Assiut 2', 'Box Assuit')), 'the word Vacant is only the pill')
+  const tree = s.buildTree([vac(7, 'Box Assuit', 'Assiut 2', '2026-07-01', 10, 0), vac(8, 'Box Assuit', 'Assiut 3', '2026-07-01', 30, 0), vac(9, null, null, '2026-07-01', 5, 0)], ['2026-07-01'], 'value')
+  const kids = tree.children[0].children[0].children
+  assert.deepEqual(kids.map((c) => c.label), ['Assiut 3', 'Assiut 2', '(territory not set)'], 'two territories of one box stay two rows, by total desc')
+  assert.deepEqual(kids.map((c) => c.box), ['Box Assuit', 'Box Assuit', ''])
   assert.equal(s.toEmpRow({ month: '2026-07-01', box_name: 'Faisal' }).box_name, 'Faisal')
   assert.equal(s.toEmpRow({ month: '2026-07-01' }).box_name, null)
 })
@@ -201,7 +208,7 @@ await t('Vacant label: box name, else territory, else (box not set); the box nam
 await t('a manager with only Vacant boxes and no sales still shows; rows after the reps', () => {
   const tree = s.buildTree([vac(1, 'Faisal', 'T', '2026-07-01', 0, 0, { manager_id: 99, manager_name: 'Only Vacant' })], ['2026-07-01'], 'value')
   const m = tree.children[0].children[0]
-  assert.equal(m.label, 'Total Only Vacant'); assert.equal(m.children[0].label, 'Vacant - Faisal'); assert.equal(m.total.s, 0)
+  assert.equal(m.label, 'Total Only Vacant'); assert.equal(m.children[0].label, 'T'); assert.equal(m.children[0].kind, 'vacant'); assert.equal(m.total.s, 0)
 })
 
 await t('KPI strip: company sales, target, Ach %, Vacant sales and its share; filters change the tree and so the KPIs', () => {

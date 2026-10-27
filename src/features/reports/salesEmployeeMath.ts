@@ -110,8 +110,10 @@ const pick = (r: EmpRow, m: Metric): Cell => (m === 'value' ? { s: r.s_value, t:
 const add = (a: Cell, b: Cell): Cell => ({ s: a.s + b.s, t: a.t + b.t })
 const ZERO: Cell = { s: 0, t: 0 }
 export const VACANT_MANAGER = 'Vacant manager'
-/** 'Vacant - <box>'; the territory when there is no box name; 'Vacant - (box not set)' when both are empty. */
-export const vacantLabel = (box: string | null | undefined, territory: string | null | undefined): string => `Vacant - ${(box ?? '').trim() || (territory ?? '').trim() || '(box not set)'}`
+/** The name of a Vacant row: the TERRITORY (what makes the row unique); the box only when there is no territory; '(territory not set)' when both are empty. The VACANT pill is drawn by the page. */
+export const vacantName = (territory: string | null | undefined, box: string | null | undefined): string => (territory ?? '').trim() || (box ?? '').trim() || '(territory not set)'
+/** The box shown in gray after the territory: '' when the box is empty or equals the territory. */
+export const boxHint = (territory: string | null | undefined, box: string | null | undefined): string => { const b = (box ?? '').trim(); return b !== '' && b.toLowerCase() !== (territory ?? '').trim().toLowerCase() ? b : '' }
 
 function node(id: string, kind: Kind, label: string, depth: number, extra: Partial<Node> = {}): Node {
   return { id, kind, label, depth, line: '', manager: '', rep: '', territory: '', box: '', months: new Map(), total: { ...ZERO }, children: [], since: '', ...extra }
@@ -155,7 +157,7 @@ export function buildTree(rows: EmpRow[], months: string[], metric: Metric): Nod
       const names = new Set([...(leaf.territory ? leaf.territory.split(', ') : []), ...(r.territory_names ? r.territory_names.split(', ') : [])])
       leaf.territory = [...names].sort().join(', ')
       leaf.box = leaf.box || (r.box_name ?? '')
-      leaf.label = vacantLabel(leaf.box, leaf.territory)
+      leaf.label = vacantName(leaf.territory, leaf.box)
     }
   }
   const company = node('company', 'company', 'Total Company', 0)
@@ -231,13 +233,13 @@ export function hierarchyRows(root: Node, months: string[]): Record<string, XCel
   walk(root)
   return out
 }
-/** One row per rep or Vacant box: Line, Manager, Rep, Type, Territory, the months, Total, Target, Ach %. */
+/** One row per rep or Vacant territory: Line, Manager, Rep, Type (Rep / Vacant), Territory, Box, the months, Total, Target, Ach %. */
 export function flatRows(root: Node, months: string[]): Record<string, XCell>[] {
   const out: Record<string, XCell>[] = []
   const walk = (n: Node) => {
     if (n.kind === 'rep' || n.kind === 'vacant') {
       const f = figureCells(n, months)
-      out.push({ Line: n.line, Manager: n.manager, Rep: n.kind === 'rep' ? n.rep : n.label, Type: n.kind === 'rep' ? 'Rep' : 'Vacant', Territory: n.territory, ...f })
+      out.push({ Line: n.line, Manager: n.manager, Rep: n.kind === 'rep' ? n.rep : '', Type: n.kind === 'rep' ? 'Rep' : 'Vacant', Territory: n.territory, Box: n.box, ...f })
     }
     n.children.forEach(walk)
   }

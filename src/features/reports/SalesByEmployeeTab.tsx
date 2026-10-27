@@ -12,7 +12,7 @@ import { AMBER, AMBER_BODY, Seg, TONE_COLOR, negStyle } from './SalesUi'
 import { CPAL } from './coverageMath'
 import { loadedMonths, type ProductRow } from './salesMath'
 import {
-  achTone, collapseAll, defaultExpanded, expandAll, exportFileName, flatRows, flatten, figures, fmtNum, fmtPct, hierarchyRows, incompleteNote, cellTitle, kpis, monthLong, monthShort, monthsInRange,
+  achTone, boxHint, collapseAll, defaultExpanded, expandAll, exportFileName, flatRows, flatten, figures, fmtNum, fmtPct, hierarchyRows, incompleteNote, cellTitle, kpis, monthLong, monthShort, monthsInRange,
   productParam, rowHeat, quickOptions, quickPick, buildTree, type EmpRow, type Metric, type Node, type QuickKind, type QuickPick,
 } from './salesEmployeeMath'
 
@@ -247,6 +247,7 @@ export function SalesByEmployeeTab({ lines }: { lines: { id: number; name: strin
                         ) : <span className="inline-block w-5" />}
                         {n.kind === 'vacant' && <span className="rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold not-italic tracking-wide text-gray-600">VACANT</span>}
                         <span>{n.label}</span>
+                        {n.kind === 'vacant' && boxHint(n.territory, n.box) && <span className="text-[11px] font-normal text-gray-400">· {boxHint(n.territory, n.box)}</span>}
                         {n.since && <span className="ml-1 text-[11px] font-normal not-italic text-muted-foreground">since {monthShort(n.since)}</span>}
                       </span>
                     </td>
