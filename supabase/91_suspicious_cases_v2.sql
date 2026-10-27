@@ -1,3 +1,4 @@
+-- Run in the Supabase SQL Editor, read-only functions (drop if exists + create; no data changes).
 -- =====================================================================
 -- SFE Hub | 91_suspicious_cases_v2.sql   (run AFTER 90_suspicious_cases.sql; the v1 functions are left untouched)
 -- "Suspicious Cases" v2: the unit is the ACCOUNT (clinic, hospital, polyclinic), the AM shift is selectable, and every visit is Double or Single.
@@ -48,11 +49,11 @@ language sql stable security invoker set search_path = public as $$
            coalesce(v.doctor_id::text, lower(btrim(v.doctor_raw))) as doc,
            (b.visit_key is not null) as is_double, b.mgrs,
            v.dev_lat::numeric as dlat, v.dev_lng::numeric as dlng,
-           coalesce(v.deviation_m::numeric,
+           (coalesce(v.deviation_m::numeric::float8,
                     case when v.acc_lat is not null and v.acc_lng is not null and v.dev_lat is not null and v.dev_lng is not null then
                       2 * 6371000 * asin(least(1, sqrt(
                         power(sin(radians(v.acc_lat - v.dev_lat) / 2), 2)
-                        + cos(radians(v.dev_lat)) * cos(radians(v.acc_lat)) * power(sin(radians(v.acc_lng - v.dev_lng) / 2), 2)))) end) as dev_m
+                        + cos(radians(v.dev_lat)) * cos(radians(v.acc_lat)) * power(sin(radians(v.acc_lng - v.dev_lng) / 2), 2)))) end))::numeric as dev_m
       from visits v
       left join doctors d on d.id = v.doctor_id
       left join dbl b on b.visit_key = v.visit_key and b.visit_date = v.visit_date
@@ -138,11 +139,11 @@ language sql stable security invoker set search_path = public as $$
            coalesce(v.doctor_id::text, lower(btrim(v.doctor_raw))) as doc,
            (b.visit_key is not null) as is_double, b.mgr,
            v.acc_lat::numeric as alat, v.acc_lng::numeric as alng,
-           coalesce(v.deviation_m::numeric,
+           (coalesce(v.deviation_m::numeric::float8,
                     case when v.acc_lat is not null and v.acc_lng is not null then
                       2 * 6371000 * asin(least(1, sqrt(
                         power(sin(radians(v.acc_lat - v.dev_lat) / 2), 2)
-                        + cos(radians(v.dev_lat)) * cos(radians(v.acc_lat)) * power(sin(radians(v.acc_lng - v.dev_lng) / 2), 2)))) end) as dev_m
+                        + cos(radians(v.dev_lat)) * cos(radians(v.acc_lat)) * power(sin(radians(v.acc_lng - v.dev_lng) / 2), 2)))) end))::numeric as dev_m
       from visits v
       left join doctors d on d.id = v.doctor_id
       left join dbl b on b.visit_key = v.visit_key and b.visit_date = v.visit_date
