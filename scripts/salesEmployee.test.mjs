@@ -168,7 +168,7 @@ await t('Excel rows: hierarchy with indentation, all months, Total, Target, Ach 
   const root = s.buildTree(rows, MONTHS, 'value')
   const h = s.hierarchyRows(root, MONTHS)
   assert.equal(h.length, 1 + 3 + 4 + 6)
-  assert.deepEqual(Object.keys(h[0]), ['Name', 'Level', 'Jul 26', 'Aug 26', 'Sep 26', 'Total', 'Target', 'Ach %', 'Avg per month'])
+  assert.deepEqual(Object.keys(h[0]), ['Name', 'Level', 'Line', 'Jul 26', 'Aug 26', 'Sep 26', 'Total', 'Target', 'Ach %', 'Avg per month'])
   assert.equal(h[0].Name, 'Total Company'); assert.equal(h[1].Name, '  Total CIRA 1'); assert.equal(h[2].Name, '    Total Mona'); assert.equal(h[3].Name, '      Rep Two')
   assert.equal(h[0].Total, Math.round(sumRows('s_value')))
   assert.equal(h[0]['Ach %'], Math.round((sumRows('s_value') / sumRows('t_value')) * 1000) / 10)
@@ -242,6 +242,32 @@ await t('box name: filled on Vacant and rep rows (Excel Box column), shown by th
   assert.deepEqual(f.map((r) => [r.Type, r.Box]), [['Rep', 'Box Assuit'], ['Vacant', 'Box Assuit']])
   assert.equal(f[1].Territory, 'Assiut 2')
   assert.equal(s.toEmpRow({ month: '2026-07-01', box_name: 'Box Assuit' }).box_name, 'Box Assuit')
+})
+
+await t('normalised comparison: the box is shown only when it is really different from the territory', () => {
+  assert.equal(s.cleanText('  Faisal   &amp;  Sons '), 'Faisal & Sons')
+  assert.equal(s.boxHint('Faisal & Sons', 'faisal &amp; sons'), '', 'entity, case and spaces ignored')
+  assert.equal(s.boxHint('Assiut  2', ' assiut 2 '), '')
+  assert.equal(s.boxHint('ASSIUT 2', 'Assiut 2'), '')
+  assert.equal(s.boxHint('Assiut 2', 'Assiut 3'), 'Assiut 3')
+  assert.equal(s.boxHint('A &amp; B', 'A and B'), 'A and B')
+  assert.equal(s.vacantName(' A &amp; B ', null), 'A & B')
+  assert.equal(s.boxHint(null, 'Box Z'), 'Box Z'); assert.equal(s.boxHint('X', '  '), '')
+})
+
+await t('the same territory name in CIRA 1, 2 and 3: separate Vacant rows, each under its own line and manager (vacant manager per line)', () => {
+  const mk = (lid, ln, mid, mn, tid, sv) => vac(tid, 'Box Assuit', 'Assiut 2', '2026-07-01', sv, 0, { line_id: lid, line_name: ln, manager_id: mid, manager_name: mn })
+  const tree = s.buildTree([mk(1, 'CIRA 1', 10, 'Mona', 11, 10), mk(2, 'CIRA 2', null, null, 21, 20), mk(3, 'CIRA 3', null, null, 31, 30), mk(2, 'CIRA 2', 12, 'Sara', 22, 5)], ['2026-07-01'], 'value')
+  assert.deepEqual(tree.children.map((l) => l.label), ['Total CIRA 1', 'Total CIRA 2', 'Total CIRA 3'])
+  for (const l of tree.children) for (const m of l.children) for (const v of m.children) { assert.equal(v.kind, 'vacant'); assert.equal(v.line, l.line.replace(/^Total /, '')); assert.equal(v.label, 'Assiut 2') }
+  const c2 = tree.children[1]
+  assert.deepEqual(c2.children.map((m) => m.label), ['Total Vacant manager', 'Total Sara'], 'the null manager is the Vacant manager of its own line')
+  assert.equal(c2.total.s, 25)
+  assert.equal(tree.children[0].total.s, 10); assert.equal(tree.children[2].total.s, 30)
+  const flat = s.flatRows(tree, ['2026-07-01'])
+  assert.deepEqual(flat.map((r) => r.Line), ['CIRA 1', 'CIRA 2', 'CIRA 2', 'CIRA 3'], 'Excel flat rows carry the line')
+  assert.ok(s.hierarchyRows(tree, ['2026-07-01']).every((r) => 'Line' in r))
+  assert.equal(s.fullLabel(tree.children[1].children[0].children[0]), 'CIRA 2 · VACANT · Assiut 2 · Box Assuit')
 })
 
 console.log(`${n} tests passed`)

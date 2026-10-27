@@ -110,10 +110,18 @@ const pick = (r: EmpRow, m: Metric): Cell => (m === 'value' ? { s: r.s_value, t:
 const add = (a: Cell, b: Cell): Cell => ({ s: a.s + b.s, t: a.t + b.t })
 const ZERO: Cell = { s: 0, t: 0 }
 export const VACANT_MANAGER = 'Vacant manager'
+/** Text from the database for display: &amp; / &lt; / &gt; / &quot; / &#39; decoded, ends trimmed, inner runs of spaces collapsed. */
+export const cleanText = (v: string | null | undefined): string =>
+  (v ?? '').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#0*39;/g, "'").replace(/\s+/g, ' ').trim()
+/** For comparing two names: cleaned and lower case. */
+export const normName = (v: string | null | undefined): string => cleanText(v).toLowerCase()
 /** The name of a Vacant row: the TERRITORY (what makes the row unique); the box only when there is no territory; '(territory not set)' when both are empty. The VACANT pill is drawn by the page. */
-export const vacantName = (territory: string | null | undefined, box: string | null | undefined): string => (territory ?? '').trim() || (box ?? '').trim() || '(territory not set)'
-/** The box shown in gray after the territory: '' when the box is empty or equals the territory. */
-export const boxHint = (territory: string | null | undefined, box: string | null | undefined): string => { const b = (box ?? '').trim(); return b !== '' && b.toLowerCase() !== (territory ?? '').trim().toLowerCase() ? b : '' }
+export const vacantName = (territory: string | null | undefined, box: string | null | undefined): string => cleanText(territory) || cleanText(box) || '(territory not set)'
+/** The box shown in gray after the territory: '' when the box is empty or is the same name as the territory (compared after normalising both). */
+export const boxHint = (territory: string | null | undefined, box: string | null | undefined): string => (normName(box) !== '' && normName(box) !== normName(territory) ? cleanText(box) : '')
+/** The full text of a row for the tooltip: "CIRA 2 · VACANT · Assiut 2 · Box Assuit" or "CIRA 2 · Rep Name". */
+export const fullLabel = (n: Pick<Node, 'kind' | 'label' | 'line' | 'territory' | 'box'>): string =>
+  [n.line, n.kind === 'vacant' ? 'VACANT' : '', cleanText(n.label), n.kind === 'vacant' ? boxHint(n.territory, n.box) : ''].filter(Boolean).join(' · ')
 
 function node(id: string, kind: Kind, label: string, depth: number, extra: Partial<Node> = {}): Node {
   return { id, kind, label, depth, line: '', manager: '', rep: '', territory: '', box: '', months: new Map(), total: { ...ZERO }, children: [], since: '', ...extra }
@@ -229,7 +237,7 @@ function figureCells(n: Node, months: string[]): Record<string, XCell> {
 /** The full hierarchy with indentation (two spaces per level), whatever is expanded on screen. */
 export function hierarchyRows(root: Node, months: string[]): Record<string, XCell>[] {
   const out: Record<string, XCell>[] = []
-  const walk = (n: Node) => { out.push({ Name: `${'  '.repeat(n.depth)}${n.label}`, Level: n.kind, ...figureCells(n, months) }); n.children.forEach(walk) }
+  const walk = (n: Node) => { out.push({ Name: `${'  '.repeat(n.depth)}${n.label}`, Level: n.kind, Line: n.line, ...figureCells(n, months) }); n.children.forEach(walk) }
   walk(root)
   return out
 }

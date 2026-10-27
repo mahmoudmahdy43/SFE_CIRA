@@ -12,7 +12,7 @@ import { AMBER, AMBER_BODY, Seg, TONE_COLOR, negStyle } from './SalesUi'
 import { CPAL } from './coverageMath'
 import { loadedMonths, type ProductRow } from './salesMath'
 import {
-  achTone, boxHint, collapseAll, defaultExpanded, expandAll, exportFileName, flatRows, flatten, figures, fmtNum, fmtPct, hierarchyRows, incompleteNote, cellTitle, kpis, monthLong, monthShort, monthsInRange,
+  achTone, boxHint, collapseAll, fullLabel, defaultExpanded, expandAll, exportFileName, flatRows, flatten, figures, fmtNum, fmtPct, hierarchyRows, incompleteNote, cellTitle, kpis, monthLong, monthShort, monthsInRange,
   productParam, rowHeat, quickOptions, quickPick, buildTree, type EmpRow, type Metric, type Node, type QuickKind, type QuickPick,
 } from './salesEmployeeMath'
 
@@ -218,7 +218,7 @@ export function SalesByEmployeeTab({ lines }: { lines: { id: number; name: strin
           <table className="w-full border-separate border-spacing-0 text-sm">
             <thead>
               <tr className="text-xs">
-                <th className={cn('sticky left-0 top-0 z-30 min-w-64 bg-muted px-2 py-2 text-left', shadow)}>Employee</th>
+                <th className={cn('sticky left-0 top-0 z-30 w-[340px] min-w-[340px] max-w-[340px] bg-muted px-2 py-2 text-left', shadow)}>Employee</th>
                 {columns.map((m) => <th key={m} className="sticky top-0 z-20 whitespace-nowrap bg-muted px-2 py-2 text-right">{monthShort(m)}</th>)}
                 <th className="sticky top-0 z-20 border-l bg-muted px-2 py-2 text-right">Total</th>
                 <th className="sticky top-0 z-20 bg-muted px-2 py-2 text-right">Target</th>
@@ -238,17 +238,18 @@ export function SalesByEmployeeTab({ lines }: { lines: { id: number; name: strin
                 const sep = { borderTop: `1px solid ${dark ? CPAL.navy : '#E8EBEF'}` }
                 return (
                   <tr key={n.id} className={cn('print:break-inside-avoid', bold && 'font-semibold', n.kind === 'vacant' && 'italic text-gray-500')} style={{ color: dark ? '#FFFFFF' : undefined }}>
-                    <td className={cn('sticky left-0 z-10 py-1.5 pr-2', shadow)} style={{ ...sep, backgroundColor: bg, paddingLeft: 8 + n.depth * 16, borderLeft: stripe ? `4px solid ${stripe}` : undefined }}>
-                      <span className="inline-flex items-center gap-1">
+                    <td className={cn('sticky left-0 z-10 w-[340px] min-w-[340px] max-w-[340px] py-1.5 pr-2', shadow)} title={fullLabel(n)} style={{ ...sep, backgroundColor: bg, paddingLeft: 8 + n.depth * 16, borderLeft: stripe ? `4px solid ${stripe}` : undefined }}>
+                      <span className="flex min-w-0 items-center gap-1 whitespace-nowrap">
                         {expandable ? (
-                          <button type="button" aria-label={isOpen ? `Collapse ${n.label}` : `Expand ${n.label}`} aria-expanded={isOpen} onClick={() => toggle(n.id)} className="rounded p-0.5 hover:bg-black/10">
+                          <button type="button" aria-label={isOpen ? `Collapse ${n.label}` : `Expand ${n.label}`} aria-expanded={isOpen} onClick={() => toggle(n.id)} className="shrink-0 rounded p-0.5 hover:bg-black/10">
                             {isOpen ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
                           </button>
-                        ) : <span className="inline-block w-5" />}
-                        {n.kind === 'vacant' && <span className="rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold not-italic tracking-wide text-gray-600">VACANT</span>}
-                        <span>{n.label}</span>
-                        {n.kind === 'vacant' && boxHint(n.territory, n.box) && <span className="text-[11px] font-normal text-gray-400">· {boxHint(n.territory, n.box)}</span>}
-                        {n.since && <span className="ml-1 text-[11px] font-normal not-italic text-muted-foreground">since {monthShort(n.since)}</span>}
+                        ) : <span className="inline-block w-5 shrink-0" />}
+                        {n.kind === 'vacant' && <span className="shrink-0 rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold not-italic tracking-wide text-gray-600">VACANT</span>}
+                        {n.kind === 'vacant' && n.line && <span className="shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold not-italic text-gray-600">{n.line}</span>}
+                        <span className="truncate">{n.label}</span>
+                        {n.kind === 'vacant' && boxHint(n.territory, n.box) && <span className="truncate text-[11px] font-normal text-gray-400">· {boxHint(n.territory, n.box)}</span>}
+                        {n.since && <span className="ml-1 shrink-0 text-[11px] font-normal not-italic text-muted-foreground">since {monthShort(n.since)}</span>}
                       </span>
                     </td>
                     {columns.map((m) => {
