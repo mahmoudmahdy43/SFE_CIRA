@@ -20,6 +20,7 @@ import { JointDaysTab } from '../features/reports/JointDaysTab'
 import { ManagerCoverageTab } from '../features/reports/ManagerCoverageTab'
 import { CoachingTab } from '../features/reports/CoachingTab'
 import { SalesTab } from '../features/reports/SalesTab'
+import { SalesByEmployeeTab } from '../features/reports/SalesByEmployeeTab'
 import { SuspiciousTab } from '../features/reports/SuspiciousTab'
 import { useAuth } from '../context/AuthContext'
 import type { ReportFilters } from '../features/reports/reportMath'
@@ -55,6 +56,7 @@ export default function Reports() {
           <TabsTrigger value="manager-coverage">Manager Coverage</TabsTrigger>
           <TabsTrigger value="coaching">Coaching</TabsTrigger>
           <TabsTrigger value="sales">Sales</TabsTrigger>
+          {role === 'admin' && <TabsTrigger value="sales-by-employee">Sales by Employee</TabsTrigger>}
           <TabsTrigger value="speciality-roi">Speciality ROI</TabsTrigger>
           {role === 'admin' && <TabsTrigger value="suspicious">Suspicious Cases</TabsTrigger>}
         </TabsList>
@@ -70,6 +72,7 @@ export default function Reports() {
         <TabsContent value="manager-coverage"><ErrorBoundary label="manager-coverage report" resetKey={tab}><PeriodBanner monthly own className="mb-3" /><ManagerCoverageTab {...shared} /></ErrorBoundary></TabsContent>
         <TabsContent value="coaching"><ErrorBoundary label="coaching report" resetKey={tab}><PeriodBanner monthly own className="mb-3" /><CoachingTab {...shared} /></ErrorBoundary></TabsContent>
         <TabsContent value="sales"><ErrorBoundary label="sales report" resetKey={tab}><SalesTab {...shared} /></ErrorBoundary></TabsContent>
+        {role === 'admin' && <TabsContent value="sales-by-employee"><ErrorBoundary label="sales-by-employee report" resetKey={tab}><SalesByEmployeeTab lines={lines.data ?? []} /></ErrorBoundary></TabsContent>}
         <TabsContent value="speciality-roi"><ErrorBoundary label="speciality-roi report" resetKey={tab}><SpecialityRoiTab /></ErrorBoundary></TabsContent>
         {role === 'admin' && <TabsContent value="suspicious"><ErrorBoundary label="suspicious-cases report" resetKey={tab}><SuspiciousTab /></ErrorBoundary></TabsContent>}
       </Tabs>

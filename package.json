@@ -23,6 +23,7 @@
     "test:daily": "node scripts/dailyReporting.test.mjs",
     "test:planner": "node scripts/planner.test.mjs",
     "test:suspicious": "node scripts/suspicious.test.mjs",
+    "test:sales-employee": "node scripts/salesEmployee.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
