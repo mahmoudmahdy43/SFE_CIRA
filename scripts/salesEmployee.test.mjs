@@ -236,4 +236,12 @@ await t('row heat scale (reps and Vacant rows only) and the cell tooltip', () =>
   assert.equal(s.cellTitle(two, '2026-10-01'), 'Oct 2026: no sales')
 })
 
+await t('box name: filled on Vacant and rep rows (Excel Box column), shown by the page only next to a Vacant territory', () => {
+  const tree = s.buildTree([rep(1, 'Rep One', '2026-07-01', 10, 0, { box_name: 'Box Assuit' }), vac(2, 'Box Assuit', 'Assiut 2', '2026-07-01', 5, 0)], ['2026-07-01'], 'value')
+  const f = s.flatRows(tree, ['2026-07-01'])
+  assert.deepEqual(f.map((r) => [r.Type, r.Box]), [['Rep', 'Box Assuit'], ['Vacant', 'Box Assuit']])
+  assert.equal(f[1].Territory, 'Assiut 2')
+  assert.equal(s.toEmpRow({ month: '2026-07-01', box_name: 'Box Assuit' }).box_name, 'Box Assuit')
+})
+
 console.log(`${n} tests passed`)

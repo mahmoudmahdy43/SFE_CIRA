@@ -153,10 +153,10 @@ export function buildTree(rows: EmpRow[], months: string[], metric: Metric): Nod
     }
     const c = pick(r, metric)
     leaf.months.set(r.month, add(leaf.months.get(r.month) ?? ZERO, c))
+    leaf.box = leaf.box || (r.box_name ?? '')
     if (!isRep) {
       const names = new Set([...(leaf.territory ? leaf.territory.split(', ') : []), ...(r.territory_names ? r.territory_names.split(', ') : [])])
       leaf.territory = [...names].sort().join(', ')
-      leaf.box = leaf.box || (r.box_name ?? '')
       leaf.label = vacantName(leaf.territory, leaf.box)
     }
   }
