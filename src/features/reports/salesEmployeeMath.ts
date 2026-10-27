@@ -16,11 +16,13 @@ const text = (v: unknown): string | null => (v === null || v === undefined || v 
 export interface EmpRow {
   month: string; line_id: number | null; line_name: string | null; manager_id: number | null; manager_name: string | null
   rep_id: number | null; rep_name: string | null; rep_code: string | null; territory_id: number | null; territory_names: string | null
+  /** Optional: the box name when the function returns it (92 does not use box_id, so it is normally null). */
+  box_name: string | null
   s_value: number; s_units: number; t_value: number; t_units: number
 }
 export const toEmpRow = (r: Raw): EmpRow => ({
   month: String(r.month ?? '').slice(0, 10), line_id: numOrNull(r.line_id), line_name: text(r.line_name), manager_id: numOrNull(r.manager_id), manager_name: text(r.manager_name),
-  rep_id: numOrNull(r.rep_id), rep_name: text(r.rep_name), rep_code: text(r.rep_code), territory_id: numOrNull(r.territory_id), territory_names: text(r.territory_names),
+  rep_id: numOrNull(r.rep_id), rep_name: text(r.rep_name), rep_code: text(r.rep_code), territory_id: numOrNull(r.territory_id), territory_names: text(r.territory_names), box_name: text(r.box_name),
   s_value: num(r.s_value), s_units: num(r.s_units), t_value: num(r.t_value), t_units: num(r.t_units),
 })
 
@@ -99,7 +101,7 @@ export type Kind = 'company' | 'line' | 'manager' | 'rep' | 'vacant'
 export interface Cell { s: number; t: number }
 export interface Node {
   id: string; kind: Kind; label: string; depth: number
-  line: string; manager: string; rep: string; territory: string
+  line: string; manager: string; rep: string; territory: string; box: string
   months: Map<string, Cell>; total: Cell; children: Node[]
   /** First month with sales of a rep that does not cover the whole period ('' otherwise). */
   since: string
@@ -108,10 +110,11 @@ const pick = (r: EmpRow, m: Metric): Cell => (m === 'value' ? { s: r.s_value, t:
 const add = (a: Cell, b: Cell): Cell => ({ s: a.s + b.s, t: a.t + b.t })
 const ZERO: Cell = { s: 0, t: 0 }
 export const VACANT_MANAGER = 'Vacant manager'
-export const vacantLabel = (territory: string): string => `Vacant - ${territory || '-'}`
+/** 'Vacant - <box>'; the territory when there is no box name; 'Vacant - (box not set)' when both are empty. */
+export const vacantLabel = (box: string | null | undefined, territory: string | null | undefined): string => `Vacant - ${(box ?? '').trim() || (territory ?? '').trim() || '(box not set)'}`
 
 function node(id: string, kind: Kind, label: string, depth: number, extra: Partial<Node> = {}): Node {
-  return { id, kind, label, depth, line: '', manager: '', rep: '', territory: '', months: new Map(), total: { ...ZERO }, children: [], since: '', ...extra }
+  return { id, kind, label, depth, line: '', manager: '', rep: '', territory: '', box: '', months: new Map(), total: { ...ZERO }, children: [], since: '', ...extra }
 }
 /** A parent's months and total are the sum of its children (never recomputed from the rows). */
 function rollUp(n: Node): void {
@@ -151,7 +154,8 @@ export function buildTree(rows: EmpRow[], months: string[], metric: Metric): Nod
     if (!isRep) {
       const names = new Set([...(leaf.territory ? leaf.territory.split(', ') : []), ...(r.territory_names ? r.territory_names.split(', ') : [])])
       leaf.territory = [...names].sort().join(', ')
-      leaf.label = vacantLabel(leaf.territory)
+      leaf.box = leaf.box || (r.box_name ?? '')
+      leaf.label = vacantLabel(leaf.box, leaf.territory)
     }
   }
   const company = node('company', 'company', 'Total Company', 0)
@@ -239,4 +243,31 @@ export function flatRows(root: Node, months: string[]): Record<string, XCell>[] 
   }
   walk(root)
   return out
+}
+
+/* ------------------------------ KPI strip, heat and tooltip ------------------------------ */
+export interface Kpis { sales: number; target: number; ach: number | null; vacant: number; vacantShare: number | null }
+/** Company sales, target, Ach %, and the sales of the Vacant rows with their share of the total (they follow the filters: the tree is built from the filtered rows). */
+export function kpis(root: Node): Kpis {
+  let vacant = 0
+  const walk = (n: Node) => { if (n.kind === 'vacant') vacant += n.total.s; n.children.forEach(walk) }
+  walk(root)
+  return { sales: root.total.s, target: root.total.t, ach: achOf(root.total.s, root.total.t), vacant, vacantShare: root.total.s !== 0 ? vacant / root.total.s : null }
+}
+/** Light heat scale within a row: 0 (lowest month) to 1 (highest month); {} for total rows and rows with one value or all equal values. */
+export function rowHeat(n: Pick<Node, 'kind' | 'months'>): Map<string, number> {
+  const out = new Map<string, number>()
+  if (n.kind !== 'rep' && n.kind !== 'vacant') return out
+  const vals = [...n.months.values()].map((c) => c.s)
+  const lo = Math.min(...vals)
+  const hi = Math.max(...vals)
+  if (vals.length < 2 || hi === lo) return out
+  for (const [m, c] of n.months) out.set(m, (c.s - lo) / (hi - lo))
+  return out
+}
+/** Tooltip of a month cell: "Jul 2026: 1,234 (12.5% of the row total)". */
+export function cellTitle(n: Pick<Node, 'months' | 'total'>, m: string): string {
+  const c = n.months.get(m)
+  if (!c) return `${monthLong(m)}: no sales`
+  return `${monthLong(m)}: ${fmtNum(c.s)}${n.total.s !== 0 ? ` (${((c.s / n.total.s) * 100).toFixed(1)}% of the row total)` : ''}`
 }
