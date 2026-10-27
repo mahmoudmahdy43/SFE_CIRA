@@ -13,7 +13,7 @@ const cluster = (o = {}) => ({
 })
 const v = (d, t, dbl = false, mgr = null) => ({ d, t, dbl, mgr })
 const clinic = (o = {}) => ({ account_key: '1|A1', account_ext_id: 'A1', account_name: 'Clinic A', acc_type_code: 'C', shift_group: 'PM', doctors: 2, visits: 5, double_visits: 0, single_visits: 5, first_visit: '2026-09-02', last_visit: '2026-09-20', avg_deviation_m: 20, acc_lat: 30.1231, acc_lng: 31.4562, pattern: 'registered_here', visit_log: [v('2026-09-02', '19:10')], ...o })
-const names = { month: '2026-09', line: 'CIRA 1', manager: 'Mona Ali' }
+const names = { period: '2026-09', line: 'CIRA 1', manager: 'Mona Ali' }
 
 t('month: the latest closed month, and the range with an exclusive end', () => {
   assert.equal(s.latestClosedMonth(new Date(2026, 9, 25)), '2026-09')
@@ -71,8 +71,8 @@ t('changes: New, Repeated (consecutive months, up to 3 back) and Gone; no compar
   assert.equal(two.repeatedCount, 1, 'a rep with two points counts once')
   const base = { severities: ['High', 'Medium', 'Low'], search: '', lineId: null, managerId: null }
   assert.deepEqual(s.filterClusters(cur, { ...base, onlyReps: s.newReps(c) }).map((r) => r.rep_id), [8, 36])
-  assert.equal(s.summaryRow(cluster(), { ...names, change: 'New' })['Vs previous month'], 'New')
-  assert.equal('Vs previous month' in s.summaryRow(cluster(), names), false)
+  assert.equal(s.summaryRow(cluster(), { ...names, change: 'New' })['Vs previous period'], 'New')
+  assert.equal('Vs previous period' in s.summaryRow(cluster(), names), false)
 })
 
 t('severity chip: colors, the left-border color of the expanded card, and the reason on hover', () => {
@@ -180,18 +180,18 @@ t('day strip: only the days of the selected month, weekday columns (Saturday fir
 t('Excel rows: Summary has month, line, manager and the resigned text; Detail has one row per account with ascending visit dates', () => {
   const c = cluster({ rep_status: 'Resigned', resign_date: '2026-09-10' })
   const sr = s.summaryRow(c, names)
-  assert.deepEqual([sr.Month, sr.Severity, sr.Line, sr.Manager, sr['Medical Rep'], sr['Rep code'], sr.Status], ['2026-09', 'High', 'CIRA 1', 'Mona Ali', 'Rep One', '1C0001', 'Resigned 10 Sep 2026'])
+  assert.deepEqual([sr.Period, sr.Severity, sr.Line, sr.Manager, sr['Medical Rep'], sr['Rep code'], sr.Status], ['2026-09', 'High', 'CIRA 1', 'Mona Ali', 'Rep One', '1C0001', 'Resigned 10 Sep 2026'])
   assert.deepEqual([sr.Accounts, sr['Accounts PM'], sr['Accounts AM'], sr.Doctors, sr.Visits, sr['Visit days'], sr['% of rep visits']], [26, 20, 8, 40, 130, 20, 38.5])
   assert.deepEqual([sr['Double visits'], sr['Single visits'], sr['% Double'], sr['Managers who joined']], [13, 117, 10, 'Ahmed Niazi'])
   assert.deepEqual([sr['Accounts registered at the point'], sr['Visits registered at the point'], sr['Accounts visited from far'], sr['Visits from far']], [22, 118, 4, 12])
   assert.deepEqual([sr['Point latitude'], sr['Point longitude']], [30.123, 31.456])
-  assert.deepEqual(Object.keys(sr).slice(0, 5), ['Month', 'Severity', 'Line', 'Manager', 'Medical Rep'])
+  assert.deepEqual(Object.keys(sr).slice(0, 5), ['Period', 'Severity', 'Line', 'Manager', 'Medical Rep'])
   const dr = s.detailRows(cluster(), names, [
     clinic({ account_name: 'Few', visits: 2 }),
     clinic({ account_name: 'Many', account_ext_id: '77', visits: 9, double_visits: 1, single_visits: 8, visit_log: [v('2026-09-12', '20:00'), v('2026-09-07', '19:40', true, 'Ahmed Niazi')], avg_deviation_m: 5200 }),
   ])
   assert.deepEqual(dr.map((r) => r['Account name']), ['Many', 'Few'])
-  assert.deepEqual(Object.keys(dr[0]), ['Month', 'Severity', 'Line', 'Manager', 'Medical Rep', 'Rep code', 'Account ID', 'Account name', 'Type', 'Shift', 'Doctors', 'Visits', 'Double visits', 'Single visits', 'Visit dates', 'Double visit dates', 'First visit', 'Last visit', 'Avg deviation (m)', 'Pattern', 'Account latitude', 'Account longitude', 'Point latitude', 'Point longitude'])
+  assert.deepEqual(Object.keys(dr[0]), ['Period', 'Severity', 'Line', 'Manager', 'Medical Rep', 'Rep code', 'Account ID', 'Account name', 'Type', 'Shift', 'Doctors', 'Visits', 'Double visits', 'Single visits', 'Visit dates', 'Double visit dates', 'First visit', 'Last visit', 'Avg deviation (m)', 'Pattern', 'Account latitude', 'Account longitude', 'Point latitude', 'Point longitude'])
   assert.equal(dr[0]['Visit dates'], '07/09 19:40; 12/09 20:00')
   assert.equal(dr[0]['Double visit dates'], '07/09 19:40 (Ahmed Niazi)')
   assert.equal(dr[1]['Double visit dates'], '')
@@ -199,7 +199,7 @@ t('Excel rows: Summary has month, line, manager and the resigned text; Detail ha
   assert.equal(dr[0].Pattern, 'Visit logged here, account ~5.2 km away')
   assert.equal(dr[1].Pattern, 'Account registered at this point')
   assert.deepEqual([dr[1]['Account latitude'], dr[1]['Point longitude']], [30.1231, 31.456])
-  assert.equal(s.exportFileName('2026-09'), 'Suspicious_Cases_2026-09.xlsx')
+  assert.equal(s.exportFileName({ from: '2026-09-01', to: '2026-09-30' }), 'Suspicious_Cases_2026-09.xlsx')
 })
 
 t('the disclaimer, the empty state and the wording', () => {
@@ -239,6 +239,64 @@ t('Double / Single: the visit type keeps the points with such visits; % Double; 
   assert.equal(s.visitTooltip(v('2026-10-07', '20:46', true, 'Ahmed Niazi')), 'Double visit with Ahmed Niazi')
   assert.equal(s.visitTooltip(v('2026-10-07', '20:46')), 'Single visit')
   assert.equal(s.doubleDatesCell([v('2026-10-07', '20:46', true, 'Ahmed Niazi'), v('2026-10-05', '19:00'), v('2026-10-03', '21:00', true, null)]), '03/10 21:00; 07/10 20:46 (Ahmed Niazi)')
+})
+
+t('range: inclusive To becomes the exclusive p_to, days counted, whole month detected', () => {
+  assert.deepEqual(s.rangeToRpc({ from: '2026-09-05', to: '2026-09-20' }), { from: '2026-09-05', to: '2026-09-21' })
+  assert.deepEqual(s.rangeToRpc({ from: '2026-09-01', to: '2026-09-30' }), { from: '2026-09-01', to: '2026-10-01' }, 'same as the month range')
+  assert.deepEqual(s.rangeToRpc({ from: '2026-12-15', to: '2026-12-31' }), { from: '2026-12-15', to: '2027-01-01' })
+  assert.deepEqual(s.rangeToRpc({ from: '2028-02-01', to: '2028-02-29' }), { from: '2028-02-01', to: '2028-03-01' })
+  assert.equal(s.rangeDays({ from: '2026-09-05', to: '2026-09-05' }), 1)
+  assert.equal(s.rangeDays({ from: '2026-09-01', to: '2026-09-30' }), 30)
+  assert.equal(s.exactMonth({ from: '2026-09-01', to: '2026-09-30' }), '2026-09')
+  assert.equal(s.exactMonth({ from: '2026-09-01', to: '2026-09-29' }), null)
+  assert.equal(s.exactMonth({ from: '2026-09-02', to: '2026-09-30' }), null)
+  assert.equal(s.exactMonth({ from: '2026-09-01', to: '2026-10-31' }), null)
+})
+
+t('range: choosing a month fills From and To (the running month ends at the latest visit)', () => {
+  assert.deepEqual(s.monthToRange('2026-09'), { from: '2026-09-01', to: '2026-09-30' })
+  assert.deepEqual(s.monthToRange('2026-02'), { from: '2026-02-01', to: '2026-02-28' })
+  assert.deepEqual(s.monthToRange('2028-02'), { from: '2028-02-01', to: '2028-02-29' })
+  assert.deepEqual(s.monthToRange('2026-10', '2026-10-24'), { from: '2026-10-01', to: '2026-10-24' })
+  assert.deepEqual(s.monthToRange('2026-09', '2026-09-30'), { from: '2026-09-01', to: '2026-09-30' })
+  assert.deepEqual(s.monthToRange('2026-09', '2026-10-05'), { from: '2026-09-01', to: '2026-09-30' }, 'a date outside the month is ignored')
+})
+
+t('range: validation (From <= To, both dates, at most 12 months)', () => {
+  assert.equal(s.validateRange({ from: '2026-09-01', to: '2026-09-30' }), null)
+  assert.equal(s.validateRange({ from: '2026-09-05', to: '2026-09-05' }), null, 'one day is fine')
+  assert.match(s.validateRange({ from: '2026-09-10', to: '2026-09-09' }), /From must be on or before To/)
+  assert.match(s.validateRange({ from: '', to: '2026-09-09' }), /both/)
+  assert.match(s.validateRange({ from: '2026-09-01', to: '2026-02-31' }), /both/, 'not a real date')
+  assert.equal(s.validateRange({ from: '2026-01-01', to: '2026-12-31' }), null, 'exactly 12 months')
+  assert.match(s.validateRange({ from: '2026-01-01', to: '2027-01-01' }), /12 months/)
+  assert.equal(s.validateRange({ from: '2025-10-27', to: '2026-10-26' }), null)
+  assert.match(s.validateRange({ from: '2025-10-27', to: '2026-10-27' }), /12 months/)
+  assert.equal(s.validateRange({ from: '2028-02-29', to: '2029-02-28' }), null, 'leap day start')
+})
+
+t('range: previous period is the same number of days before From; a whole month keeps the previous calendar month', () => {
+  assert.deepEqual(s.previousPeriod({ from: '2026-09-11', to: '2026-09-20' }, false), { from: '2026-09-01', to: '2026-09-10' })
+  assert.deepEqual(s.previousPeriod({ from: '2026-09-05', to: '2026-09-05' }, false), { from: '2026-09-04', to: '2026-09-04' })
+  assert.deepEqual(s.previousPeriod({ from: '2026-01-05', to: '2026-01-14' }, false), { from: '2025-12-26', to: '2026-01-04' })
+  assert.deepEqual(s.previousPeriod({ from: '2026-09-01', to: '2026-09-30' }, false), { from: '2026-08-01', to: '2026-08-31' }, 'a whole month typed as a range')
+  assert.deepEqual(s.previousPeriod({ from: '2026-01-01', to: '2026-01-31' }, true), { from: '2025-12-01', to: '2025-12-31' })
+  assert.deepEqual(s.previousPeriod({ from: '2026-10-01', to: '2026-10-24' }, true), { from: '2026-09-01', to: '2026-09-30' }, 'the running month in month mode')
+  assert.deepEqual(s.previousPeriod({ from: '2026-03-01', to: '2026-03-31' }, true), { from: '2026-02-01', to: '2026-02-28' })
+  assert.deepEqual(s.comparisonPeriods({ from: '2026-09-01', to: '2026-09-30' }, true).map((r) => r.from), ['2026-08-01', '2026-07-01', '2026-06-01'])
+  assert.deepEqual(s.comparisonPeriods({ from: '2026-09-11', to: '2026-09-20' }, false), [{ from: '2026-09-01', to: '2026-09-10' }])
+  assert.equal(s.changeLabel({ kind: 'repeated', months: 2, capped: false }, false), 'Repeated')
+})
+
+t('range: file name, period text and label', () => {
+  assert.equal(s.exportFileName({ from: '2026-09-01', to: '2026-09-30' }), 'Suspicious_Cases_2026-09.xlsx')
+  assert.equal(s.exportFileName({ from: '2026-09-05', to: '2026-10-12' }), 'Suspicious_Cases_2026-09-05_2026-10-12.xlsx')
+  assert.equal(s.exportFileName({ from: '2026-10-01', to: '2026-10-24' }), 'Suspicious_Cases_2026-10-01_2026-10-24.xlsx', 'a partial month is a range')
+  assert.equal(s.rangeText({ from: '2026-09-01', to: '2026-09-30' }), '2026-09')
+  assert.equal(s.rangeText({ from: '2026-09-05', to: '2026-09-20' }), '2026-09-05 to 2026-09-20')
+  assert.equal(s.rangeLabel({ from: '2026-09-01', to: '2026-09-30' }), 'September 2026')
+  assert.equal(s.rangeLabel({ from: '2026-09-05', to: '2026-09-20' }), '5 Sep 2026 – 20 Sep 2026')
 })
 
 console.log(`${n} tests passed`)

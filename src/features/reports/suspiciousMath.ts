@@ -92,6 +92,50 @@ export const pickMonth = (options: MonthOption[], wanted: string | null): string
 export const isMonth = (s: string | null | undefined): s is string => !!s && /^\d{4}-(0[1-9]|1[0-2])$/.test(s)
 export const monthLabel = (ym: string): string => `${MONTH_NAMES[Number(ym.slice(5, 7)) - 1] ?? ''} ${ym.slice(0, 4)}`
 export const fmtDate = (iso: string | null): string => (iso ? `${Number(iso.slice(8, 10))} ${MON[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '')
+/* ------------------------------ date range (From / To, both inclusive) ------------------------------ */
+export interface DateRange { from: string; to: string }
+export const MAX_RANGE_MONTHS = 12
+const DAY_MS = 86400000
+export const addDays = (iso: string, n: number): string => new Date(Date.parse(`${iso}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10)
+export const isIsoDate = (s: string | null | undefined): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && addDays(s, 0) === s
+/** A date moved by `n` months (29 Feb + 12 months is 1 Mar, so the range from a leap day still ends on 28 Feb). */
+const addMonthsDate = (iso: string, n: number): string => new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1 + n, Number(iso.slice(8, 10)))).toISOString().slice(0, 10)
+export const lastDayOfMonth = (ym: string): string => addDays(monthRange(ym).to, -1)
+/** Choosing a month fills From = first day, To = last day (the running month: the latest visit date). */
+export function monthToRange(ym: string, latestVisit?: string | null): DateRange {
+  const from = monthRange(ym).from
+  const last = lastDayOfMonth(ym)
+  return { from, to: latestVisit && latestVisit >= from && latestVisit < last ? latestVisit : last }
+}
+/** The RPC parameters: p_from = From, p_to = To + 1 day (p_to is exclusive). */
+export const rangeToRpc = (r: DateRange): { from: string; to: string } => ({ from: r.from, to: addDays(r.to, 1) })
+export const rangeDays = (r: DateRange): number => Math.round((Date.parse(`${r.to}T00:00:00Z`) - Date.parse(`${r.from}T00:00:00Z`)) / DAY_MS) + 1
+/** The calendar month (YYYY-MM) when the range is exactly one whole month, else null. */
+export function exactMonth(r: DateRange): string | null {
+  const ym = r.from.slice(0, 7)
+  return isIsoDate(r.from) && isIsoDate(r.to) && r.from === `${ym}-01` && r.to === lastDayOfMonth(ym) ? ym : null
+}
+/** A clear message when the range cannot be used, else null. */
+export function validateRange(r: DateRange): string | null {
+  if (!isIsoDate(r.from) || !isIsoDate(r.to)) return 'Pick both a From date and a To date.'
+  if (r.from > r.to) return 'From must be on or before To.'
+  if (addDays(r.to, 1) > addMonthsDate(r.from, MAX_RANGE_MONTHS)) return `The range is limited to ${MAX_RANGE_MONTHS} months. Choose a shorter range.`
+  return null
+}
+/** The period to compare with: a month (or a whole calendar month) -> the previous calendar month; else the same number of days right before From. */
+export function previousPeriod(r: DateRange, monthMode: boolean): DateRange {
+  if (monthMode || exactMonth(r)) return monthToRange(shiftMonth(r.from.slice(0, 7), -1))
+  const days = rangeDays(r)
+  return { from: addDays(r.from, -days), to: addDays(r.from, -1) }
+}
+/** The periods for New / Repeated / Gone, nearest first: up to 3 calendar months back for a month, else only the previous period. */
+export const comparisonPeriods = (r: DateRange, monthMode: boolean): DateRange[] =>
+  monthMode || exactMonth(r) ? [1, 2, 3].map((k) => monthToRange(shiftMonth(r.from.slice(0, 7), -k))) : [previousPeriod(r, false)]
+/** "September 2026" for a whole month, else "1 Sep 2026 – 20 Sep 2026". */
+export const rangeLabel = (r: DateRange): string => { const m = exactMonth(r); return m ? monthLabel(m) : `${fmtDate(r.from)} – ${fmtDate(r.to)}` }
+/** Excel "Period" cell: YYYY-MM for a whole month, else "from to to". */
+export const rangeText = (r: DateRange): string => exactMonth(r) ?? `${r.from} to ${r.to}`
+
 /** Every day of [from, to). */
 export function daysOf(from: string, to: string): string[] {
   const out: string[] = []
@@ -208,7 +252,7 @@ export function classifyChanges(current: Cluster[], prev: (Cluster[] | null)[]):
   const changes = [...byRep.values()]
   return { byRep, newCount: changes.filter((c) => c.kind === 'new').length, repeatedCount: changes.filter((c) => c.kind === 'repeated').length, goneCount: gone.length, gone }
 }
-export const changeLabel = (c: Change | undefined): string => (!c ? '' : c.kind === 'new' ? 'New' : `Repeated · ${c.months}${c.capped ? '+' : ''} months`)
+export const changeLabel = (c: Change | undefined, monthly = true): string => (!c ? '' : c.kind === 'new' ? 'New' : monthly ? `Repeated · ${c.months}${c.capped ? '+' : ''} months` : 'Repeated')
 /** Reps whose case is new this month (for the "New only" filter). */
 export const newReps = (cmp: Comparison | null): Set<number> => new Set(cmp ? [...cmp.byRep].filter(([, c]) => c.kind === 'new').map(([id]) => id) : [])
 
@@ -260,29 +304,30 @@ export function stripWeeks(days: StripDay[]): (StripDay | null)[][] {
 
 /* ------------------------------ Excel rows ------------------------------ */
 type Cell = string | number | null
-export interface RowNames { month: string; line: string; manager: string; /** Against the previous month ('' when there is no comparison). */ change?: string }
+export interface RowNames { period: string; line: string; manager: string; /** Against the previous period ('' when there is no comparison). */ change?: string }
 const repStatus = (c: Cluster): string => { const rb = resignedBadge(c.rep_status, c.resign_date); return rb.show ? rb.text : c.rep_status ?? '' }
 /** The main table, same columns. */
 export function summaryRow(c: Cluster, n: RowNames): Record<string, Cell> {
   return {
-    Month: n.month, Severity: c.severity, Line: n.line, Manager: n.manager, 'Medical Rep': c.rep_name, 'Rep code': c.rep_code, Status: repStatus(c),
+    Period: n.period, Severity: c.severity, Line: n.line, Manager: n.manager, 'Medical Rep': c.rep_name, 'Rep code': c.rep_code, Status: repStatus(c),
     Accounts: c.accounts, 'Accounts PM': c.accounts_pm, 'Accounts AM': c.accounts_am, Doctors: c.doctors, Visits: c.visits, 'Visit days': c.visit_days,
     'Double visits': c.double_visits, 'Single visits': c.single_visits, '% Double': pctDouble(c.double_visits, c.visits), 'Managers who joined': c.managers_joined,
     '% of rep visits': c.pct_of_rep_visits,
     'Accounts registered at the point': c.accounts_registered_here, 'Visits registered at the point': c.visits - c.visits_far,
     'Accounts visited from far': c.accounts_far, 'Visits from far': c.visits_far, 'Night visits': c.night_visits, 'Other reps at the point': c.other_reps_at_cell,
     'First visit': c.first_visit ?? '', 'Last visit': c.last_visit ?? '', 'Point latitude': c.cell_lat, 'Point longitude': c.cell_lng,
-    ...(n.change === undefined ? {} : { 'Vs previous month': n.change }),
+    ...(n.change === undefined ? {} : { 'Vs previous period': n.change }),
   }
 }
 /** One row per account of a rep and point. */
 export function detailRows(c: Cluster, n: RowNames, detail: AccountRow[]): Record<string, Cell>[] {
   return [...detail].sort((a, b) => b.visits - a.visits || a.account_name.localeCompare(b.account_name)).map((d) => ({
-    Month: n.month, Severity: c.severity, Line: n.line, Manager: n.manager, 'Medical Rep': c.rep_name, 'Rep code': c.rep_code,
+    Period: n.period, Severity: c.severity, Line: n.line, Manager: n.manager, 'Medical Rep': c.rep_name, 'Rep code': c.rep_code,
     'Account ID': d.account_ext_id ?? '', 'Account name': d.account_name, Type: d.acc_type_code ?? '', Shift: d.shift_group ?? '', Doctors: d.doctors,
     Visits: d.visits, 'Double visits': d.double_visits, 'Single visits': d.single_visits, 'Visit dates': visitDatesCell(d.visit_log), 'Double visit dates': doubleDatesCell(d.visit_log),
     'First visit': d.first_visit ?? '', 'Last visit': d.last_visit ?? '', 'Avg deviation (m)': d.avg_deviation_m, Pattern: patternChip(d.avg_deviation_m).label,
     'Account latitude': d.acc_lat, 'Account longitude': d.acc_lng, 'Point latitude': c.cell_lat, 'Point longitude': c.cell_lng,
   }))
 }
-export const exportFileName = (ym: string): string => `Suspicious_Cases_${ym}.xlsx`
+/** Suspicious_Cases_YYYY-MM.xlsx for a whole month, else Suspicious_Cases_<from>_<to>.xlsx. */
+export const exportFileName = (r: DateRange): string => { const m = exactMonth(r); return m ? `Suspicious_Cases_${m}.xlsx` : `Suspicious_Cases_${r.from}_${r.to}.xlsx` }
