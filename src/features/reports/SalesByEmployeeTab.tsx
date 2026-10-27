@@ -12,7 +12,7 @@ import { AMBER, AMBER_BODY, Seg, TONE_COLOR, negStyle } from './SalesUi'
 import { CPAL } from './coverageMath'
 import { loadedMonths, type ProductRow } from './salesMath'
 import {
-  achTone, boxHint, collapseAll, fullLabel, defaultExpanded, expandAll, exportFileName, flatRows, flatten, figures, fmtNum, fmtPct, hierarchyRows, incompleteNote, cellTitle, kpis, monthLong, monthShort, monthsInRange,
+  achTone, boxHint, collapseAll, fullLabel, groupText, territoryMissing, defaultExpanded, expandAll, exportFileName, flatRows, flatten, figures, fmtNum, fmtPct, hierarchyRows, incompleteNote, cellTitle, kpis, monthLong, monthShort, monthsInRange,
   productParam, rowHeat, quickOptions, quickPick, buildTree, type EmpRow, type Metric, type Node, type QuickKind, type QuickPick,
 } from './salesEmployeeMath'
 
@@ -198,6 +198,7 @@ export function SalesByEmployeeTab({ lines }: { lines: { id: number; name: strin
       </div>
       {eff && <div className="text-sm text-muted-foreground"><span className="font-medium text-foreground">{monthLong(eff.from)} - {monthLong(eff.to)}</span>, {columns.length} month{columns.length === 1 ? '' : 's'}, {unit}{pickNote && <span className="ml-2 rounded-full px-2 py-0.5 text-xs font-medium" style={{ color: AMBER, backgroundColor: AMBER_BODY }}>{pickNote}</span>}{param && <span className="ml-2 text-xs">{param.length} product filter</span>}</div>}
 
+      {!fail && !loadingAll && territoryMissing(data.rows) && <div role="alert" className="rounded-card border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">The function returned no territory names. Run supabase/92_sales_by_employee.sql again, then run notify pgrst, 'reload schema'; in Supabase.</div>}
       {!fail && (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <Kpi loading={loadingAll} label="Company sales" value={fmtNum(k.sales)} hint={unit} />
@@ -237,7 +238,7 @@ export function SalesByEmployeeTab({ lines }: { lines: { id: number; name: strin
                 const bold = n.kind === 'company' || n.kind === 'line' || n.kind === 'manager'
                 const sep = { borderTop: `1px solid ${dark ? CPAL.navy : '#E8EBEF'}` }
                 return (
-                  <tr key={n.id} className={cn('print:break-inside-avoid', bold && 'font-semibold', n.kind === 'vacant' && 'italic text-gray-500')} style={{ color: dark ? '#FFFFFF' : undefined }}>
+                  <tr key={n.id} className={cn('print:break-inside-avoid', bold && 'font-semibold', (n.kind === 'vacant' || n.kind === 'vterr') && 'italic text-gray-500')} style={{ color: dark ? '#FFFFFF' : undefined }}>
                     <td className={cn('sticky left-0 z-10 w-[340px] min-w-[340px] max-w-[340px] py-1.5 pr-2', shadow)} title={fullLabel(n)} style={{ ...sep, backgroundColor: bg, paddingLeft: 8 + n.depth * 16, borderLeft: stripe ? `4px solid ${stripe}` : undefined }}>
                       <span className="flex min-w-0 items-center gap-1 whitespace-nowrap">
                         {expandable ? (
@@ -245,10 +246,10 @@ export function SalesByEmployeeTab({ lines }: { lines: { id: number; name: strin
                             {isOpen ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
                           </button>
                         ) : <span className="inline-block w-5 shrink-0" />}
-                        {n.kind === 'vacant' && <span className="shrink-0 rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold not-italic tracking-wide text-gray-600">VACANT</span>}
-                        {n.kind === 'vacant' && n.line && <span className="shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold not-italic text-gray-600">{n.line}</span>}
-                        <span className="truncate">{n.label}</span>
-                        {n.kind === 'vacant' && boxHint(n.territory, n.box) && <span className="truncate text-[11px] font-normal text-gray-400">· {boxHint(n.territory, n.box)}</span>}
+                        {(n.kind === 'vacant' || n.kind === 'vterr') && <span className="shrink-0 rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold not-italic tracking-wide text-gray-600">VACANT</span>}
+                        {(n.kind === 'vacant' || n.kind === 'vterr') && n.line && <span className="shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold not-italic text-gray-600">{n.line}</span>}
+                        <span className="truncate">{n.kind === 'vacant' ? groupText(n) : n.label}</span>
+                        {n.kind === 'vterr' && boxHint(n.territory, n.box) && <span className="truncate text-[11px] font-normal text-gray-400">· {boxHint(n.territory, n.box)}</span>}
                         {n.since && <span className="ml-1 shrink-0 text-[11px] font-normal not-italic text-muted-foreground">since {monthShort(n.since)}</span>}
                       </span>
                     </td>

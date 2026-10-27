@@ -22,9 +22,12 @@ export interface EmpRow {
 }
 export const toEmpRow = (r: Raw): EmpRow => ({
   month: String(r.month ?? '').slice(0, 10), line_id: numOrNull(r.line_id), line_name: text(r.line_name), manager_id: numOrNull(r.manager_id), manager_name: text(r.manager_name),
-  rep_id: numOrNull(r.rep_id), rep_name: text(r.rep_name), rep_code: text(r.rep_code), territory_id: numOrNull(r.territory_id), territory_names: text(r.territory_names), box_name: text(r.box_name),
+  rep_id: numOrNull(r.rep_id), rep_name: text(r.rep_name), rep_code: text(r.rep_code), territory_id: numOrNull(r.territory_id), territory_names: text(r.territory_names ?? r.territory_name ?? r.territory ?? r.terr_name), box_name: text(r.box_name ?? r.box),
   s_value: num(r.s_value), s_units: num(r.s_units), t_value: num(r.t_value), t_units: num(r.t_units),
 })
+
+/** True when the function answered with rows but none carries a territory name (an old copy of the function, or a stale schema cache). */
+export const territoryMissing = (rows: EmpRow[]): boolean => rows.length > 0 && rows.every((r) => !(r.territory_names ?? '').trim())
 
 /* ------------------------------ paging ------------------------------ */
 /** Reads pages of `pageSize` rows (from, to inclusive) until a page comes back short. PostgREST returns at most 1,000 rows per request. */
@@ -97,7 +100,8 @@ export function achTone(ach: number | null): AchTone { if (ach === null) return 
 export const achOf = (sales: number, target: number): number | null => (target > 0 ? sales / target : null)
 
 /* ------------------------------ tree ------------------------------ */
-export type Kind = 'company' | 'line' | 'manager' | 'rep' | 'vacant'
+/** vacant = one row per box (its territories are the children, kind vterr). */
+export type Kind = 'company' | 'line' | 'manager' | 'rep' | 'vacant' | 'vterr'
 export interface Cell { s: number; t: number }
 export interface Node {
   id: string; kind: Kind; label: string; depth: number
@@ -119,9 +123,16 @@ export const normName = (v: string | null | undefined): string => cleanText(v).t
 export const vacantName = (territory: string | null | undefined, box: string | null | undefined): string => cleanText(territory) || cleanText(box) || '(territory not set)'
 /** The box shown in gray after the territory: '' when the box is empty or is the same name as the territory (compared after normalising both). */
 export const boxHint = (territory: string | null | undefined, box: string | null | undefined): string => (normName(box) !== '' && normName(box) !== normName(territory) ? cleanText(box) : '')
-/** The full text of a row for the tooltip: "CIRA 2 · VACANT · Assiut 2 · Box Assuit" or "CIRA 2 · Rep Name". */
-export const fullLabel = (n: Pick<Node, 'kind' | 'label' | 'line' | 'territory' | 'box'>): string =>
-  [n.line, n.kind === 'vacant' ? 'VACANT' : '', cleanText(n.label), n.kind === 'vacant' ? boxHint(n.territory, n.box) : ''].filter(Boolean).join(' · ')
+/** "(N territories)" / "(1 territory)". */
+export const territoryCount = (n: number): string => `${n} ${n === 1 ? 'territory' : 'territories'}`
+/** The text of a Vacant box row: "<Box> (N territories)". */
+export const groupText = (n: Pick<Node, 'label' | 'children'>): string => `${n.label} (${territoryCount(n.children.length)})`
+/** The full text of a row for the tooltip: "CIRA 2 · VACANT · Box Assuit (2 territories)", "CIRA 2 · VACANT · Assiut 2 · Box Assuit", "CIRA 2 · Rep Name · Box Assuit · Assiut 1, Assiut 2". */
+export const fullLabel = (n: Pick<Node, 'kind' | 'label' | 'line' | 'territory' | 'box' | 'children'>): string =>
+  (n.kind === 'vacant' ? [n.line, 'VACANT', groupText(n)]
+    : n.kind === 'vterr' ? [n.line, 'VACANT', cleanText(n.territory) || n.label, boxHint(n.territory, n.box)]
+    : n.kind === 'rep' ? [n.line, cleanText(n.label), cleanText(n.box), cleanText(n.territory)]
+    : [n.line, cleanText(n.label)]).filter(Boolean).join(' · ')
 
 function node(id: string, kind: Kind, label: string, depth: number, extra: Partial<Node> = {}): Node {
   return { id, kind, label, depth, line: '', manager: '', rep: '', territory: '', box: '', months: new Map(), total: { ...ZERO }, children: [], since: '', ...extra }
@@ -155,18 +166,16 @@ export function buildTree(rows: EmpRow[], months: string[], metric: Metric): Nod
     const key = isRep ? `r${r.rep_id}` : `v${r.territory_id ?? 'x'}`
     let leaf = mgr.leaves.get(key)
     if (!leaf) {
-      leaf = node(`${lk}|${mk}|${key}`, isRep ? 'rep' : 'vacant', isRep ? (r.rep_name ?? `#${r.rep_id}`) : '', 3,
+      leaf = node(`${lk}|${mk}|${key}`, isRep ? 'rep' : 'vterr', isRep ? (r.rep_name ?? `#${r.rep_id}`) : '', 3,
         { line: line.name, manager: mgr.name, rep: isRep ? (r.rep_name ?? '') : '', territory: '' })
       mgr.leaves.set(key, leaf)
     }
     const c = pick(r, metric)
     leaf.months.set(r.month, add(leaf.months.get(r.month) ?? ZERO, c))
     leaf.box = leaf.box || (r.box_name ?? '')
-    if (!isRep) {
-      const names = new Set([...(leaf.territory ? leaf.territory.split(', ') : []), ...(r.territory_names ? r.territory_names.split(', ') : [])])
-      leaf.territory = [...names].sort().join(', ')
-      leaf.label = vacantName(leaf.territory, leaf.box)
-    }
+    const names = new Set([...(leaf.territory ? leaf.territory.split(', ') : []), ...(r.territory_names ? r.territory_names.split(', ') : []).map(cleanText).filter(Boolean)])
+    leaf.territory = [...names].sort().join(', ')
+    if (!isRep) leaf.label = vacantName(leaf.territory, null)
   }
   const company = node('company', 'company', 'Total Company', 0)
   for (const [lk, line] of [...lines].sort((a, b) => a[1].name.localeCompare(b[1].name))) {
@@ -178,7 +187,20 @@ export function buildTree(rows: EmpRow[], months: string[], metric: Metric): Nod
         l.total = [...l.months.values()].reduce(add, { ...ZERO })
         if (l.kind === 'rep') { const first = [...l.months].filter(([, v]) => v.s !== 0 || v.t !== 0).map(([m]) => m).sort()[0]; if (first && months.length > 0 && first > months[0]) l.since = first }
       }
-      mn.children = [...leaves.filter((l) => l.kind === 'rep').sort(byTotalDesc), ...leaves.filter((l) => l.kind === 'vacant').sort(byTotalDesc)]
+      const groups = new Map<string, Node>()
+      for (const l of leaves.filter((x) => x.kind === 'vterr')) {
+        const gk = normName(l.box) || `t:${l.id}`
+        let g = groups.get(gk)
+        if (!g) { g = node(`${mn.id}|g:${gk}`, 'vacant', cleanText(l.box) || l.label, 3, { line: line.name, manager: mgr.name, box: cleanText(l.box) }); groups.set(gk, g) }
+        l.depth = 4
+        g.children.push(l)
+      }
+      for (const g of groups.values()) {
+        g.children.sort(byTotalDesc)
+        g.territory = g.children.map((c) => c.territory).filter(Boolean).join(', ')
+        rollUp(g)
+      }
+      mn.children = [...leaves.filter((l) => l.kind === 'rep').sort(byTotalDesc), ...[...groups.values()].sort(byTotalDesc)]
       rollUp(mn)
       ln.children.push(mn)
     }
@@ -237,7 +259,7 @@ function figureCells(n: Node, months: string[]): Record<string, XCell> {
 /** The full hierarchy with indentation (two spaces per level), whatever is expanded on screen. */
 export function hierarchyRows(root: Node, months: string[]): Record<string, XCell>[] {
   const out: Record<string, XCell>[] = []
-  const walk = (n: Node) => { out.push({ Name: `${'  '.repeat(n.depth)}${n.label}`, Level: n.kind, Line: n.line, ...figureCells(n, months) }); n.children.forEach(walk) }
+  const walk = (n: Node) => { out.push({ Name: `${'  '.repeat(n.depth)}${n.kind === 'vacant' ? groupText(n) : n.label}`, Level: n.kind, Line: n.line, ...figureCells(n, months) }); n.children.forEach(walk) }
   walk(root)
   return out
 }
@@ -245,9 +267,9 @@ export function hierarchyRows(root: Node, months: string[]): Record<string, XCel
 export function flatRows(root: Node, months: string[]): Record<string, XCell>[] {
   const out: Record<string, XCell>[] = []
   const walk = (n: Node) => {
-    if (n.kind === 'rep' || n.kind === 'vacant') {
+    if (n.kind === 'rep' || n.kind === 'vterr') {
       const f = figureCells(n, months)
-      out.push({ Line: n.line, Manager: n.manager, Rep: n.kind === 'rep' ? n.rep : '', Type: n.kind === 'rep' ? 'Rep' : 'Vacant', Territory: n.territory, Box: n.box, ...f })
+      out.push({ Line: n.line, Manager: n.manager, Rep: n.kind === 'rep' ? n.rep : '', Type: n.kind === 'rep' ? 'Rep' : 'Vacant', Territory: n.territory, Box: cleanText(n.box), ...f })
     }
     n.children.forEach(walk)
   }
@@ -260,14 +282,14 @@ export interface Kpis { sales: number; target: number; ach: number | null; vacan
 /** Company sales, target, Ach %, and the sales of the Vacant rows with their share of the total (they follow the filters: the tree is built from the filtered rows). */
 export function kpis(root: Node): Kpis {
   let vacant = 0
-  const walk = (n: Node) => { if (n.kind === 'vacant') vacant += n.total.s; n.children.forEach(walk) }
+  const walk = (n: Node) => { if (n.kind === 'vacant') { vacant += n.total.s; return } n.children.forEach(walk) }
   walk(root)
   return { sales: root.total.s, target: root.total.t, ach: achOf(root.total.s, root.total.t), vacant, vacantShare: root.total.s !== 0 ? vacant / root.total.s : null }
 }
 /** Light heat scale within a row: 0 (lowest month) to 1 (highest month); {} for total rows and rows with one value or all equal values. */
 export function rowHeat(n: Pick<Node, 'kind' | 'months'>): Map<string, number> {
   const out = new Map<string, number>()
-  if (n.kind !== 'rep' && n.kind !== 'vacant') return out
+  if (n.kind !== 'rep' && n.kind !== 'vacant' && n.kind !== 'vterr') return out
   const vals = [...n.months.values()].map((c) => c.s)
   const lo = Math.min(...vals)
   const hi = Math.max(...vals)

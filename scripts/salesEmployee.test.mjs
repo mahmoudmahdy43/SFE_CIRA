@@ -62,8 +62,8 @@ await t('Vacant -> Rep within a box: history stays on the Vacant row, later mont
   const root = s.buildTree(rows, MONTHS, 'value')
   const mona = root.children[0].children.find((m) => m.label === 'Total Mona')
   const labels = mona.children.map((c) => c.label)
-  assert.deepEqual(labels, ['Rep Two', 'Rep One', 'Terr A1, Terr A2'], 'reps by total desc, Vacant last (named by territory)')
-  assert.equal(mona.children[2].box, 'Box A'); assert.equal(s.boxHint(mona.children[2].territory, mona.children[2].box), 'Box A')
+  assert.deepEqual(labels, ['Rep Two', 'Rep One', 'Box A'], 'reps by total desc, the Vacant box last')
+  assert.equal(mona.children[2].box, 'Box A'); assert.equal(mona.children[2].children[0].label, 'Terr A1, Terr A2')
   const vacant = mona.children[2]
   assert.deepEqual([...vacant.months.keys()], ['2026-07-01'], 'July only: the earlier month stays on the Vacant row')
   assert.equal(vacant.total.s, 180)
@@ -107,8 +107,8 @@ await t('expand / collapse: default shows Company and Lines, managers collapsed;
   assert.ok(def.filter((r) => r.node.kind === 'manager').every((r) => r.open === false && r.expandable))
   assert.ok(def.every((r) => r.node.kind !== 'rep' && r.node.kind !== 'vacant'))
   const all = s.flatten(root, s.expandAll(root))
-  assert.equal(all.length, 1 + 3 + 4 + 6, 'company + 3 lines + 4 managers + 6 leaf rows')
-  assert.equal(all.filter((r) => r.node.kind === 'rep' || r.node.kind === 'vacant').length, 6)
+  assert.equal(all.length, 1 + 3 + 4 + 4 + 2 + 2, 'company + 3 lines + 4 managers + 4 reps + 2 Vacant boxes + 2 territories')
+  assert.equal(all.filter((r) => r.node.kind === 'rep' || r.node.kind === 'vacant' || r.node.kind === 'vterr').length, 8)
   assert.equal(s.flatten(root, s.collapseAll()).map((r) => r.node.kind).join(), 'company,line,line,line')
   const none = s.flatten(root, new Set())
   assert.equal(none.length, 1)
@@ -167,7 +167,8 @@ await t('RPC row mapping: numeric strings, nulls and timestamps', () => {
 await t('Excel rows: hierarchy with indentation, all months, Total, Target, Ach %, Avg; flat sheet; file name', () => {
   const root = s.buildTree(rows, MONTHS, 'value')
   const h = s.hierarchyRows(root, MONTHS)
-  assert.equal(h.length, 1 + 3 + 4 + 6)
+  assert.equal(h.length, 1 + 3 + 4 + 4 + 2 + 2, 'the hierarchy follows the grouped screen')
+  assert.ok(h.some((r) => r.Name === '      Box A (1 territory)' && r.Level === 'vacant'))
   assert.deepEqual(Object.keys(h[0]), ['Name', 'Level', 'Line', 'Jul 26', 'Aug 26', 'Sep 26', 'Total', 'Target', 'Ach %', 'Avg per month'])
   assert.equal(h[0].Name, 'Total Company'); assert.equal(h[1].Name, '  Total CIRA 1'); assert.equal(h[2].Name, '    Total Mona'); assert.equal(h[3].Name, '      Rep Two')
   assert.equal(h[0].Total, Math.round(sumRows('s_value')))
@@ -198,9 +199,10 @@ await t('Vacant name: the territory first, the box in gray after it (once), neve
   assert.equal(s.vacantName(null, '  '), '(territory not set)')
   assert.ok(!/vacant/i.test(s.vacantName('Assiut 2', 'Box Assuit')), 'the word Vacant is only the pill')
   const tree = s.buildTree([vac(7, 'Box Assuit', 'Assiut 2', '2026-07-01', 10, 0), vac(8, 'Box Assuit', 'Assiut 3', '2026-07-01', 30, 0), vac(9, null, null, '2026-07-01', 5, 0)], ['2026-07-01'], 'value')
-  const kids = tree.children[0].children[0].children
-  assert.deepEqual(kids.map((c) => c.label), ['Assiut 3', 'Assiut 2', '(territory not set)'], 'two territories of one box stay two rows, by total desc')
-  assert.deepEqual(kids.map((c) => c.box), ['Box Assuit', 'Box Assuit', ''])
+  const boxes = tree.children[0].children[0].children
+  assert.deepEqual(boxes.map((c) => c.label), ['Box Assuit', '(territory not set)'], 'one row per box')
+  assert.deepEqual(boxes[0].children.map((c) => c.label), ['Assiut 3', 'Assiut 2'], 'its territories, by total desc')
+  assert.equal(boxes[0].total.s, 40)
   assert.equal(s.toEmpRow({ month: '2026-07-01', box_name: 'Faisal' }).box_name, 'Faisal')
   assert.equal(s.toEmpRow({ month: '2026-07-01' }).box_name, null)
 })
@@ -208,7 +210,7 @@ await t('Vacant name: the territory first, the box in gray after it (once), neve
 await t('a manager with only Vacant boxes and no sales still shows; rows after the reps', () => {
   const tree = s.buildTree([vac(1, 'Faisal', 'T', '2026-07-01', 0, 0, { manager_id: 99, manager_name: 'Only Vacant' })], ['2026-07-01'], 'value')
   const m = tree.children[0].children[0]
-  assert.equal(m.label, 'Total Only Vacant'); assert.equal(m.children[0].label, 'T'); assert.equal(m.children[0].kind, 'vacant'); assert.equal(m.total.s, 0)
+  assert.equal(m.label, 'Total Only Vacant'); assert.equal(m.children[0].label, 'Faisal'); assert.equal(m.children[0].kind, 'vacant'); assert.equal(m.children[0].children[0].label, 'T'); assert.equal(m.total.s, 0)
 })
 
 await t('KPI strip: company sales, target, Ach %, Vacant sales and its share; filters change the tree and so the KPIs', () => {
@@ -259,7 +261,7 @@ await t('the same territory name in CIRA 1, 2 and 3: separate Vacant rows, each 
   const mk = (lid, ln, mid, mn, tid, sv) => vac(tid, 'Box Assuit', 'Assiut 2', '2026-07-01', sv, 0, { line_id: lid, line_name: ln, manager_id: mid, manager_name: mn })
   const tree = s.buildTree([mk(1, 'CIRA 1', 10, 'Mona', 11, 10), mk(2, 'CIRA 2', null, null, 21, 20), mk(3, 'CIRA 3', null, null, 31, 30), mk(2, 'CIRA 2', 12, 'Sara', 22, 5)], ['2026-07-01'], 'value')
   assert.deepEqual(tree.children.map((l) => l.label), ['Total CIRA 1', 'Total CIRA 2', 'Total CIRA 3'])
-  for (const l of tree.children) for (const m of l.children) for (const v of m.children) { assert.equal(v.kind, 'vacant'); assert.equal(v.line, l.line.replace(/^Total /, '')); assert.equal(v.label, 'Assiut 2') }
+  for (const l of tree.children) for (const m of l.children) for (const v of m.children) { assert.equal(v.kind, 'vacant'); assert.equal(v.line, l.line.replace(/^Total /, '')); assert.equal(v.label, 'Box Assuit'); assert.equal(v.children[0].label, 'Assiut 2'); assert.equal(v.children[0].line, v.line) }
   const c2 = tree.children[1]
   assert.deepEqual(c2.children.map((m) => m.label), ['Total Vacant manager', 'Total Sara'], 'the null manager is the Vacant manager of its own line')
   assert.equal(c2.total.s, 25)
@@ -267,7 +269,63 @@ await t('the same territory name in CIRA 1, 2 and 3: separate Vacant rows, each 
   const flat = s.flatRows(tree, ['2026-07-01'])
   assert.deepEqual(flat.map((r) => r.Line), ['CIRA 1', 'CIRA 2', 'CIRA 2', 'CIRA 3'], 'Excel flat rows carry the line')
   assert.ok(s.hierarchyRows(tree, ['2026-07-01']).every((r) => 'Line' in r))
-  assert.equal(s.fullLabel(tree.children[1].children[0].children[0]), 'CIRA 2 · VACANT · Assiut 2 · Box Assuit')
+  assert.equal(s.fullLabel(tree.children[1].children[0].children[0]), 'CIRA 2 · VACANT · Box Assuit (1 territory)')
+  assert.equal(s.fullLabel(tree.children[1].children[0].children[0].children[0]), 'CIRA 2 · VACANT · Assiut 2 · Box Assuit')
+})
+
+await t('Vacant boxes: one row per box with N territories, sums add up, never across lines or managers; a rep keeps box and territories', () => {
+  const R = [
+    vac(1, 'Shobra & Cairo Center', 'Shobra 1', '2026-07-01', 100, 150, { line_id: 3, line_name: 'CIRA 3', manager_id: null, manager_name: null }),
+    vac(2, 'Shobra &amp; Cairo Center', 'Shobra 2', '2026-07-01', 50, 0, { line_id: 3, line_name: 'CIRA 3', manager_id: null, manager_name: null }),
+    vac(2, 'Shobra & Cairo Center', 'Shobra 2', '2026-08-01', 25, 0, { line_id: 3, line_name: 'CIRA 3', manager_id: null, manager_name: null }),
+    vac(3, 'Shobra & Cairo Center', 'Shobra 3', '2026-07-01', 7, 7, { line_id: 1, line_name: 'CIRA 1', manager_id: 10, manager_name: 'Mona' }),
+    rep(1, 'Rep One', '2026-07-01', 60, 80, { line_id: 1, line_name: 'CIRA 1', box_name: 'Nasr City', territory_names: 'Nasr 1, Nasr 2' }),
+  ]
+  const M = ['2026-07-01', '2026-08-01']
+  const tree = s.buildTree(R, M, 'value')
+  const c3 = tree.children.find((l) => l.label === 'Total CIRA 3')
+  const vm = c3.children[0]
+  assert.equal(vm.label, 'Total Vacant manager')
+  assert.equal(vm.children.length, 1, 'ONE row for the box')
+  const box = vm.children[0]
+  assert.equal(box.kind, 'vacant'); assert.equal(box.label, 'Shobra & Cairo Center'); assert.equal(s.groupText(box), 'Shobra & Cairo Center (2 territories)')
+  assert.deepEqual(box.children.map((c) => [c.label, c.kind, c.total.s]), [['Shobra 2', 'vterr', 75], ['Shobra 1', 'vterr', 100]].sort((a, b) => b[2] - a[2]))
+  assert.equal(box.total.s, 175); assert.equal(box.total.t, 150)
+  assert.equal(box.months.get('2026-07-01').s, 150); assert.equal(box.months.get('2026-08-01').s, 25)
+  assert.equal(box.total.s, box.children.reduce((a, c) => a + c.total.s, 0))
+  const c1 = tree.children.find((l) => l.label === 'Total CIRA 1')
+  assert.equal(c1.children.length, 1)
+  const mona = c1.children[0]
+  assert.deepEqual(mona.children.map((c) => [c.kind, c.label]), [['rep', 'Rep One'], ['vacant', 'Shobra & Cairo Center']], 'the same box name in CIRA 1 is another row under its own line')
+  assert.equal(tree.total.s, 100 + 50 + 25 + 7 + 60, 'Company = everything')
+  assert.equal(s.kpis(tree).vacant, 100 + 50 + 25 + 7, 'Vacant counts each box once')
+  assert.equal(s.kpis(tree).vacantShare, 182 / 242)
+  const rp = mona.children[0]
+  assert.equal(rp.box, 'Nasr City'); assert.equal(rp.territory, 'Nasr 1, Nasr 2')
+  assert.equal(s.fullLabel(rp), 'CIRA 1 · Rep One · Nasr City · Nasr 1, Nasr 2')
+  const flat = s.flatRows(tree, M)
+  assert.equal(flat.length, 4, 'flat: one row per territory plus the rep')
+  assert.deepEqual(flat.filter((r) => r.Type === 'Vacant').map((r) => [r.Line, r.Territory, r.Box]).sort(), [['CIRA 1', 'Shobra 3', 'Shobra & Cairo Center'], ['CIRA 3', 'Shobra 1', 'Shobra & Cairo Center'], ['CIRA 3', 'Shobra 2', 'Shobra & Cairo Center']])
+  assert.deepEqual(flat.find((r) => r.Type === 'Rep').Territory, 'Nasr 1, Nasr 2')
+  assert.equal(flat.reduce((a, r) => a + r.Total, 0), tree.total.s)
+})
+
+await t('a response shaped exactly like the real RPC output (PostgREST JSON): the Territory text and the Box come through', () => {
+  const real = [
+    { month: '2026-07-01', line_id: 3, line_name: 'CIRA 3', manager_id: null, manager_name: null, rep_id: null, rep_name: null, rep_code: null, territory_id: 412, territory_names: 'Shobra 1', box_name: 'Shobra & Cairo Center', s_value: 1234567.5, s_units: 10, t_value: 2000000, t_units: 12 },
+    { month: '2026-07-01', line_id: 1, line_name: 'CIRA 1', manager_id: 10, manager_name: 'Mona', rep_id: 61, rep_name: 'Rep One', rep_code: '1C0001', territory_id: null, territory_names: 'Nasr 1, Nasr 2', box_name: 'Nasr City', s_value: '900.25', s_units: '3', t_value: '1000', t_units: '4' },
+  ]
+  const rows = real.map(s.toEmpRow)
+  assert.equal(s.territoryMissing(rows), false)
+  assert.deepEqual(rows.map((r) => r.territory_names), ['Shobra 1', 'Nasr 1, Nasr 2'])
+  const tree = s.buildTree(rows, ['2026-07-01'], 'value')
+  const flat = s.flatRows(tree, ['2026-07-01'])
+  assert.deepEqual(flat.map((r) => [r.Type, r.Territory, r.Box]).sort(), [['Rep', 'Nasr 1, Nasr 2', 'Nasr City'], ['Vacant', 'Shobra 1', 'Shobra & Cairo Center']])
+  // the other spellings a function might use are read too; none at all is detected
+  assert.equal(s.toEmpRow({ month: '2026-07-01', territory_name: 'Old Name' }).territory_names, 'Old Name')
+  assert.equal(s.toEmpRow({ month: '2026-07-01', territory: 'T9' }).territory_names, 'T9')
+  assert.equal(s.territoryMissing([s.toEmpRow({ month: '2026-07-01', box_name: 'B' })]), true)
+  assert.equal(s.territoryMissing([]), false)
 })
 
 console.log(`${n} tests passed`)
