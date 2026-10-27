@@ -4,7 +4,7 @@ import { ShieldAlert } from 'lucide-react'
 import { Card } from '../../../components/ui/misc'
 import { useAuth } from '../../../context/AuthContext'
 import { fetchSuspiciousClusters } from '../../../lib/api/suspicious'
-import { MIN_CLINICS, monthLabel, monthRange } from '../../reports/suspiciousMath'
+import { MIN_ACCOUNTS, monthLabel, monthRange } from '../../reports/suspiciousMath'
 
 /** After a visits upload: High / Medium suspicious cases of the latest uploaded month (one RPC call), with a link to the report on that month. Admin only. */
 export default function SuspiciousBanner({ months }: { months: string[] }) {
@@ -16,7 +16,7 @@ export default function SuspiciousBanner({ months }: { months: string[] }) {
     if (role !== 'admin' || !month) return
     let cancelled = false
     const { from, to } = monthRange(month)
-    fetchSuspiciousClusters(from, to, MIN_CLINICS)
+    fetchSuspiciousClusters(from, to, MIN_ACCOUNTS)
       .then((rows) => !cancelled && setState({ high: rows.filter((r) => r.severity === 'High').length, medium: rows.filter((r) => r.severity === 'Medium').length }))
       .catch((e: unknown) => !cancelled && setState({ error: e instanceof Error ? e.message : 'Failed to load' }))
     return () => { cancelled = true }

@@ -9,17 +9,19 @@ import { fetchSuspiciousClusters, fetchSuspiciousDetail, fetchSuspiciousNames, f
 import { cn } from '../../lib/utils'
 import { useAsync } from '../dashboard/useAsync'
 import {
-  BUSY_DAY_VISITS, CHIPS_BEFORE_TOGGLE, DEFAULT_SEVERITIES, DISCLAIMER, MIN_CLINICS, NO_CASES, STRIP_WEEKDAYS, buildDayStrip, buildMonthOptions, changeLabel, classifyChanges, clusterKey, detailRows, exportFileName, fmtDate, fmtPct, fmtPctPoints,
-  filterClusters, isMonth, mapsUrl, monthLabel, monthRange, nameOrId, newReps, orderedVisits, patternChip, pickMonth, readingNote, resignedBadge, severityChip, severityReason, shiftMonth, stripWeeks, summarize,
-  summaryRow, visitChip, type ClinicRow, type Cluster, type MonthOption, type Severity,
+  BUSY_DAY_VISITS, CHIPS_BEFORE_TOGGLE, DEFAULT_SEVERITIES, DEFAULT_SHIFT, DISCLAIMER, MIN_ACCOUNTS, NO_CASES, SHIFT_LABEL, STRIP_WEEKDAYS, buildDayStrip, buildMonthOptions, changeLabel, classifyChanges, clusterKey, detailRows, exportFileName, fmtDate, fmtPctPoints,
+  filterClusters, isMonth, mapsUrl, monthLabel, monthRange, nameOrId, newReps, orderedVisits, patternChip, pctDouble, pickMonth, readingNote, resignedBadge, severityChip, severityReason, shiftMonth, stripWeeks, summarize,
+  summaryRow, visitChip, visitTooltip, type AccountRow, type Cluster, type MonthOption, type Severity, type Shift, type VisitType,
 } from './suspiciousMath'
 
 const SEVERITIES: Severity[] = ['High', 'Medium', 'Low']
 const SELECT = 'h-9 rounded-control border bg-card px-2 text-sm'
 const CHIP: Record<'red' | 'amber' | 'grey', string> = { red: 'bg-red-100 text-red-900', amber: 'bg-amber-100 text-amber-900', grey: 'bg-gray-200 text-gray-800' }
-const COLS = 12
+const COLS = 15
+const SHIFTS: Shift[] = ['PM', 'AM', 'BOTH']
+const VISIT_TYPES: { value: VisitType; label: string }[] = [{ value: 'all', label: 'All visits' }, { value: 'double', label: 'Double only' }, { value: 'single', label: 'Single only' }]
 
-interface DetailState { loading: boolean; error: string | null; data: ClinicRow[] | null }
+interface DetailState { loading: boolean; error: string | null; data: AccountRow[] | null }
 
 function Kpi({ label, value, hint, loading }: { label: string; value: string; hint?: string; loading: boolean }) {
   if (loading) return <Card className="p-4" aria-busy="true"><Skeleton className="h-3 w-24" /><Skeleton className="mt-3 h-8 w-20" /></Card>
@@ -32,8 +34,8 @@ function Kpi({ label, value, hint, loading }: { label: string; value: string; hi
   )
 }
 
-/** Every visit date and time of an account as small chips, ascending; "Show all" above 12. */
-function VisitChips({ log }: { log: ClinicRow['visit_log'] }) {
+/** Every visit date and time of an account as small chips, ascending; "Show all" above 12. A Double visit carries a "D" marker and the manager's name on hover. */
+function VisitChips({ log }: { log: AccountRow['visit_log'] }) {
   const [all, setAll] = useState(false)
   const list = orderedVisits(log)
   const shown = all || list.length <= CHIPS_BEFORE_TOGGLE ? list : list.slice(0, CHIPS_BEFORE_TOGGLE)
@@ -43,7 +45,11 @@ function VisitChips({ log }: { log: ClinicRow['visit_log'] }) {
         <button type="button" onClick={() => setAll((v) => !v)} className="mb-1 text-xs font-medium text-primary underline">{all ? 'Show fewer' : `Show all ${list.length}`}</button>
       )}
       <div className="flex flex-wrap gap-1">
-        {shown.map((v, i) => <span key={`${v.d}-${v.t}-${i}`} className="tnum whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-[11px]">{visitChip(v)}</span>)}
+        {shown.map((v, i) => (
+          <span key={`${v.d}-${v.t}-${i}`} title={visitTooltip(v)} className={cn('tnum whitespace-nowrap rounded px-1.5 py-0.5 text-[11px]', v.dbl ? 'bg-violet-100 font-medium text-violet-900' : 'bg-muted')}>
+            {v.dbl && <b className="mr-1 rounded-sm bg-violet-700 px-1 text-[9px] text-white">D</b>}{visitChip(v)}
+          </span>
+        ))}
         {shown.length < list.length && <span className="text-[11px] text-muted-foreground">+{list.length - shown.length} more</span>}
       </div>
     </div>
@@ -51,20 +57,20 @@ function VisitChips({ log }: { log: ClinicRow['visit_log'] }) {
 }
 
 /** The days of the selected month only, in weeks (Saturday first), weekday names on top. */
-function DayStrip({ detail, month }: { detail: ClinicRow[]; month: string }) {
+function DayStrip({ detail, month }: { detail: AccountRow[]; month: string }) {
   const { from, to } = monthRange(month)
   const weeks = useMemo(() => stripWeeks(buildDayStrip(detail, from, to)), [detail, from, to])
   return (
     <div>
-      <div className="mb-1 text-xs font-medium text-muted-foreground">Visits at this point, day by day, {monthLabel(month)} (amber: more than {BUSY_DAY_VISITS} in a day · moon: visits at night)</div>
+      <div className="mb-1 text-xs font-medium text-muted-foreground">Visits at this point, day by day, {monthLabel(month)} (amber: more than {BUSY_DAY_VISITS} in a day · violet: a Double visit that day · moon: visits at night)</div>
       <div className="inline-grid grid-cols-7 gap-1">
         {STRIP_WEEKDAYS.map((w) => <div key={w} className="text-center text-[10px] font-medium text-muted-foreground">{w}</div>)}
         {weeks.flat().map((d, i) => d === null ? <div key={`b${i}`} /> : (
           <div
             key={d.day}
-            title={d.count === 0 ? `${fmtDate(d.day)}: none` : `${fmtDate(d.day)}: ${d.count} visit${d.count === 1 ? '' : 's'}\n${d.visits.map((v) => `${v.t ?? '--:--'}  ${v.clinic}`).join('\n')}`}
+            title={d.count === 0 ? `${fmtDate(d.day)}: none` : `${fmtDate(d.day)}: ${d.count} visit${d.count === 1 ? '' : 's'}\n${d.visits.map((v) => `${v.t ?? '--:--'}${v.dbl ? ` D (${v.mgr ?? 'manager'})` : ''}  ${v.account}`).join('\n')}`}
             className={cn('relative flex h-10 w-12 flex-col items-center justify-center rounded border text-[10px] leading-none',
-              d.count === 0 && 'bg-card text-muted-foreground/60', d.count > 0 && !d.busy && 'bg-blue-50 text-blue-900', d.busy && 'border-amber-500 bg-amber-200 font-semibold text-amber-950')}
+              d.count === 0 && 'bg-card text-muted-foreground/60', d.count > 0 && !d.busy && (d.doubles > 0 ? 'border-violet-400 bg-violet-100 text-violet-900' : 'bg-blue-50 text-blue-900'), d.busy && 'border-amber-500 bg-amber-200 font-semibold text-amber-950')}
           >
             <span>{Number(d.day.slice(8, 10))}</span>
             <span className="tnum text-xs font-semibold">{d.count || ''}</span>
@@ -79,7 +85,7 @@ function DayStrip({ detail, month }: { detail: ClinicRow[]; month: string }) {
 /** The card under a row: it carries the severity color on its left border and a header with the rep, so it cannot be mistaken for the next row. */
 function DetailCard({ c, state, month, managerName, onClose }: { c: Cluster; state: DetailState | undefined; month: string; managerName: string; onClose: () => void }) {
   const sev = severityChip(c.severity)
-  const data = useMemo(() => [...(state?.data ?? [])].sort((a, b) => b.visits - a.visits || a.account.localeCompare(b.account)), [state?.data])
+  const data = useMemo(() => [...(state?.data ?? [])].sort((a, b) => b.visits - a.visits || a.account_name.localeCompare(b.account_name)), [state?.data])
   return (
     <div className={cn('rounded-card border border-l-4 bg-card shadow-sm', sev.border)}>
       <div className="flex flex-wrap items-center gap-3 border-b px-3 py-2 text-sm">
@@ -99,16 +105,19 @@ function DetailCard({ c, state, month, managerName, onClose }: { c: Cluster; sta
           <div className="overflow-auto rounded-card border">
             <table className="w-full text-sm">
               <thead className="bg-muted text-xs"><tr>
-                <th className="px-2 py-1.5 text-left">Account</th><th className="px-2 py-1.5 text-left">Type</th><th className="px-2 py-1.5 text-right">Visits</th><th className="min-w-72 px-2 py-1.5 text-left">Visit dates</th>
+                <th className="px-2 py-1.5 text-left">Account ID</th><th className="px-2 py-1.5 text-left">Account</th><th className="px-2 py-1.5 text-left">Type</th><th className="px-2 py-1.5 text-left">Shift</th>
+                <th className="px-2 py-1.5 text-right">Doctors</th><th className="px-2 py-1.5 text-right">Visits</th><th className="px-2 py-1.5 text-right">Double</th><th className="px-2 py-1.5 text-right">Single</th>
+                <th className="min-w-72 px-2 py-1.5 text-left">Visit dates</th>
                 <th className="px-2 py-1.5 text-left">First visit</th><th className="px-2 py-1.5 text-left">Last visit</th><th className="px-2 py-1.5 text-right">Avg deviation (m)</th>
-                <th className="px-2 py-1.5 text-left">Pattern</th><th className="px-2 py-1.5 text-left">Clinic coordinates</th>
+                <th className="px-2 py-1.5 text-left">Pattern</th><th className="px-2 py-1.5 text-left">Account coordinates</th>
               </tr></thead>
               <tbody>
                 {data.map((d) => {
                   const chip = patternChip(d.avg_deviation_m)
                   return (
-                    <tr key={d.account} className="border-t align-top">
-                      <td className="px-2 py-1.5 font-medium">{d.account}</td><td className="px-2 py-1.5">{d.acc_type_code ?? ''}</td><td className="tnum px-2 py-1.5 text-right">{d.visits}</td>
+                    <tr key={d.account_key} className="border-t align-top">
+                      <td className="tnum whitespace-nowrap px-2 py-1.5 text-xs">{d.account_ext_id ?? ''}</td><td className="px-2 py-1.5 font-medium">{d.account_name}</td><td className="px-2 py-1.5">{d.acc_type_code ?? ''}</td><td className="px-2 py-1.5">{d.shift_group ?? ''}</td>
+                      <td className="tnum px-2 py-1.5 text-right">{d.doctors}</td><td className="tnum px-2 py-1.5 text-right">{d.visits}</td><td className="tnum px-2 py-1.5 text-right text-violet-800">{d.double_visits || ''}</td><td className="tnum px-2 py-1.5 text-right">{d.single_visits || ''}</td>
                       <td className="px-2 py-1.5"><VisitChips log={d.visit_log} /></td>
                       <td className="whitespace-nowrap px-2 py-1.5">{fmtDate(d.first_visit)}</td><td className="whitespace-nowrap px-2 py-1.5">{fmtDate(d.last_visit)}</td>
                       <td className="tnum px-2 py-1.5 text-right">{d.avg_deviation_m === null ? '' : Math.round(d.avg_deviation_m).toLocaleString('en-US')}</td>
@@ -138,6 +147,8 @@ export function SuspiciousTab() {
   const [severities, setSeverities] = useState<Severity[]>(DEFAULT_SEVERITIES)
   const [lineId, setLineId] = useState<number | null>(null)
   const [managerId, setManagerId] = useState<number | null>(null)
+  const [shift, setShift] = useState<Shift>(DEFAULT_SHIFT)
+  const [visitType, setVisitType] = useState<VisitType>('all')
   const [search, setSearch] = useState('')
   const [newOnly, setNewOnly] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
@@ -169,7 +180,7 @@ export function SuspiciousTab() {
     setDetails(new Map())
     const hasData = (m: string) => options.some((o) => o.month === m)
     const range = (m: string) => monthRange(m)
-    const get = (m: string) => fetchSuspiciousClusters(range(m).from, range(m).to, MIN_CLINICS)
+    const get = (m: string) => fetchSuspiciousClusters(range(m).from, range(m).to, MIN_ACCOUNTS, shift)
     void (async () => {
       const [cur, ...prev] = await Promise.allSettled([get(month), ...prevMonths.map((m) => (hasData(m) ? get(m) : Promise.resolve(null)))])
       if (cancelled) return
@@ -185,7 +196,7 @@ export function SuspiciousTab() {
     return () => { cancelled = true }
     // `options` is a new array on every month-list load (open, month change, Refresh), so it re-runs the fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, options])
+  }, [month, options, shift])
 
   const data = { data: loaded.data, error: loaded.error ?? monthsState.error, loading: loaded.loading && !monthsState.error && (monthsState.loading || !!month), reload: () => setNonce((n) => n + 1) }
   const comparison = useMemo(() => (loaded.loading || loaded.error ? null : classifyChanges(loaded.data ?? [], loaded.prev)), [loaded])
@@ -197,41 +208,48 @@ export function SuspiciousTab() {
 
   const all = useMemo(() => data.data ?? [], [data.data])
   const newSet = useMemo(() => newReps(comparison), [comparison])
-  const rows = useMemo(() => filterClusters(all, { severities, search, lineId, managerId, onlyReps: newOnly && comparison ? newSet : null }), [all, severities, search, lineId, managerId, newOnly, comparison, newSet])
+  const rows = useMemo(() => filterClusters(all, { severities, search, lineId, managerId, visitType, onlyReps: newOnly && comparison ? newSet : null }), [all, severities, search, lineId, managerId, visitType, newOnly, comparison, newSet])
   const goneRows = useMemo(() => (comparison ? filterClusters(comparison.gone, { severities: SEVERITIES, search, lineId, managerId }) : []), [comparison, search, lineId, managerId])
   const kpis = useMemo(() => summarize(rows), [rows])
   const changeOf = (c: Cluster): string => (comparison ? changeLabel(comparison.byRep.get(c.rep_id)) : '')
   const lineOptions = useMemo(() => [...new Set(all.map((r) => r.line_id).filter((x): x is number => x !== null))].map((id) => [id, lineName(id)] as const).sort((a, b) => a[1].localeCompare(b[1])), [all, lineName])
   const managerOptions = useMemo(() => [...new Set(all.filter((r) => lineId === null || r.line_id === lineId).map((r) => r.manager_id).filter((x): x is number => x !== null))].map((id) => [id, mgrName(id)] as const).sort((a, b) => a[1].localeCompare(b[1])), [all, lineId, mgrName])
 
-  const loadDetail = useCallback(async (c: Cluster): Promise<ClinicRow[]> => {
+  // The detail depends on the visit type: a change drops the cache of the opened rows.
+  useEffect(() => { setDetails(new Map()) }, [visitType])
+  const loadDetail = useCallback(async (c: Cluster): Promise<AccountRow[]> => {
     const key = clusterKey(c)
     setDetails((m) => new Map(m).set(key, { loading: true, error: null, data: null }))
     try {
-      const d = await fetchSuspiciousDetail(c.rep_id, c.cell_lat, c.cell_lng, from, to)
+      const d = await fetchSuspiciousDetail(c.rep_id, c.cell_lat, c.cell_lng, from, to, shift, visitType)
       setDetails((m) => new Map(m).set(key, { loading: false, error: null, data: d }))
       return d
     } catch (e) {
       setDetails((m) => new Map(m).set(key, { loading: false, error: e instanceof Error ? e.message : 'Failed', data: null }))
       throw e
     }
-  }, [from, to])
+  }, [from, to, shift, visitType])
+
+  useEffect(() => {
+    if (open === null) return
+    const c = rows.find((r) => clusterKey(r) === open)
+    if (c && !details.has(open)) void loadDetail(c).catch(() => undefined)
+  }, [open, details, rows, loadDetail])
 
   const toggle = (c: Cluster) => {
     const key = clusterKey(c)
     if (open === key) { setOpen(null); return }
     setOpen(key)
-    if (!details.has(key)) void loadDetail(c).catch(() => undefined)
   }
 
   const exportXlsx = async () => {
     setExporting(true)
     try {
       const ordered = [...rows]
-      const detailByKey = new Map<string, ClinicRow[]>()
+      const detailByKey = new Map<string, AccountRow[]>()
       const queue = [...ordered]
       const worker = async () => {
-        for (let c = queue.shift(); c; c = queue.shift()) detailByKey.set(clusterKey(c), details.get(clusterKey(c))?.data ?? (await fetchSuspiciousDetail(c.rep_id, c.cell_lat, c.cell_lng, from, to)))
+        for (let c = queue.shift(); c; c = queue.shift()) detailByKey.set(clusterKey(c), details.get(clusterKey(c))?.data ?? (await fetchSuspiciousDetail(c.rep_id, c.cell_lat, c.cell_lng, from, to, shift, visitType)))
       }
       await Promise.all([worker(), worker(), worker()])
       const nm = (c: Cluster) => ({ month, line: lineName(c.line_id), manager: mgrName(c.manager_id), ...(comparison ? { change: changeOf(c) } : {}) })
@@ -259,6 +277,12 @@ export function SuspiciousTab() {
           {options.map((o) => <option key={o.month} value={o.month}>{o.label}</option>)}
         </select>
         <Button size="sm" disabled={monthsState.loading || loaded.loading} onClick={() => setNonce((n) => n + 1)}><RefreshCw className={cn('h-4 w-4', (monthsState.loading || loaded.loading) && 'animate-spin')} aria-hidden /> Refresh</Button>
+        <select aria-label="Shift" className={SELECT} value={shift} onChange={(e) => setShift(e.target.value as Shift)}>
+          {SHIFTS.map((x) => <option key={x} value={x}>{`Shift: ${SHIFT_LABEL[x]}`}</option>)}
+        </select>
+        <select aria-label="Visit type" className={SELECT} value={visitType} onChange={(e) => setVisitType(e.target.value as VisitType)}>
+          {VISIT_TYPES.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+        </select>
         <select aria-label="Line" className={SELECT} value={lineId ?? ''} onChange={(e) => { setLineId(e.target.value === '' ? null : Number(e.target.value)); setManagerId(null) }}>
           <option value="">All lines</option>
           {lineOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
@@ -279,16 +303,18 @@ export function SuspiciousTab() {
         </div>
         <Button size="sm" disabled={rows.length === 0 || exporting} onClick={() => void exportXlsx()}><FileSpreadsheet className="h-4 w-4" aria-hidden /> {exporting ? 'Preparing…' : 'Excel'}</Button>
       </div>
-      <div className="text-sm text-muted-foreground"><span className="font-medium text-foreground">{monthLabel(month)}</span> · PM clinics (C and PC) · {MIN_CLINICS}+ clinics sharing a ~110 m point of the device position</div>
+      <div className="text-sm text-muted-foreground"><span className="font-medium text-foreground">{monthLabel(month)}</span> · {shift === 'BOTH' ? 'PM and AM' : shift} shift · {MIN_ACCOUNTS}+ accounts sharing a ~110 m point of the device position</div>
 
       {loaded.prevError && <div role="alert" className="rounded-card border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">The previous months could not be loaded, so New / Repeated / Gone are not shown: {loaded.prevError}</div>}
       {!loading && !data.error && !comparison && !loaded.prevError && month && <div className="text-xs text-muted-foreground">No visits in the previous month ({monthLabel(shiftMonth(month, -1))}): no comparison.</div>}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
         <Kpi loading={loading} label="Reps flagged" value={String(kpis.reps)} />
-        <Kpi loading={loading} label="Clinics sharing a location" value={kpis.clinics.toLocaleString('en-US')} hint="clinics of one rep in one ~110 m cell, summed" />
+        <Kpi loading={loading} label="Accounts sharing a point" value={kpis.accounts.toLocaleString('en-US')} hint="accounts of one rep in one ~110 m cell, summed" />
         <Kpi loading={loading} label="Visits involved" value={kpis.visits.toLocaleString('en-US')} />
-        <Kpi loading={loading} label="Share of those reps' PM visits" value={fmtPct(kpis.shareOfPmVisits)} />
+        <Kpi loading={loading} label="Double visits" value={kpis.doubleVisits.toLocaleString('en-US')} hint="a manager joined" />
+        <Kpi loading={loading} label="Single visits" value={kpis.singleVisits.toLocaleString('en-US')} />
+        <Kpi loading={loading} label="% Double" value={`${kpis.pctDouble.toFixed(1)}%`} />
         <Kpi loading={loading} label="New" value={comparison ? String(comparison.newCount) : '–'} hint="High / Medium now, none last month" />
         <Kpi loading={loading} label="Repeated" value={comparison ? String(comparison.repeatedCount) : '–'} hint="High / Medium last month too" />
         <Kpi loading={loading} label="Gone" value={comparison ? String(comparison.goneCount) : '–'} hint="High / Medium last month, not now" />
@@ -310,8 +336,9 @@ export function SuspiciousTab() {
             <thead className="sticky top-0 z-10 bg-muted text-xs">
               <tr>
                 <th className="px-2 py-1.5 text-left">Severity</th><th className="px-2 py-1.5 text-left" title="Against the previous month">Vs last month</th><th className="px-2 py-1.5 text-left">Line</th><th className="px-2 py-1.5 text-left">Manager</th><th className="px-2 py-1.5 text-left">Medical Rep</th>
-                <th className="px-2 py-1.5 text-right">Clinics</th><th className="px-2 py-1.5 text-right">Visits</th><th className="px-2 py-1.5 text-right">Visit days</th><th className="px-2 py-1.5 text-left">% of rep&apos;s PM visits</th>
-                <th className="px-2 py-1.5 text-left" title="Clinics and visits registered at the point / clinics and visits logged here with the clinic far away">Registered at the point / Visited from far</th>
+                <th className="px-2 py-1.5 text-right" title="Distinct Account IDs at the point">Accounts</th><th className="px-2 py-1.5 text-right">Doctors</th><th className="px-2 py-1.5 text-right">Visits</th>
+                <th className="px-2 py-1.5 text-right">Double</th><th className="px-2 py-1.5 text-right">Single</th><th className="px-2 py-1.5 text-right">% Double</th><th className="px-2 py-1.5 text-left">Managers who joined</th>
+                <th className="px-2 py-1.5 text-left" title="Accounts and visits registered at the point / accounts and visits logged here with the account far away">Registered here / From far</th>
                 <th className="px-2 py-1.5 text-right">Night visits</th><th className="px-2 py-1.5 text-left">First / last visit</th>
               </tr>
             </thead>
@@ -335,18 +362,16 @@ export function SuspiciousTab() {
                         <div className="font-medium leading-tight">{c.rep_name}{rb.show && <span className="ml-2 rounded-full bg-gray-200 px-2 py-0.5 text-[11px] font-medium text-gray-800">{rb.text}</span>}</div>
                         <div className="tnum text-[11px] text-muted-foreground">{c.rep_code}</div>
                       </td>
-                      <td className="tnum px-2 py-1.5 text-right font-semibold">{c.clinics}</td>
-                      <td className="tnum px-2 py-1.5 text-right">{c.visits}</td>
-                      <td className="tnum px-2 py-1.5 text-right">{c.visit_days}</td>
-                      <td className="px-2 py-1.5">
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-20 overflow-hidden rounded bg-muted" role="img" aria-label={`${fmtPctPoints(c.pct_of_rep_pm_visits)} of the rep's PM visits`}><div className="h-full bg-red-500" style={{ width: `${Math.min(100, c.pct_of_rep_pm_visits)}%` }} /></div>
-                          <span className="tnum text-xs">{fmtPctPoints(c.pct_of_rep_pm_visits)}</span>
-                        </div>
-                      </td>
+                      <td className="tnum px-2 py-1.5 text-right"><span className="font-semibold">{c.accounts}</span><div className="text-[11px] text-muted-foreground">PM {c.accounts_pm} / AM {c.accounts_am}</div></td>
+                      <td className="tnum px-2 py-1.5 text-right">{c.doctors}</td>
+                      <td className="tnum px-2 py-1.5 text-right" title={`${fmtPctPoints(c.pct_of_rep_visits)} of the rep's visits · ${c.visit_days} visit days`}>{c.visits}</td>
+                      <td className="tnum px-2 py-1.5 text-right text-violet-800">{c.double_visits}</td>
+                      <td className="tnum px-2 py-1.5 text-right">{c.single_visits}</td>
+                      <td className="tnum px-2 py-1.5 text-right">{pctDouble(c.double_visits, c.visits).toFixed(1)}%</td>
+                      <td className="max-w-48 px-2 py-1.5 text-xs leading-tight">{c.managers_joined || <span className="text-muted-foreground">–</span>}</td>
                       <td className="tnum px-2 py-1.5 text-xs leading-tight">
-                        <div>{c.clinics_registered_here} clinics · {c.visits - c.visits_far} visits</div>
-                        <div className="text-amber-800">{c.clinics_far} clinics · {c.visits_far} visits</div>
+                        <div>{c.accounts_registered_here} accounts · {c.visits - c.visits_far} visits</div>
+                        <div className="text-amber-800">{c.accounts_far} accounts · {c.visits_far} visits</div>
                       </td>
                       <td className="tnum px-2 py-1.5 text-right">{c.night_visits || ''}</td>
                       <td className="whitespace-nowrap px-2 py-1.5 text-xs leading-tight"><div>{fmtDate(c.first_visit)}</div><div className="text-muted-foreground">{fmtDate(c.last_visit)}</div></td>
@@ -369,7 +394,7 @@ export function SuspiciousTab() {
             <table className="w-full text-sm">
               <thead className="bg-muted text-xs"><tr>
                 <th className="px-2 py-1.5 text-left">Last month</th><th className="px-2 py-1.5 text-left">Line</th><th className="px-2 py-1.5 text-left">Manager</th><th className="px-2 py-1.5 text-left">Medical Rep</th>
-                <th className="px-2 py-1.5 text-right">Clinics</th><th className="px-2 py-1.5 text-right">Visits</th>
+                <th className="px-2 py-1.5 text-right">Accounts</th><th className="px-2 py-1.5 text-right">Visits</th>
               </tr></thead>
               <tbody>
                 {goneRows.map((c) => (
@@ -377,7 +402,7 @@ export function SuspiciousTab() {
                     <td className="px-2 py-1.5"><span className={cn('rounded-full px-2.5 py-0.5 text-xs font-semibold', severityChip(c.severity).classes)}>{severityChip(c.severity).label}</span></td>
                     <td className="px-2 py-1.5">{lineName(c.line_id) || '–'}</td><td className="px-2 py-1.5">{mgrName(c.manager_id) || '–'}</td>
                     <td className="px-2 py-1.5"><div className="font-medium leading-tight">{c.rep_name}</div><div className="tnum text-[11px] text-muted-foreground">{c.rep_code}</div></td>
-                    <td className="tnum px-2 py-1.5 text-right">{c.clinics}</td><td className="tnum px-2 py-1.5 text-right">{c.visits}</td>
+                    <td className="tnum px-2 py-1.5 text-right">{c.accounts}</td><td className="tnum px-2 py-1.5 text-right">{c.visits}</td>
                   </tr>
                 ))}
               </tbody>
