@@ -15,12 +15,12 @@ const numOrNull = (v: unknown): number | null => (v === null || v === undefined 
 const text = (v: unknown): string | null => (v === null || v === undefined || v === '' ? null : String(v))
 export interface EmpRow {
   month: string; line_id: number | null; line_name: string | null; manager_id: number | null; manager_name: string | null
-  rep_id: number | null; rep_name: string | null; rep_code: string | null; box_id: number | null; box_name: string | null; territory_names: string | null
+  rep_id: number | null; rep_name: string | null; rep_code: string | null; territory_id: number | null; territory_names: string | null
   s_value: number; s_units: number; t_value: number; t_units: number
 }
 export const toEmpRow = (r: Raw): EmpRow => ({
   month: String(r.month ?? '').slice(0, 10), line_id: numOrNull(r.line_id), line_name: text(r.line_name), manager_id: numOrNull(r.manager_id), manager_name: text(r.manager_name),
-  rep_id: numOrNull(r.rep_id), rep_name: text(r.rep_name), rep_code: text(r.rep_code), box_id: numOrNull(r.box_id), box_name: text(r.box_name), territory_names: text(r.territory_names),
+  rep_id: numOrNull(r.rep_id), rep_name: text(r.rep_name), rep_code: text(r.rep_code), territory_id: numOrNull(r.territory_id), territory_names: text(r.territory_names),
   s_value: num(r.s_value), s_units: num(r.s_units), t_value: num(r.t_value), t_units: num(r.t_units),
 })
 
@@ -108,7 +108,7 @@ const pick = (r: EmpRow, m: Metric): Cell => (m === 'value' ? { s: r.s_value, t:
 const add = (a: Cell, b: Cell): Cell => ({ s: a.s + b.s, t: a.t + b.t })
 const ZERO: Cell = { s: 0, t: 0 }
 export const VACANT_MANAGER = 'Vacant manager'
-export const vacantLabel = (territory: string, box: string): string => `Vacant - ${territory || '-'} (${box || '-'})`
+export const vacantLabel = (territory: string): string => `Vacant - ${territory || '-'}`
 
 function node(id: string, kind: Kind, label: string, depth: number, extra: Partial<Node> = {}): Node {
   return { id, kind, label, depth, line: '', manager: '', rep: '', territory: '', months: new Map(), total: { ...ZERO }, children: [], since: '', ...extra }
@@ -139,7 +139,7 @@ export function buildTree(rows: EmpRow[], months: string[], metric: Metric): Nod
     const mgr = line.managers.get(mk) ?? { name: r.manager_name ?? VACANT_MANAGER, leaves: new Map() }
     line.managers.set(mk, mgr)
     const isRep = r.rep_id !== null
-    const key = isRep ? `r${r.rep_id}` : `v${r.box_id ?? 'x'}`
+    const key = isRep ? `r${r.rep_id}` : `v${r.territory_id ?? 'x'}`
     let leaf = mgr.leaves.get(key)
     if (!leaf) {
       leaf = node(`${lk}|${mk}|${key}`, isRep ? 'rep' : 'vacant', isRep ? (r.rep_name ?? `#${r.rep_id}`) : '', 3,
@@ -151,7 +151,7 @@ export function buildTree(rows: EmpRow[], months: string[], metric: Metric): Nod
     if (!isRep) {
       const names = new Set([...(leaf.territory ? leaf.territory.split(', ') : []), ...(r.territory_names ? r.territory_names.split(', ') : [])])
       leaf.territory = [...names].sort().join(', ')
-      leaf.label = vacantLabel(leaf.territory, r.box_name ?? '')
+      leaf.label = vacantLabel(leaf.territory)
     }
   }
   const company = node('company', 'company', 'Total Company', 0)

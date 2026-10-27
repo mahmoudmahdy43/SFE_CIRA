@@ -55,16 +55,16 @@ export async function fetchSalesManagers(): Promise<{ id: number; name: string }
   return fetchAll<{ id: number; name: string }>('managers', 'id,name', ['name'])
 }
 
-interface RpcPageQuery { order: (column: string) => RpcPageQuery; range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }> }
+interface RpcPageQuery { order: (column: string) => RpcPageQuery; range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string; details?: string; hint?: string; code?: string } | null }> }
 
 /** sales_by_employee (92_sales_by_employee.sql): one row per month x line x direct manager x (rep | vacant box), paged past PostgREST's 1,000-row cap. `products` null = all. */
 export async function fetchSalesByEmployee(from: string, to: string, line: number | null, manager: number | null, products: number[] | null): Promise<EmpRow[]> {
   const args = { p_from: from, p_to: to, p_line: line, p_manager: manager, p_products: products }
   const rows = await pageAll<Record<string, unknown>>(async (a, b) => {
     let q = supabase.rpc('sales_by_employee', args) as unknown as RpcPageQuery
-    for (const o of ['month', 'line_id', 'manager_id', 'rep_id', 'box_id']) q = q.order(o)
+    for (const o of ['month', 'line_id', 'manager_id', 'rep_id', 'territory_id']) q = q.order(o)
     const { data, error } = await q.range(a, b)
-    if (error) throw new Error(error.message)
+    if (error) throw new Error(['sales_by_employee: ' + error.message, error.details, error.hint, error.code && `code ${error.code}`].filter(Boolean).join(' | '))
     return (data ?? []) as Record<string, unknown>[]
   })
   return rows.map(toEmpRow)

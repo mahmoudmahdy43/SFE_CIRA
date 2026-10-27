@@ -7,10 +7,10 @@ const t = async (name, fn) => { await fn(); n++; console.log('ok -', name) }
 
 const row = (o) => ({
   month: '2026-07-01', line_id: 1, line_name: 'CIRA 1', manager_id: 10, manager_name: 'Mona', rep_id: null, rep_name: null, rep_code: null,
-  box_id: null, box_name: null, territory_names: null, s_value: 0, s_units: 0, t_value: 0, t_units: 0, ...o,
+  territory_id: null, territory_names: null, s_value: 0, s_units: 0, t_value: 0, t_units: 0, ...o,
 })
 const rep = (id, name, month, sv, tv, o = {}) => row({ rep_id: id, rep_name: name, rep_code: `C${id}`, territory_names: 'T', month, s_value: sv, t_value: tv, s_units: sv / 10, t_units: tv / 10, ...o })
-const vac = (box, name, terr, month, sv, tv, o = {}) => row({ box_id: box, box_name: name, territory_names: terr, month, s_value: sv, t_value: tv, s_units: sv / 10, t_units: tv / 10, ...o })
+const vac = (tid, name, terr, month, sv, tv, o = {}) => row({ territory_id: tid, territory_names: terr, month, s_value: sv, t_value: tv, s_units: sv / 10, t_units: tv / 10, ...o })
 const MONTHS = ['2026-07-01', '2026-08-01', '2026-09-01']
 
 const rows = [
@@ -62,7 +62,7 @@ await t('Vacant -> Rep within a box: history stays on the Vacant row, later mont
   const root = s.buildTree(rows, MONTHS, 'value')
   const mona = root.children[0].children.find((m) => m.label === 'Total Mona')
   const labels = mona.children.map((c) => c.label)
-  assert.deepEqual(labels, ['Rep Two', 'Rep One', 'Vacant - Terr A1, Terr A2 (Box A)'], 'reps by total desc, Vacant last')
+  assert.deepEqual(labels, ['Rep Two', 'Rep One', 'Vacant - Terr A1, Terr A2'], 'reps by total desc, Vacant last')
   const vacant = mona.children[2]
   assert.deepEqual([...vacant.months.keys()], ['2026-07-01'], 'July only: the earlier month stays on the Vacant row')
   assert.equal(vacant.total.s, 180)
@@ -159,7 +159,7 @@ await t('paging: pages of 1000 until a short page; an exact multiple needs one m
 })
 
 await t('RPC row mapping: numeric strings, nulls and timestamps', () => {
-  const r = s.toEmpRow({ month: '2026-07-01T00:00:00', line_id: 1, line_name: 'CIRA 1', manager_id: null, rep_id: '5', rep_name: 'X', s_value: '1234.5', t_value: null, s_units: undefined, t_units: 'abc', box_id: null })
+  const r = s.toEmpRow({ month: '2026-07-01T00:00:00', line_id: 1, line_name: 'CIRA 1', manager_id: null, rep_id: '5', rep_name: 'X', s_value: '1234.5', t_value: null, s_units: undefined, t_units: 'abc', territory_id: null })
   assert.deepEqual([r.month, r.manager_id, r.rep_id, r.s_value, r.t_value, r.s_units, r.t_units], ['2026-07-01', null, 5, 1234.5, 0, 0, 0])
 })
 
@@ -181,7 +181,7 @@ await t('Excel rows: hierarchy with indentation, all months, Total, Target, Ach 
   assert.deepEqual(Object.keys(f[0]).slice(5), ['Jul 26', 'Aug 26', 'Sep 26', 'Total', 'Target', 'Ach %', 'Avg per month'])
   assert.deepEqual(f.map((r) => r.Type), ['Rep', 'Rep', 'Vacant', 'Rep', 'Vacant', 'Rep'])
   const vacRow = f.find((r) => r.Type === 'Vacant' && r.Manager === 'Mona')
-  assert.deepEqual([vacRow.Rep, vacRow.Territory, vacRow['Jul 26'], vacRow['Aug 26'], vacRow.Total], ['Vacant - Terr A1, Terr A2 (Box A)', 'Terr A1, Terr A2', 180, null, 180])
+  assert.deepEqual([vacRow.Rep, vacRow.Territory, vacRow['Jul 26'], vacRow['Aug 26'], vacRow.Total], ['Vacant - Terr A1, Terr A2', 'Terr A1, Terr A2', 180, null, 180])
   assert.equal(f.reduce((a, r) => a + r.Total, 0), h[0].Total, 'flat rows add up to the Company total')
   assert.equal(s.exportFileName('2026-07-01', '2026-09-01'), 'Sales_by_Employee_2026-07_2026-09.xlsx')
 })
