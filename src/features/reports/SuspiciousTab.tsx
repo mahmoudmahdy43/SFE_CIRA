@@ -36,7 +36,7 @@ function Kpi({ label, value, hint, loading }: { label: string; value: string; hi
   )
 }
 
-/** Every visit date and time of an account as small chips, ascending; "Show all" above 12. A Double visit carries a "D" marker and the manager's name on hover. */
+/** Every visit date and time of an account as small chips, newest first; "Show all" above 12. A Double visit carries a "D" marker and the manager's name on hover. */
 function VisitChips({ log }: { log: AccountRow['visit_log'] }) {
   const [all, setAll] = useState(false)
   const list = orderedVisits(log)

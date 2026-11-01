@@ -98,14 +98,16 @@ t('pattern chip: 300 m is still "registered at this point"; above it the visit w
   assert.equal(s.patternChip(undefined).tone, 'grey')
 })
 
-t('visit dates: ascending by date then time, chips "07 Sep 19:40", the Excel cell "07/09 19:40; ..."', () => {
+t('visit dates: newest first by date then time, chips "07 Sep 19:40", the Excel cell "07/09 19:40; ..."', () => {
   const log = [v('2026-09-12', '20:00'), v('2026-09-07', '19:40'), v('2026-09-07', '09:05'), v('2026-09-07', null), v('2026-09-30', '23:15')]
   const o = s.orderedVisits(log)
-  assert.deepEqual(o.map((v) => `${v.d} ${v.t}`), ['2026-09-07 null', '2026-09-07 09:05', '2026-09-07 19:40', '2026-09-12 20:00', '2026-09-30 23:15'])
+  assert.deepEqual(o.map((v) => `${v.d} ${v.t}`), ['2026-09-30 23:15', '2026-09-12 20:00', '2026-09-07 19:40', '2026-09-07 09:05', '2026-09-07 null'])
   assert.equal(s.visitChip(v('2026-09-07', '19:40')), '07 Sep 19:40')
   assert.equal(s.visitChip(v('2026-09-07', null)), '07 Sep')
-  assert.equal(s.visitDatesCell(log), '07/09; 07/09 09:05; 07/09 19:40; 12/09 20:00; 30/09 23:15')
+  assert.equal(s.visitDatesCell(log), '30/09 23:15; 12/09 20:00; 07/09 19:40; 07/09 09:05; 07/09')
   assert.equal(s.visitDatesCell(null), '')
+  assert.deepEqual(s.orderedVisits([v('2026-10-05', '10:00'), v('2026-09-30', '10:00'), v('2026-10-26', '10:00')]).map((x) => x.d), ['2026-10-26', '2026-10-05', '2026-09-30']) // month change sorts correctly
+  assert.equal(s.orderedVisits([v('2026-10-05', '10:00'), v('2026-10-07', '20:46', true, 'Ahmed Niazi')])[0].mgr, 'Ahmed Niazi') // Double stays on its own visit
   assert.deepEqual(log[0], v('2026-09-12', '20:00'), 'the input is not reordered')
   assert.equal(s.CHIPS_BEFORE_TOGGLE, 12)
 })
@@ -192,7 +194,7 @@ t('Excel rows: Summary has month, line, manager and the resigned text; Detail ha
   ])
   assert.deepEqual(dr.map((r) => r['Account name']), ['Many', 'Few'])
   assert.deepEqual(Object.keys(dr[0]), ['Period', 'Severity', 'Line', 'Manager', 'Medical Rep', 'Rep code', 'Account ID', 'Account name', 'Type', 'Shift', 'Doctors', 'Visits', 'Double visits', 'Single visits', 'Visit dates', 'Double visit dates', 'First visit', 'Last visit', 'Avg deviation (m)', 'Pattern', 'Account latitude', 'Account longitude', 'Point latitude', 'Point longitude'])
-  assert.equal(dr[0]['Visit dates'], '07/09 19:40; 12/09 20:00')
+  assert.equal(dr[0]['Visit dates'], '12/09 20:00; 07/09 19:40')
   assert.equal(dr[0]['Double visit dates'], '07/09 19:40 (Ahmed Niazi)')
   assert.equal(dr[1]['Double visit dates'], '')
   assert.equal(dr[0]['Account ID'], '77')
@@ -238,7 +240,7 @@ t('Double / Single: the visit type keeps the points with such visits; % Double; 
   assert.equal(s.pctDouble(0, 0), 0)
   assert.equal(s.visitTooltip(v('2026-10-07', '20:46', true, 'Ahmed Niazi')), 'Double visit with Ahmed Niazi')
   assert.equal(s.visitTooltip(v('2026-10-07', '20:46')), 'Single visit')
-  assert.equal(s.doubleDatesCell([v('2026-10-07', '20:46', true, 'Ahmed Niazi'), v('2026-10-05', '19:00'), v('2026-10-03', '21:00', true, null)]), '03/10 21:00; 07/10 20:46 (Ahmed Niazi)')
+  assert.equal(s.doubleDatesCell([v('2026-10-07', '20:46', true, 'Ahmed Niazi'), v('2026-10-05', '19:00'), v('2026-10-03', '21:00', true, null)]), '07/10 20:46 (Ahmed Niazi); 03/10 21:00')
 })
 
 t('range: inclusive To becomes the exclusive p_to, days counted, whole month detected', () => {
@@ -338,7 +340,7 @@ t('real RPC shapes with null dates and HH:MM:SS times feed the view model and Ex
   const c = cluster({ first_visit: null, last_visit: null, resign_date: null, rep_status: 'Resigned' })
   const d = clinic({ first_visit: null, last_visit: null, visit_log: [{ d: '2026-10-03', t: '23:15:00', dbl: true, mgr: null }, { d: '2026-10-02', t: null, dbl: false, mgr: null }] })
   assert.doesNotThrow(() => { s.summaryRow(c, names); s.detailRows(c, names, [d]); s.buildDayStrip([d], '2026-10-01', '2026-11-01'); s.stripWeeks(s.buildDayStrip([d], '2026-10-01', '2026-11-01')) })
-  assert.equal(s.detailRows(c, names, [d])[0]['Visit dates'], '02/10; 03/10 23:15')
+  assert.equal(s.detailRows(c, names, [d])[0]['Visit dates'], '03/10 23:15; 02/10')
   const strip = s.buildDayStrip([d], '2026-10-01', '2026-11-01')
   assert.equal(strip.length, 31); assert.equal(strip[2].night, 1)
   assert.deepEqual(s.buildDayStrip([d], '', ''), [])

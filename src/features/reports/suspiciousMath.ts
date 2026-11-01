@@ -157,9 +157,9 @@ export function daysOf(from: string, to: string): string[] {
 }
 
 /* ------------------------------ visit dates ------------------------------ */
-/** Ascending by date, then time (a visit without a time first). */
+/** Newest first: descending by the real date (ISO), then time (a visit without a time comes last within its day). */
 export function orderedVisits(log: VisitStamp[] | null | undefined): VisitStamp[] {
-  return [...(log ?? [])].sort((a, b) => (a.d ?? '').localeCompare(b.d ?? '') || (a.t ?? '').localeCompare(b.t ?? ''))
+  return [...(log ?? [])].sort((a, b) => (b.d ?? '').localeCompare(a.d ?? '') || (b.t ?? '').localeCompare(a.t ?? ''))
 }
 /** "07 Sep 19:40" (the chip). */
 export const visitChip = (v: VisitStamp): string => { const d = fmtDate(v.d) ? `${v.d.slice(8, 10)} ${MON[Number(v.d.slice(5, 7)) - 1]}` : ''; return `${d}${d && fmtTime(v.t) ? ' ' : ''}${fmtTime(v.t)}` }
