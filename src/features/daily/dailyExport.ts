@@ -1,4 +1,4 @@
-import { STATUS_COLORS, computeCards, fmtAvg, type Cards, type DailyRow } from './dailyMath'
+import { NO_PHARMACY, STATUS_COLORS, computeCards, fmtAvg, type Cards, type DailyRow } from './dailyMath'
 
 export interface DailySheetInput { line: number; rows: DailyRow[]; comments: Record<string, string> }
 
@@ -63,7 +63,7 @@ export function buildDailySheet(input: DailySheetInput) {
     put(r, 1, { v: row.rep, s: base(1, 'left') })
     put(r, 2, { v: row.inSystem ? `● ${row.status}` : `⚠ ${row.status}`, s: base(2, 'center') })
     put(r, 3, { v: row.reporting, s: base(3, 'center', STATUS_COLORS[row.reporting]) })
-    ;[row.pm, row.pharmacy, row.vacations, row.office, row.activities].forEach((v, k) => put(r, 4 + k, { v, s: base(4 + k, 'center') }))
+    ;[row.pm, row.pharmacy, row.vacations, row.office, row.activities].forEach((v, k) => put(r, 4 + k, { v: v ?? NO_PHARMACY, s: base(4 + k, 'center') }))
     put(r, 9, { v: comments[row.key] ?? '', s: base(9, 'left') })
   })
 
@@ -134,7 +134,7 @@ const CARD_DEFS: { label: string; color: string; value: (c: Cards) => string; sz
   { label: 'UNREPORTED DAY', color: 'C00000', value: (c) => String(c.unreported) },
   { label: 'FOLLOW UP REQ.', color: 'ED7D31', value: (c) => String(c.followUp) },
   { label: 'AVG. PM CALL RATE', color: '4A90A4', value: (c) => fmtAvg(c.avgPm) },
-  { label: 'AVG. PHARMACIES C. RATE', color: '339933', value: (c) => fmtAvg(c.avgPharmacy), sz: 750 },
+  { label: 'AVG. PHARMACIES C. RATE', color: '339933', value: (c) => (c.noPharmacy ? NO_PHARMACY : fmtAvg(c.avgPharmacy)), sz: 750 },
   { label: 'TOTAL VACATIONS', color: 'C0392B', value: (c) => String(c.vacations) },
   { label: 'TOTAL OFFICE WORK', color: '339933', value: (c) => String(c.office) },
   { label: 'TOTAL ACTIVITIES', color: '4A90A4', value: (c) => String(c.activities) },

@@ -1,18 +1,73 @@
 // Run: npm run test:daily
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import XLSX from 'xlsx'
 import * as d from '../src/features/daily/dailyMath.ts'
 
 let n = 0
 const t = (name, fn) => { fn(); n++; console.log('ok -', name) }
-const row = (type, terr, emp, vac, off, act, visits) => [type, terr, emp, '|', 1, 10, vac, off, act, 1, 1, 0, 10, visits, 0, 0, '|', visits]
-const HEAD = [[], ['', 'Territory Name', 'Employee'], [], []]
+// new CRM layout: "Actual Working Days" after "Working Days", "Non Field Days" replaces "Actual Field Days"
+const HEADERS = ['', 'Territory Name', 'Employee', '|', 'Working Days', 'Actual Working Days', 'Daily Visits Target', 'Vacations', 'Office Work', 'Activities', 'Field Days', 'Non Field Days', 'Missing Days', 'Monthly Vists Target', 'Actual Visits', 'Direct Visits', 'Monthly call Rate', '|', 'Call Rate']
+const row = (type, terr, emp, vac, off, act, visits, target = 10) => [type, terr, emp, '|', 1, 1, target, vac, off, act, 1, 0, 0, 10, visits, 0, 0, '|', 0]
+const HEAD = [[], HEADERS, [], []]
 
 t('file reading keeps only T rows and ignores D, A and Test names', () => {
   const p = d.parseReportRows([...HEAD, row('T', '', 'Ann  Lee', 0, 0, 0, 8), row('D', 'Cairo', 'Boss', 0, 0, 0, 7), row('A', 'CIRA 2', 'Line', 0, 0, 0, 4),
-    row('T', '', 'Test Medical Rep', 0, 0, 0, 3), row('T', '', 'Bob', 1, 0, 0, 0.5)])
+    row('T', '', 'Test Medical Rep', 0, 0, 0, 3), row('T', '', 'Bob', 1, 0, 0, 0.5), row('A', 'CIRA 3', 'Line', 0, 0, 0, 0)])
   assert.deepEqual(p.reps.map((r) => r.name), ['Ann Lee', 'Bob'])
   assert.equal(p.reps[1].visits, 0.5); assert.equal(p.reps[1].vacations, 1)
-  assert.equal(p.lineFromRows, 2)
+  assert.equal(p.lineFromRows, 3) // the last A row that is exactly CIRA n
+})
+t('headers are matched by trimmed lower-case name, extra columns are ignored, empty target = 0', () => {
+  const hd = HEADERS.map((h) => (h === 'Employee' ? '  EMPLOYEE ' : h === 'Actual Visits' ? 'actual visits' : h))
+  const r = row('T', '', 'Ann', 0, 0, 0, 7, ''); const p = d.parseReportRows([[], hd, r])
+  assert.equal(p.reps[0].visits, 7); assert.equal(p.medianTarget, null)
+})
+t('a missing or renamed header gives a clear error naming the header and the file', () => {
+  const hd = HEADERS.map((h) => (h === 'Actual Visits' ? 'Visits Done' : h))
+  assert.throws(() => d.parseReportRows([[], hd, row('T', '', 'Ann', 0, 0, 0, 7)], 'SOP_2026.xlsx'), /SOP_2026.xlsx.*"actual visits"/)
+  const old = HEADERS.filter((h) => h !== 'Office Work')
+  assert.throws(() => d.parseReportRows([[], old, []], 'x.xlsx'), /"office work"/)
+})
+t('type from the median target: >= 8 PM, <= 6 Pharmacy, in between not decided', () => {
+  const med = (targets) => d.parseReportRows([...HEAD, ...targets.map((x, i) => row('T', '', 'R' + i, 0, 0, 0, 1, x))]).medianTarget
+  assert.equal(med([10, 8, 10, 0]), 10) // zero targets are ignored
+  assert.equal(d.shiftFromMedian(med([10, 8, 9])), 'PM'); assert.equal(d.shiftFromMedian(med([5, 5, 6])), 'PHARMA')
+  assert.equal(d.shiftFromMedian(med([7, 7, 7])), null); assert.equal(d.shiftFromMedian(null), null)
+})
+const sample = (f) => d.parseReportRows(XLSX.utils.sheet_to_json(XLSX.read(readFileSync(new URL('./fixtures/' + f, import.meta.url)), { type: 'buffer' }).Sheets.sheet1, { header: 1, defval: '' }), f)
+t('real samples: PM file (SOP_2026) read by header, detected from content', () => {
+  const p = sample('SOP_2026.xlsx')
+  assert.equal(p.reps.find((r) => r.name === 'Habiba El Ansari').visits, 10)
+  assert.deepEqual(d.detectFile('SOP_2026.xlsx', p), { shift: 'PM', line: 1, needsChoice: false })
+})
+t('real samples: Pharmacy file (SOP_2026_1) read by header, detected from content', () => {
+  const p = sample('SOP_2026_1.xlsx')
+  assert.equal(p.reps.find((r) => r.name === 'Eman El Sakka').visits, 9)
+  assert.equal(p.reps.find((r) => r.name === 'Kariem Khaled Mahmoud').visits, 17)
+  assert.deepEqual(d.detectFile('SOP_2026_1.xlsx', p), { shift: 'PHARMA', line: 1, needsChoice: false })
+})
+t('real samples joined: Pharmacy Visits from the Pharmacy file, PM Visits from the PM file', () => {
+  const rows = d.buildLineRows(1, sample('SOP_2026.xlsx').reps, sample('SOP_2026_1.xlsx').reps, [])
+  const by = Object.fromEntries(rows.map((r) => [r.rep, r]))
+  assert.equal(by['Habiba El Ansari'].pm, 10); assert.equal(by['Habiba El Ansari'].pharmacy, 5)
+  assert.equal(by['Kariem Khaled Mahmoud'].pharmacy, 17)
+})
+t('file name rule is tried first; undecided or duplicate types become Needs a choice', () => {
+  const pm = sample('SOP_2026.xlsx')
+  assert.equal(d.detectFile('PM_1.xlsx', sample('SOP_2026_1.xlsx')).shift, 'PM') // name wins
+  assert.equal(d.detectFile('x.xlsx', { ...pm, medianTarget: 7 }).needsChoice, true)
+  const mk = (id, shift) => ({ id, line: 1, shift, auto: true, needsChoice: false })
+  const out = d.flagConflicts([mk(1, 'PM'), mk(2, 'PM'), mk(3, 'PHARMA')])
+  assert.deepEqual(out.map((f) => [f.shift, f.needsChoice]), [[null, true], [null, true], ['PHARMA', false]])
+  assert.equal(d.flagConflicts([{ ...mk(1, 'PM'), auto: false }, { ...mk(2, 'PM'), auto: false }])[0].shift, 'PM') // set by hand: untouched
+})
+t('no Pharmacy file: null, "No pharmacy file" card; a file without the rep: 0', () => {
+  const f = (name, visits) => ({ name, norm: d.normName(name), visits, vacations: 0, office: 0, activities: 0 })
+  const rows = d.buildLineRows(1, [f('Ann', 8)], null, [])
+  assert.equal(rows[0].pharmacy, null); assert.equal(d.computeCards(rows).noPharmacy, true)
+  assert.equal(d.buildLineRows(1, [f('Ann', 8)], [], [])[0].pharmacy, 0)
+  assert.equal(d.computeCards(d.buildLineRows(1, [f('Ann', 8)], [], [])).noPharmacy, false)
 })
 t('file name detection: shift and line', () => {
   assert.deepEqual(d.detectFromName('PM 1.xlsx'), { shift: 'PM', line: 1 })

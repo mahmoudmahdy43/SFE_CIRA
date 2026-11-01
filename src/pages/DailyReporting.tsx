@@ -8,7 +8,7 @@ import { Card, Input } from '../components/ui/misc'
 import { Dialog, DialogContent, DialogTrigger } from '../components/ui/overlay'
 import { downloadDailyWorkbook } from '../features/daily/dailyExport'
 import {
-  NOT_IN_SYSTEM, STATUS_COLORS, buildLineRows, commentKey, computeCards, defaultComment, detectFromName, fmtAvg, fmtNum, normName, parseReportRows, unseenProspection, yesterdayIso,
+  NOT_IN_SYSTEM, NO_PHARMACY, STATUS_COLORS, buildLineRows, commentKey, computeCards, defaultComment, detectFile, flagConflicts, fmtAvg, fmtNum, normName, parseReportRows, unseenProspection, yesterdayIso,
   type DailyRow, type FileRep, type ParsedFile, type Shift,
 } from '../features/daily/dailyMath'
 import { useAsync } from '../features/dashboard/useAsync'
@@ -20,7 +20,8 @@ const LOGO = `${import.meta.env.BASE_URL}assets/cira-logo.png`
 const GREEN = '#1B5E42'
 const SELECT = 'h-8 rounded-control border bg-card px-2 text-sm text-foreground'
 
-interface LoadedFile { id: number; name: string; shift: Shift | null; line: number | null; parsed: ParsedFile }
+/** auto = type / line still as detected (not set by hand); needsChoice = the type could not be decided. */
+interface LoadedFile { id: number; name: string; shift: Shift | null; line: number | null; parsed: ParsedFile; auto: boolean; needsChoice: boolean }
 let nextId = 1
 
 async function readFile(file: File): Promise<LoadedFile> {
@@ -28,12 +29,18 @@ async function readFile(file: File): Promise<LoadedFile> {
   const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
   const ws = wb.Sheets['sheet1'] ?? wb.Sheets[wb.SheetNames[0]]
   const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' })
-  const parsed = parseReportRows(rows)
-  const d = detectFromName(file.name)
-  return { id: nextId++, name: file.name, shift: d.shift, line: d.line ?? parsed.lineFromRows, parsed }
+  const parsed = parseReportRows(rows, file.name)
+  const d = detectFile(file.name, parsed)
+  return { id: nextId++, name: file.name, shift: d.shift, line: d.line, parsed, auto: true, needsChoice: d.needsChoice }
 }
 
 const merge = (files: LoadedFile[]): FileRep[] => files.flatMap((f) => f.parsed.reps)
+
+/** "loaded (N reps)" or "missing" for the PM / Pharmacy file of one line. */
+const fileStatus = (files: LoadedFile[], line: number, shift: Shift): string => {
+  const f = files.filter((x) => x.line === line && x.shift === shift)
+  return f.length === 0 ? 'missing' : `loaded (${f.reduce((a, x) => a + x.parsed.reps.length, 0)} reps)`
+}
 
 /** null = nothing typed yet (an empty string means the comment was cleared on purpose). */
 const readComment = (k: string): string | null => {
@@ -124,7 +131,7 @@ function UploadZone({ files, onFiles, onChange, onRemove }: {
       >
         <Upload className="h-5 w-5 text-muted-foreground" aria-hidden />
         <p className="text-sm font-medium">Drop the CRM Daily Report files here, or click to choose</p>
-        <p className="text-xs text-muted-foreground">PM and PHARMA files for CIRA 1, 2 and 3 (up to six). Nothing is uploaded — files are read in this browser only.</p>
+        <p className="text-xs text-muted-foreground">PM and Pharmacy files for CIRA 1, 2 and 3 (up to six); the type and line are detected from the content. Nothing is uploaded — files are read in this browser only.</p>
         <input ref={input} type="file" multiple accept=".xlsx,.xls" className="hidden" onChange={(e) => { onFiles([...(e.target.files ?? [])]); e.target.value = '' }} />
       </div>
       {files.length > 0 && (
@@ -134,6 +141,7 @@ function UploadZone({ files, onFiles, onChange, onRemove }: {
               <FileSpreadsheet className="h-4 w-4 text-muted-foreground" aria-hidden />
               <span className="min-w-0 flex-1 truncate" title={f.name}>{f.name}</span>
               <span className="text-xs text-muted-foreground">{f.parsed.reps.length} reps</span>
+              {f.needsChoice && f.shift === null && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">Needs a choice</span>}
               <select aria-label={`Line of ${f.name}`} className={cn(SELECT, f.line === null && 'border-destructive')} value={f.line ?? ''} onChange={(e) => onChange(f.id, { line: e.target.value ? Number(e.target.value) : null })}>
                 <option value="">Line?</option>
                 {LINES.map((l) => <option key={l} value={l}>CIRA {l}</option>)}
@@ -184,7 +192,7 @@ function LineView({ line, date, rows, comment, setComment }: {
         <StatCard label="UNREPORTED DAY" value={String(c.unreported)} color="#C00000" />
         <StatCard label="FOLLOW UP REQ." value={String(c.followUp)} color="#ED7D31" />
         <StatCard label="AVG. PM CALL RATE" value={fmtAvg(c.avgPm)} color="#4A90A4" />
-        <StatCard label="AVG. PHARMACIES C. RATE" value={fmtAvg(c.avgPharmacy)} color="#339933" />
+        <StatCard label="AVG. PHARMACIES C. RATE" value={c.noPharmacy ? NO_PHARMACY : fmtAvg(c.avgPharmacy)} color="#339933" />
         <StatCard label="TOTAL VACATIONS" value={String(c.vacations)} color="#C0392B" />
         <StatCard label="TOTAL OFFICE WORK" value={String(c.office)} color="#339933" />
         <StatCard label="TOTAL ACTIVITIES" value={String(c.activities)} color="#4A90A4" />
@@ -221,7 +229,7 @@ function LineView({ line, date, rows, comment, setComment }: {
                   </td>
                   <td className={cn(cell, 'text-center')} style={{ background: `#${col.bg}`, color: `#${col.fg}` }}>{r.reporting}</td>
                   <td className={num}>{fmtNum(r.pm)}</td>
-                  <td className={num}>{fmtNum(r.pharmacy)}</td>
+                  <td className={num}>{r.pharmacy === null ? <span className="text-xs">{NO_PHARMACY}</span> : fmtNum(r.pharmacy)}</td>
                   <td className={num}>{fmtNum(r.vacations)}</td>
                   <td className={num}>{fmtNum(r.office)}</td>
                   <td className={num}>{fmtNum(r.activities)}</td>
@@ -251,6 +259,7 @@ export default function DailyReporting() {
   const [line, setLine] = useState<number>(1)
   const [edited, setEdited] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
+  const [errors, setErrors] = useState<{ id: number; message: string }[]>([])
 
   const month = `${date.slice(0, 7)}-01`
   const reps = useAsync(`daily:reps:${month}`, () => fetchDailyReps(month))
@@ -263,9 +272,10 @@ export default function DailyReporting() {
     for (const f of list) {
       try {
         const loaded = await readFile(f)
-        setFiles((cur) => [...cur, loaded])
+        setFiles((cur) => flagConflicts([...cur, loaded]))
       } catch (e) {
-        toast.error(`${f.name}: ${e instanceof Error ? e.message : 'could not be read'}`)
+        // a file that cannot be read stays visible until dismissed: never dropped silently
+        setErrors((cur) => [...cur, { id: nextId++, message: e instanceof Error && e.message.startsWith(f.name) ? e.message : `${f.name}: ${e instanceof Error ? e.message : 'could not be read'}` }])
       }
     }
   }
@@ -275,7 +285,8 @@ export default function DailyReporting() {
     for (const l of LINES) {
       const pick = (s: Shift) => merge(files.filter((f) => f.line === l && f.shift === s))
       const pm = pick('PM'), ph = pick('PHARMA')
-      if (pm.length + ph.length > 0) out.set(l, buildLineRows(l, pm, ph, reps.data ?? [], prosSet))
+      const hasPh = files.some((f) => f.line === l && f.shift === 'PHARMA')
+      if (pm.length + ph.length > 0) out.set(l, buildLineRows(l, pm, hasPh ? ph : null, reps.data ?? [], prosSet))
     }
     return out
   }, [files, reps.data, prosSet])
@@ -326,9 +337,15 @@ export default function DailyReporting() {
       <UploadZone
         files={files}
         onFiles={(f) => void addFiles(f)}
-        onChange={(id, patch) => setFiles((cur) => cur.map((f) => (f.id === id ? { ...f, ...patch } : f)))}
+        onChange={(id, patch) => setFiles((cur) => cur.map((f) => (f.id === id ? { ...f, ...patch, auto: false, needsChoice: false } : f)))}
         onRemove={(id) => setFiles((cur) => cur.filter((f) => f.id !== id))}
       />
+      {errors.map((e) => (
+        <p key={e.id} role="alert" className="flex items-start gap-2 rounded-control border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> <span className="flex-1">{e.message}</span>
+          <button aria-label="Dismiss" onClick={() => setErrors((cur) => cur.filter((x) => x.id !== e.id))}><X className="h-4 w-4" aria-hidden /></button>
+        </p>
+      ))}
       {unrecognised > 0 && <p className="text-sm text-destructive">{unrecognised} file{unrecognised === 1 ? '' : 's'} could not be identified — choose the line and type above.</p>}
       {prosLoad.error && <ErrorState className="py-4" title="Could not load the Prospection Phase list" message={prosLoad.error} onRetry={prosLoad.reload} />}
       {reps.error && <ErrorState className="py-4" title="Could not load the reps from the system" message={`${reps.error} — every rep will show as Not in system.`} onRetry={reps.reload} />}
@@ -347,10 +364,13 @@ export default function DailyReporting() {
           </button>
         ))}
       </div>
+      <p className="text-sm text-muted-foreground" data-testid="line-status">
+        PM file: {fileStatus(files, line, 'PM')} / Pharmacy file: {fileStatus(files, line, 'PHARMA')}
+      </p>
       {rows ? (
         <LineView line={line} date={date} rows={rows} comment={comment} setComment={setComment} />
       ) : (
-        <Card className="p-8 text-center text-sm text-muted-foreground">Upload the PM and PHARMA files for CIRA {line} to see its report.</Card>
+        <Card className="p-8 text-center text-sm text-muted-foreground">Upload the PM and Pharmacy files for CIRA {line} to see its report.</Card>
       )}
     </div>
   )

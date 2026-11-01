@@ -28,30 +28,63 @@ const numOf = (v: unknown): number => {
 
 /* ------------------------------ reading a CRM file ------------------------------ */
 export interface FileRep { name: string; norm: string; visits: number; vacations: number; office: number; activities: number }
-export interface ParsedFile { reps: FileRep[]; lineFromRows: number | null }
+export interface ParsedFile {
+  reps: FileRep[]
+  /** Line from the last "A" row whose Territory Name is exactly CIRA 1 / 2 / 3. */
+  lineFromRows: number | null
+  /** Median Daily Visits Target of the T rows with a target above 0 (null when there is none). */
+  medianTarget: number | null
+}
 
-/** Rows as arrays (row 1 = index 0). Keeps only type "T" rows (reps); skips D / A rows and anything named "Test". */
-export function parseReportRows(rows: unknown[][]): ParsedFile {
+const hdr = (v: unknown): string => String(v ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+const NEEDED = ['employee', 'vacations', 'office work', 'activities', 'actual visits'] as const
+
+const median = (v: number[]): number | null => {
+  if (v.length === 0) return null
+  const s = [...v].sort((x, y) => x - y)
+  const m = s.length >> 1
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+}
+
+/**
+ * Rows as arrays (row 1 = index 0; headers in row 2). Columns are found by header name (trimmed, lower case), never by letter.
+ * Keeps only type "T" rows (reps); skips D / A rows and anything named "Test". A missing needed header throws an error naming the header and the file.
+ */
+export function parseReportRows(rows: unknown[][], fileName = 'the file'): ParsedFile {
+  let h = rows.slice(0, 5).findIndex((r) => (r ?? []).some((c) => hdr(c) === 'employee'))
+  if (h < 0) h = 1
+  const col = new Map<string, number>()
+  ;(rows[h] ?? []).forEach((c, i) => { const k = hdr(c); if (k !== '' && !col.has(k)) col.set(k, i) })
+  for (const k of NEEDED) {
+    if (!col.has(k)) throw new Error(`${fileName}: the column "${k}" was not found in the header row (row ${h + 1}). The CRM file layout may have changed.`)
+  }
+  const at = (k: string) => col.get(k) as number
+  const iEmp = at('employee'), iVac = at('vacations'), iOff = at('office work'), iAct = at('activities'), iVis = at('actual visits')
+  const iTerr = col.get('territory name'), iTarget = col.get('daily visits target')
+
   const byNorm = new Map<string, FileRep>()
+  const targets: number[] = []
   let lineFromRows: number | null = null
-  for (let i = 2; i < rows.length; i++) {
+  for (let i = h + 1; i < rows.length; i++) {
     const r = rows[i] ?? []
     const type = String(r[0] ?? '').trim().toUpperCase()
-    if (type === 'A' && lineFromRows === null) {
-      const m = /CIRA\s*([123])/i.exec(String(r[1] ?? ''))
-      if (m) lineFromRows = Number(m[1])
+    if (type === 'A' && iTerr !== undefined) {
+      const m = /^CIRA\s*([123])$/i.exec(String(r[iTerr] ?? '').trim())
+      if (m) lineFromRows = Number(m[1]) // the last such row wins
     }
     if (type !== 'T') continue
-    const name = String(r[2] ?? '').replace(/\s+/g, ' ').trim()
+    const name = String(r[iEmp] ?? '').replace(/\s+/g, ' ').trim()
     if (name === '' || /\btest\b/i.test(name)) continue
+    const target = iTarget === undefined ? 0 : numOf(r[iTarget]) // empty target = 0
+    if (target > 0) targets.push(target)
     const norm = normName(name)
     const prev = byNorm.get(norm)
-    const rep = { name, norm, visits: numOf(r[13]), vacations: numOf(r[6]), office: numOf(r[7]), activities: numOf(r[8]) }
+    const rep = { name, norm, visits: numOf(r[iVis]), vacations: numOf(r[iVac]), office: numOf(r[iOff]), activities: numOf(r[iAct]) }
     if (prev) {
       prev.visits += rep.visits; prev.vacations += rep.vacations; prev.office += rep.office; prev.activities += rep.activities
     } else byNorm.set(norm, rep)
   }
-  return { reps: [...byNorm.values()], lineFromRows }
+  return { reps: [...byNorm.values()], lineFromRows, medianTarget: median(targets) }
 }
 
 /** "PHARMA" in the name = Pharmacy, "PM" = PM; the line digit sits just before the extension. Null = not recognised. */
@@ -63,6 +96,33 @@ export function detectFromName(fileName: string): { shift: Shift | null; line: n
   const m = /(?:^|[^0-9])([123])(?=[^0-9]*\.[^.]*$)/.exec(base)
   return { shift, line: m ? Number(m[1]) : null }
 }
+
+/** Median target >= 8 = PM (target 8 to 10), <= 6 = Pharmacy (mostly 5); in between, or no target at all: not decided. */
+export function shiftFromMedian(med: number | null): Shift | null {
+  if (med === null) return null
+  return med >= 8 ? 'PM' : med <= 6 ? 'PHARMA' : null
+}
+
+export interface Detected { shift: Shift | null; line: number | null; /** the type could not be decided: the user must choose */ needsChoice: boolean }
+
+/** File-name rule first (PM / PHARMA in the name), then the content. The line comes from the content, else from the name. */
+export function detectFile(fileName: string, parsed: ParsedFile): Detected {
+  const n = detectFromName(fileName)
+  const shift = n.shift ?? shiftFromMedian(parsed.medianTarget)
+  return { shift, line: parsed.lineFromRows ?? n.line, needsChoice: shift === null }
+}
+
+/**
+ * Two automatically detected files with the same line and type are not guessed: both become "Needs a choice".
+ * Files the user set by hand (auto = false) are never changed.
+ */
+export function flagConflicts<T extends { line: number | null; shift: Shift | null; auto: boolean; needsChoice: boolean }>(files: T[]): T[] {
+  const key = (f: T) => `${f.line}|${f.shift}`
+  const count = new Map<string, number>()
+  for (const f of files) if (f.line !== null && f.shift !== null) count.set(key(f), (count.get(key(f)) ?? 0) + 1)
+  return files.map((f) => (f.auto && f.line !== null && f.shift !== null && (count.get(key(f)) ?? 0) > 1 ? { ...f, shift: null, needsChoice: true } : f))
+}
+
 
 /* ------------------------------ system reps (daily_reporting_reps) ------------------------------ */
 export interface SystemRep {
@@ -90,14 +150,14 @@ export interface DailyRow {
   rep: string; norm: string; districtManager: string; status: string; inSystem: boolean
   /** In the Prospection Phase list: always Reported Day, comment pre-filled. */
   prospection: boolean
-  reporting: ReportingStatus; pm: number; pharmacy: number; vacations: number; office: number; activities: number
+  reporting: ReportingStatus; pm: number; /** null = the line has no Pharmacy file */ pharmacy: number | null; vacations: number; office: number; activities: number
 }
 
 export const PROSPECTION_COMMENT = 'Prospection Phase'
 
 /** One line: PM file (+ Pharmacy file) joined by normalised name, matched to the system, sorted by manager then rep. `prospection` = normalised names of the Prospection Phase list. */
-export function buildLineRows(line: number, pm: FileRep[], pharmacy: FileRep[], sys: SystemRep[], prospection: ReadonlySet<string> = new Set()): DailyRow[] {
-  const ph = new Map(pharmacy.map((r) => [r.norm, r]))
+export function buildLineRows(line: number, pm: FileRep[], pharmacy: FileRep[] | null, sys: SystemRep[], prospection: ReadonlySet<string> = new Set()): DailyRow[] {
+  const ph = new Map((pharmacy ?? []).map((r) => [r.norm, r]))
   const seen = new Set<string>()
   const rows: DailyRow[] = []
   const add = (name: string, norm: string, p: FileRep | undefined, h: FileRep | undefined) => {
@@ -109,11 +169,11 @@ export function buildLineRows(line: number, pm: FileRep[], pharmacy: FileRep[], 
       key: `${line}|${norm}`, rep: name, norm,
       districtManager: s ? (s.district_manager?.trim() || UNASSIGNED) : UNASSIGNED,
       status: s ? s.status : NOT_IN_SYSTEM, inSystem: s !== null,
-      prospection: pros, reporting: pros ? 'Reported Day' : reportingStatus(visits, vac, off, act), pm: visits, pharmacy: h?.visits ?? 0, vacations: vac, office: off, activities: act,
+      prospection: pros, reporting: pros ? 'Reported Day' : reportingStatus(visits, vac, off, act), pm: visits, pharmacy: pharmacy === null ? null : (h?.visits ?? 0), vacations: vac, office: off, activities: act,
     })
   }
   for (const p of pm) add(p.name, p.norm, p, ph.get(p.norm))
-  for (const h of pharmacy) if (!seen.has(h.norm)) add(h.name, h.norm, undefined, h) // Pharmacy-only rep: no PM row -> PM 0
+  for (const h of pharmacy ?? []) if (!seen.has(h.norm)) add(h.name, h.norm, undefined, h) // Pharmacy-only rep: no PM row -> PM 0
   return rows.sort((a, b) => a.districtManager.localeCompare(b.districtManager) || a.rep.localeCompare(b.rep))
 }
 
@@ -121,6 +181,8 @@ export function buildLineRows(line: number, pm: FileRep[], pharmacy: FileRep[], 
 export interface Cards {
   active: number; reported: number; unreported: number; followUp: number
   avgPm: number | null; avgPharmacy: number | null
+  /** The line has no Pharmacy file: show "No pharmacy file" instead of a number. */
+  noPharmacy: boolean
   vacations: number; office: number; activities: number
   working: number // W: reps who actually worked in the field
 }
@@ -134,7 +196,7 @@ export function computeCards(rows: DailyRow[]): Cards {
   const W = nRep - V - O - A + nUn + nFol
   return {
     active: nRep + nUn + nFol, reported: nRep + nFol, unreported: nUn, followUp: nFol,
-    avgPm: W > 0 ? sum((r) => r.pm) / W : null, avgPharmacy: W > 0 ? sum((r) => r.pharmacy) / W : null,
+    avgPm: W > 0 ? sum((r) => r.pm) / W : null, avgPharmacy: W > 0 ? sum((r) => r.pharmacy ?? 0) / W : null, noPharmacy: rows.length > 0 && rows.every((r) => r.pharmacy === null),
     vacations: V, office: O, activities: A, working: W,
   }
 }
@@ -142,6 +204,7 @@ export function computeCards(rows: DailyRow[]): Cards {
 /** One decimal, or an em dash when there is no working rep. */
 export const fmtAvg = (v: number | null): string => (v === null ? '—' : v.toFixed(1))
 /** Visits can be half days (0.5): show them as they are. */
+export const NO_PHARMACY = 'No pharmacy file'
 export const fmtNum = (v: number): string => String(Math.round(v * 100) / 100)
 
 export const STATUS_COLORS: Record<ReportingStatus, { bg: string; fg: string }> = {
