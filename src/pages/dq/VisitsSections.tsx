@@ -18,6 +18,7 @@ import type { ProcessResult } from '../../lib/api/visits'
 import { useOrg } from '../../lib/api/org'
 import { AddAlias } from '../org/AliasesTab'
 import { cn } from '../../lib/utils'
+import type { RelinkSummary } from '../../features/uploads/relink'
 
 export function Section({ id, title, description, children }: { id: string; title: string; description?: string; children: ReactNode }) {
   return (
@@ -46,7 +47,7 @@ export function UnlinkedSection({ month }: { month: string }) {
   const [counts, setCounts] = useState<Record<UnlinkedReason, number> | null>(null)
   const [version, setVersion] = useState(0)
   const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<ProcessResult | null>(null)
+  const [result, setResult] = useState<(ProcessResult & { relink?: RelinkSummary }) | null>(null)
 
   useEffect(() => {
     setCounts(null)
@@ -95,7 +96,7 @@ export function UnlinkedSection({ month }: { month: string }) {
       {result && (
         <Card className="mb-4 p-4 text-sm" role="status">
           <b>Re-match result:</b>{' '}
-          <span className="tnum">{result.rows.toLocaleString()} rows · {result.unique_visits.toLocaleString()} unique visits · matched {result.matched.toLocaleString()} · not linked {(result.unlinked ?? result.not_in_list).toLocaleString()} · no territory {result.no_territory.toLocaleString()}</span>
+          <span className="tnum">{result.rows.toLocaleString()} rows · {result.unique_visits.toLocaleString()} unique visits · matched {result.matched.toLocaleString()} · not linked {(result.unlinked ?? result.not_in_list).toLocaleString()} · no territory {result.no_territory.toLocaleString()}{result.relink ? ` · linking: ${result.relink.newlyLinked.toLocaleString()} newly linked, ${result.relink.relinked.toLocaleString()} relinked, ${result.relink.unlinked.toLocaleString()} unlinked, ${result.relink.stillUnlinked.toLocaleString()} still unlinked` : ''}</span>
         </Card>
       )}
       <PagedTable

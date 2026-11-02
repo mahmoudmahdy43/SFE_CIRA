@@ -1,6 +1,7 @@
 import { rpc } from '../../../lib/api/core'
 import type { ProcessResult } from '../../../lib/api/visits'
 import { makeFinisher } from '../finish'
+import { sumRelinks, type RelinkResult } from '../relink'
 import { LoadFailure, type LoadOutcome, type ProgressInfo, type RejectedRow } from '../types'
 import { chunkRows } from '../list/listParse'
 import type { VisitsExtra } from './VisitsResultPanel'
@@ -33,7 +34,7 @@ async function sendChunk(batch: number, line: number, rows: RawVisitRow[]): Prom
 
 /**
  * start_upload('visits', files) -> clear_visits_range_line (clinic) or clear_pharmacy_visits_range_line (pharmacy)(from, to, line) per distinct line -> load_visits_raw_chunk per file (300 rows)
- * -> finish_upload_nr -> process_visits_month + refresh_month per month (one request each, retryable).
+ * -> finish_upload_nr -> relink_strict (per line) -> process_visits_month -> refresh_month -> refresh_joint_days per month (one request each, retryable).
  */
 export async function loadRawVisits(p: RawLoadParams): Promise<LoadOutcome> {
   const total = p.files.reduce((a, f) => a + f.rows.length, 0)
@@ -42,6 +43,7 @@ export async function loadRawVisits(p: RawLoadParams): Promise<LoadOutcome> {
 
   const rejected: RejectedRow[] = []
   const extra: VisitsExtra = {}
+  const relinks: Record<string, Record<number, RelinkResult>> = {}
   let loaded = 0
   let rejectedCount = 0
   let where = 'clearing dates'
@@ -79,7 +81,17 @@ export async function loadRawVisits(p: RawLoadParams): Promise<LoadOutcome> {
   const outcome: LoadOutcome = { batch, total, loaded, rejectedCount, rejected, months: p.months, extra, groupRejected: true, contextLabel: 'File / date / Acc. type / owner' }
   const fin = makeFinisher({
     batch, total, loaded, rejectedCount, months: p.months, onProgress: p.onProgress,
-    processVisits: async (m) => { extra[m] = await rpc<ProcessResult>('process_visits_month', { p_month: m }) },
+    visits: {
+      // keyed by line so a retried step overwrites its own result instead of double counting
+      relink: async (m, line) => {
+        const r = await rpc<RelinkResult>('relink_strict', { p_month: m, p_line: line, p_apply: true })
+        ;(relinks[m] ??= {})[line] = r
+      },
+      process: async (m) => {
+        const r = await rpc<ProcessResult>('process_visits_month', { p_month: m })
+        extra[m] = { ...r, relink: sumRelinks(Object.values(relinks[m] ?? {})) }
+      },
+    },
   })
   const finish = async (): Promise<LoadOutcome> => {
     try {

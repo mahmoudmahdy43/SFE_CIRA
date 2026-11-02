@@ -1,6 +1,7 @@
 import { supabase } from '../supabase'
 import { addDaysIso, addMonthsIso } from '../norm'
 import { fetchAll, rpc, type FilterQuery } from './core'
+import { RELINK_LINES, sumRelinks, type RelinkResult, type RelinkSummary } from '../../features/uploads/relink'
 import type { ProcessResult } from './visits'
 
 export const monthRange = (month: string) => ({ from: month, to: addDaysIso(addMonthsIso(month, 1), -1) })
@@ -85,11 +86,17 @@ export async function fetchUnlinkedCounts(month: string): Promise<Record<Unlinke
   return out
 }
 
-/** Re-run matching for a month (e.g. after loading a list that was missing), then refresh KPIs. */
-export async function rematchMonth(month: string): Promise<ProcessResult> {
+/**
+ * Re-run the whole visits finish for a month (the List may have changed since the upload):
+ * relink_strict per line -> process_visits_month -> refresh_month -> refresh_joint_days.
+ */
+export async function rematchMonth(month: string): Promise<ProcessResult & { relink: RelinkSummary }> {
+  const relinks: RelinkResult[] = []
+  for (const line of RELINK_LINES) relinks.push(await rpc<RelinkResult>('relink_strict', { p_month: month, p_line: line, p_apply: true }))
   const r = await rpc<ProcessResult>('process_visits_month', { p_month: month })
   await rpc('refresh_month', { p_month: month })
-  return r
+  await rpc('refresh_joint_days', { p_month: month })
+  return { ...r, relink: sumRelinks(relinks) }
 }
 
 /* ------------------------- visits on non-working slots ------------------------- */

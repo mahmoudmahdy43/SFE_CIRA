@@ -2,9 +2,10 @@ import { Link } from 'react-router-dom'
 import { Card } from '../../../components/ui/misc'
 import type { ProcessResult } from '../../../lib/api/visits'
 import { cn } from '../../../lib/utils'
+import type { RelinkSummary } from '../relink'
 import type { LoadOutcome } from '../types'
 
-export type VisitsExtra = Record<string, ProcessResult | { error: string }>
+export type VisitsExtra = Record<string, (ProcessResult & { relink?: RelinkSummary }) | { error: string }>
 
 interface Item { label: string; value: number; section?: string }
 
@@ -47,6 +48,11 @@ export default function VisitsResultPanel({ outcome }: { outcome: LoadOutcome; o
               ))}
             </dl>
             <p className="mt-1 text-xs text-muted-foreground">Unique visits is the company total: a Double visit (rep row + manager row) is counted once.</p>
+            {r.relink && (
+              <p className="tnum mt-1 text-xs text-muted-foreground">
+                Linking: {r.relink.newlyLinked.toLocaleString()} newly linked, {r.relink.relinked.toLocaleString()} relinked, {r.relink.unlinked.toLocaleString()} unlinked, {r.relink.stillUnlinked.toLocaleString()} still unlinked
+              </p>
+            )}
             <div className="mt-4 grid gap-3 border-t pt-3 sm:grid-cols-2">
               {warns.map((w) => (
                 <div key={w.label}>
