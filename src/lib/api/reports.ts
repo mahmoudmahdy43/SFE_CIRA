@@ -18,7 +18,7 @@ const IDENT = 'month,line_id,manager_id,box,rep_code,rep_name,manager,hire_date,
 
 const CALL_COLS = ['working', 'field', 'leave', 'ow', 'activity', 'missing', 'visits']
   .flatMap((g) => [`${g}_am`, `${g}_pm`, `${g}_total`])
-  .concat(['call_rate_am', 'call_rate_pm', 'call_rate_total', 'visits_pharmacy', 'field_days', 'call_rate_pharmacy'])
+  .concat(['call_rate_am', 'call_rate_pm', 'call_rate_total', 'visits_pharmacy', 'field_days', 'worked_ph', 'missing_ph', 'call_rate_pharmacy'])
   .join(',')
 
 export async function fetchCallRateReport(month: string): Promise<CallRateRow[]> {
