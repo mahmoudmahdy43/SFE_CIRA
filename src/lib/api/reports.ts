@@ -9,7 +9,7 @@ import { toCapacityRow, type CapacityRow } from '../../features/reports/capacity
 import { toJointRow, type JointRow } from '../../features/reports/jointMath'
 import { normalizeShares, toCoverRow, toDocRow, toSpecRow, type CoverRow, type CoverShift, type DocRow, type SpecRow } from '../../features/reports/coverageMath'
 import {
-  numOrNull, toCallRateRow, type CallRateRow,
+  numOrNull, toCallRateRow, toRepExtra, type CallRateRow, type RepExtra,
 } from '../../features/reports/reportMath'
 
 export type Raw = Record<string, unknown>
@@ -24,6 +24,12 @@ const CALL_COLS = ['working', 'field', 'leave', 'ow', 'activity', 'missing', 'vi
 export async function fetchCallRateReport(month: string): Promise<CallRateRow[]> {
   const rows = await fetchAll<Raw>('v_call_rate_report', `${IDENT},${CALL_COLS}`, ['rep_id'], (q) => q.eq('month', month))
   return rows.map(toCallRateRow)
+}
+
+/** Target Frequency sums and Direct visits per rep and shift, for the Call Rate export (view v_rep_call_extra, supabase/95). */
+export async function fetchCallRateExtras(month: string): Promise<Map<number, RepExtra>> {
+  const rows = await fetchAll<Raw>('v_rep_call_extra', 'rep_id,freq_am,freq_pm,freq_pharmacy,direct_am,direct_pm,direct_pharmacy', ['rep_id'], (q) => q.eq('month', month))
+  return new Map(rows.map((r) => { const e = toRepExtra(r); return [e.rep_id, e] }))
 }
 
 export type DoctorStatus = 'fully' | 'partially' | 'not_visited'

@@ -59,14 +59,45 @@ t('mode column visibility', () => {
   assert.deepEqual(m.callRateColumns('am', false).map((c) => c.shift), Array(7).fill('am'))
   assert.ok(m.callRateColumns('pm', true).every((c) => c.shift === 'pm'))
 })
-t('AM-only export has only AM columns, same headers as the table', () => {
-  const ex = m.exportCallRate(crRows, m.totalCallRate(crRows), 'am', false)
-  const keys = Object.keys(ex[0])
-  assert.ok(keys.includes('Working days AM') && keys.includes('Call rate AM'))
-  assert.ok(!keys.some((k) => k.endsWith(' PM') || k.endsWith(' Total')))
-  assert.equal(ex[1]['Call rate AM'], null); assert.equal(ex[0]['Call rate AM'], 10)
-  assert.ok(!keys.includes('Missing days AM'))
-  assert.ok(Object.keys(m.exportCallRate(crRows, m.totalCallRate(crRows), 'both', true)[0]).includes('Missing days Total'))
+const full = (o) => call({
+  working_am: 12, working_pm: 12, working_total: 24, leave_am: 2, leave_pm: 2, leave_total: 4, ow_am: 1, ow_pm: 1, ow_total: 2,
+  activity_am: 1, activity_pm: 1, activity_total: 2, missing_am: 1, missing_pm: 1, missing_total: 2,
+  field_am: 8, field_pm: 8, field_total: 16, visits_am: 40, visits_pm: 48, visits_total: 88, visits_pharmacy: 30, ...o })
+const extra = (o) => m.toRepExtra({ rep_id: 1, freq_am: 20, freq_pm: 100, freq_pharmacy: 60, direct_am: 5, direct_pm: 30, direct_pharmacy: 9, ...o })
+const tg = new Map([[1, { am: 5, pm: 8 }]])
+t('export: fixed columns in the requested order, Actual Working = Field + Non Field, All view', () => {
+  const r = full({ rep_id: 1 })
+  const ex = m.exportCallRate([r], m.totalCallRate([r]), 'both', new Map([[1, extra({})]]), tg)
+  assert.deepEqual(Object.keys(ex[0]), ['Direct Manager', 'BOX', 'Employee', 'Working Days', 'Actual Working Days', 'Daily Visits Target', 'Vacations', 'Office Work',
+    'Activities', 'Field Days', 'Non Field Days', 'Missing Days', 'Monthly Visits Target', 'Actual Visits', 'Direct Visits', 'Monthly Call Rate', 'Call Rate'])
+  const o = ex[0]
+  assert.equal(o['Working Days'], 12); assert.equal(o['Actual Working Days'], 10); assert.equal(o['Vacations'], 2)
+  assert.equal(o['Field Days'], 7); assert.equal(o['Non Field Days'], 3); assert.equal(o['Missing Days'], 1)
+  assert.equal(o['Actual Working Days'], o['Field Days'] + o['Non Field Days'])
+  assert.equal(o['Daily Visits Target'], 13); assert.equal(o['Monthly Visits Target'], 120)
+  assert.equal(o['Actual Visits'], 88); assert.equal(o['Direct Visits'], 35)
+  assert.equal(o['Call Rate'], 11); assert.equal(o['Monthly Call Rate'], 73.3)
+  assert.equal(o['Call Rate'], r.call_rate_total ?? 11)
+})
+t('export: AM / PM views use that shift only, slots are days', () => {
+  const r = full({ rep_id: 1 })
+  const am = m.exportCallRate([r], m.totalCallRate([r]), 'am', new Map([[1, extra({})]]), tg)[0]
+  assert.equal(am['Working Days'], 12); assert.equal(am['Actual Working Days'], 10); assert.equal(am['Field Days'], 7); assert.equal(am['Non Field Days'], 3)
+  assert.equal(am['Daily Visits Target'], 5); assert.equal(am['Monthly Visits Target'], 20); assert.equal(am['Actual Visits'], 40)
+  assert.equal(am['Direct Visits'], 5); assert.equal(am['Call Rate'], 5); assert.equal(am['Monthly Call Rate'], 200)
+  const pm = m.exportCallRate([r], m.totalCallRate([r]), 'pm', new Map([[1, extra({})]]), tg)[0]
+  assert.equal(pm['Daily Visits Target'], 8); assert.equal(pm['Monthly Visits Target'], 100); assert.equal(pm['Actual Visits'], 48); assert.equal(pm['Direct Visits'], 30)
+})
+t('export: Total row sums counts, ratios from sums, no daily target; missing extras leave target / direct / monthly rate empty', () => {
+  const a = full({ rep_id: 1 }), b = full({ rep_id: 2, rep_name: 'Rep 2', visits_am: 0, visits_pm: 12, visits_total: 12 })
+  const ex = m.exportCallRate([a, b], m.totalCallRate([a, b]), 'both', new Map([[1, extra({})], [2, extra({ rep_id: 2, freq_am: 0, freq_pm: 20, direct_am: 0, direct_pm: 1 })]]), tg)
+  const tot = ex[2]
+  assert.equal(tot['BOX'], 'Total'); assert.equal(tot['Working Days'], 24); assert.equal(tot['Actual Visits'], 100)
+  assert.equal(tot['Monthly Visits Target'], 140); assert.equal(tot['Direct Visits'], 36); assert.equal(tot['Daily Visits Target'], null)
+  assert.equal(tot['Monthly Call Rate'], 71.4); assert.equal(tot['Call Rate'], 6.25)
+  const none = m.exportCallRate([a], m.totalCallRate([a]), 'both', null, null)[0]
+  assert.equal(none['Daily Visits Target'], null); assert.equal(none['Monthly Visits Target'], null); assert.equal(none['Direct Visits'], null); assert.equal(none['Monthly Call Rate'], null)
+  assert.equal(none['Call Rate'], 11)
 })
 t('pharmacy: totals divide sums, null rate stays null, pharmacy mode has no AM/PM columns', () => {
   const a = call({ rep_id: 1, visits_pharmacy: 10, field_days: 4, call_rate_pharmacy: 2.5 })
@@ -75,8 +106,10 @@ t('pharmacy: totals divide sums, null rate stays null, pharmacy mode has no AM/P
   assert.equal(tot.visits_pharmacy, 15); assert.equal(tot.field_days, 4); assert.equal(tot.call_rate_pharmacy, 15 / 4)
   assert.equal(m.totalCallRate([b]).call_rate_pharmacy, null)
   assert.equal(m.callRateColumns('pharmacy', true).length, 0)
-  const ex = m.exportCallRate([a, b], tot, 'pharmacy', false)
-  assert.equal(ex[0]['Pharmacy Call Rate'], 2.5); assert.equal(ex[1]['Pharmacy Call Rate'], null)
+  const f = full({ rep_id: 1, visits_pharmacy: 30 })
+  const ph = m.exportCallRate([f], m.totalCallRate([f]), 'pharmacy', new Map([[1, extra({})]]), tg)[0]
+  assert.equal(ph['Actual Visits'], 30); assert.equal(ph['Daily Visits Target'], null); assert.equal(ph['Monthly Visits Target'], 60)
+  assert.equal(ph['Direct Visits'], 9); assert.equal(ph['Call Rate'], 30 / 8); assert.equal(ph['Monthly Call Rate'], 50)
 })
 const kr = (o) => k.toKpiRepRow({ month: '2026-09-01', rep_id: 1, line_id: 1, manager_id: 1, rep_name: 'R', rep_code: 'C', line: 'CIRA 1', manager: 'M1', ...o })
 t('KPI by rep: totals come from sums, exclusion changes them and clearing restores them exactly', () => {

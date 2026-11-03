@@ -243,15 +243,80 @@ export function exportCoverage(rows: CoverageRow[], total: CoverageRow, visible:
   })
 }
 
-/** `visible` takes the identity ids plus the group names (working, field, ..., call_rate, missing). */
+/** Per-rep extras for the export (view v_rep_call_extra): Target Frequency sums and Direct visits, by shift. */
+export interface RepExtra {
+  rep_id: number
+  freq_am: number; freq_pm: number; freq_pharmacy: number
+  direct_am: number; direct_pm: number; direct_pharmacy: number
+}
+export function toRepExtra(r: Record<string, unknown>): RepExtra {
+  return {
+    rep_id: n0(r.rep_id),
+    freq_am: n0(r.freq_am), freq_pm: n0(r.freq_pm), freq_pharmacy: n0(r.freq_pharmacy),
+    direct_am: n0(r.direct_am), direct_pm: n0(r.direct_pm), direct_pharmacy: n0(r.direct_pharmacy),
+  }
+}
+/** Daily Visits Target per rep and shift, as set on the system (v_kpi_rep). */
+export type RepTargets = Map<number, { am: number | null; pm: number | null }>
+
+const sumOrNull = (a: number | null, b: number | null): number | null => (a === null && b === null ? null : (a ?? 0) + (b ?? 0))
+
+/**
+ * The Call Rate Excel / CSV: one fixed set of columns (the screen keeps its own layout), following the selected shift.
+ * Days = slots / 2 in All and Pharmacy views (a day has an AM and a PM slot), slots as they are in a single-shift view.
+ * Field Days = days actually in the field; Missing Days = planned field days with no visit; Non Field = Missing + Activities + Office work;
+ * Actual Working Days = Working − Vacations = Field + Non Field. Call Rate = Actual Visits / (Field + Missing days).
+ * Monthly Call Rate = Actual Visits / Monthly Visits Target, in %. Ratios of the Total row come from summed counts.
+ */
 export function exportCallRate(
-  rows: CallRateRow[], total: CallRateRow, mode: ViewMode, showMissing: boolean, visible: (id: string) => boolean = () => true,
+  rows: CallRateRow[], total: CallRateRow, mode: ViewMode, extras: Map<number, RepExtra> | null, targets: RepTargets | null,
 ): ExportRow[] {
-  const cols = callRateColumns(mode, showMissing).filter((c) => visible(c.group))
-  return [...rows, total].map((r) => {
-    const o = identityCells(r, visible)
-    for (const c of cols) o[c.header] = c.group === 'call_rate' ? round(r[c.id] as number | null, 2) : (r[c.id] as number)
-    if (showsPharmacy(mode) && visible('pharmacy')) for (const c of PHARMACY_COLS) o[c.header] = round(r[c.id], c.decimals)
-    return o
-  })
+  const div = mode === 'am' || mode === 'pm' ? 1 : 2
+  const s: Shift = mode === 'am' ? 'am' : mode === 'pm' ? 'pm' : 'total'
+  const one = (r: CallRateRow, isTotal: boolean): ExportRow => {
+    const ex = extras?.get(r.rep_id) ?? null
+    const working = r[`working_${s}`], leave = r[`leave_${s}`], ow = r[`ow_${s}`], act = r[`activity_${s}`], missing = r[`missing_${s}`]
+    const fieldSlots = r[`field_${s}`]
+    const visits = mode === 'pharmacy' ? r.visits_pharmacy : r[`visits_${s}`]
+    const direct = ex === null ? null : mode === 'am' ? ex.direct_am : mode === 'pm' ? ex.direct_pm : mode === 'pharmacy' ? ex.direct_pharmacy : ex.direct_am + ex.direct_pm
+    const monthly = ex === null ? null : mode === 'am' ? ex.freq_am : mode === 'pm' ? ex.freq_pm : mode === 'pharmacy' ? ex.freq_pharmacy : ex.freq_am + ex.freq_pm
+    const t = isTotal || targets === null ? null : targets.get(r.rep_id) ?? null
+    const daily = t === null ? null : mode === 'am' ? t.am : mode === 'pm' ? t.pm : mode === 'pharmacy' ? null : sumOrNull(t.am, t.pm)
+    const fieldDays = (fieldSlots - missing) / div
+    return {
+      'Direct Manager': r.manager,
+      'BOX': r.box,
+      'Employee': r.rep_name,
+      'Working Days': working / div,
+      'Actual Working Days': (working - leave) / div,
+      'Daily Visits Target': daily,
+      'Vacations': leave / div,
+      'Office Work': ow / div,
+      'Activities': act / div,
+      'Field Days': fieldDays,
+      'Non Field Days': (missing + act + ow) / div,
+      'Missing Days': missing / div,
+      'Monthly Visits Target': monthly,
+      'Actual Visits': visits,
+      'Direct Visits': direct,
+      'Monthly Call Rate': round(monthly !== null && monthly > 0 ? (visits / monthly) * 100 : null, 1),
+      'Call Rate': round(fieldSlots > 0 ? visits / (fieldSlots / div) : null, 2),
+    }
+  }
+  const totalExtras = extras === null ? null : new Map<number, RepExtra>([[0, rows.reduce<RepExtra>((a, r) => {
+    const e = extras.get(r.rep_id)
+    if (e) for (const k of ['freq_am', 'freq_pm', 'freq_pharmacy', 'direct_am', 'direct_pm', 'direct_pharmacy'] as const) a[k] += e[k]
+    return a
+  }, { rep_id: 0, freq_am: 0, freq_pm: 0, freq_pharmacy: 0, direct_am: 0, direct_pm: 0, direct_pharmacy: 0 })]])
+  const totalRow = one(total, true)
+  if (totalExtras !== null) {
+    const te = totalExtras.get(0)!
+    const monthly = mode === 'am' ? te.freq_am : mode === 'pm' ? te.freq_pm : mode === 'pharmacy' ? te.freq_pharmacy : te.freq_am + te.freq_pm
+    const direct = mode === 'am' ? te.direct_am : mode === 'pm' ? te.direct_pm : mode === 'pharmacy' ? te.direct_pharmacy : te.direct_am + te.direct_pm
+    const visits = totalRow['Actual Visits'] as number
+    totalRow['Monthly Visits Target'] = monthly
+    totalRow['Direct Visits'] = direct
+    totalRow['Monthly Call Rate'] = round(monthly > 0 ? (visits / monthly) * 100 : null, 1)
+  }
+  return [...rows.map((r) => one(r, false)), totalRow]
 }

@@ -6,7 +6,7 @@ import { downloadCsv } from '../../lib/csv'
 import { downloadXlsx } from '../../lib/xlsxExport'
 import { fetchWorkingDays } from '../../lib/api/kpi'
 import { fetchVisitMonths } from '../../lib/api/visits'
-import { fetchCallRateReport, fetchRepTargets } from '../../lib/api/reports'
+import { fetchCallRateExtras, fetchCallRateReport, fetchRepTargets } from '../../lib/api/reports'
 import { cn } from '../../lib/utils'
 import { useAsync } from '../dashboard/useAsync'
 import { ReportTable, type ReportCol } from './ReportTable'
@@ -42,6 +42,7 @@ export function CallRateTab({ month, lines, filters, onFilters }: {
 }) {
   const data = useAsync(`report:callrate:${month}`, () => fetchCallRateReport(month))
   const targets = useAsync(`report:targets:${month}`, () => fetchRepTargets(month))
+  const extras = useAsync(`report:callextras:${month}`, () => fetchCallRateExtras(month))
   const visitMonths = useAsync('visits:months', fetchVisitMonths)
   const working = useAsync(`wd:${month}`, () => fetchWorkingDays(month))
   const [mode, setMode] = useState<ViewMode>('both')
@@ -58,13 +59,12 @@ export function CallRateTab({ month, lines, filters, onFilters }: {
   const toggle = (id: string) => setHidden((h) => { const n = new Set(h); if (n.has(id)) n.delete(id); else n.add(id); return n })
 
   const cols = useMemo(() => buildCols(mode, showMissing, hidden, targets.data ?? null), [mode, showMissing, hidden, targets.data])
-  // Pharmacy view is Rep, Box and the pharmacy columns only.
-  const idVisible = (id: string) => !hidden.has(id) && !(mode === 'pharmacy' && (id === 'manager' || id === 'hire'))
 
   const visitDays = visitMonths.data?.find((m) => m.month === month)?.days ?? 0
   const partial = !!all && all.length > 0 && working.data != null && visitDays < working.data
 
-  const records = () => exportCallRate(sorted.length === rows.length ? sorted : rows, total, mode, showMissing, idVisible)
+  // The Excel / CSV has its own fixed columns (not the screen layout) and follows the selected shift.
+  const records = () => exportCallRate(sorted.length === rows.length ? sorted : rows, total, mode, extras.data ?? null, targets.data ?? null)
   const name = `call-rate-${mode === 'both' ? 'all' : mode}-${rangeFileSlug(month, lastDayOf(month))}`
 
   return (
@@ -73,6 +73,12 @@ export function CallRateTab({ month, lines, filters, onFilters }: {
         <div role="status" className="flex items-start gap-2 rounded-card border border-warning/40 bg-warning-soft px-4 py-3 text-sm text-warning">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <span><b>Partial month:</b> visits cover <span className="tnum">{visitDays}</span> of <span className="tnum">{working.data}</span> working days — provisional.</span>
+        </div>
+      )}
+      {extras.error && (
+        <div role="status" className="flex items-start gap-2 rounded-card border border-warning/40 bg-warning-soft px-4 py-3 text-sm text-warning">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>The export columns <b>Monthly Visits Target</b>, <b>Direct Visits</b> and <b>Monthly Call Rate</b> will be empty: the database view <code>v_rep_call_extra</code> is missing (run supabase/95_call_rate_export.sql).</span>
         </div>
       )}
       <ReportToolbar
