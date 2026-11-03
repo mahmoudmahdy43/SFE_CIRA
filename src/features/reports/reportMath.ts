@@ -50,6 +50,8 @@ export type CallRateRow = RepIdentity & { [K in `${CountGroup}_${Shift}`]: numbe
   /** Pharmacy day slots: worked = a pharmacy visit that day, missing = none. */
   worked_ph: number
   missing_ph: number
+  /** Pharmacy Missing Days = days without any pharmacy visit (missing_ph / 2). */
+  missing_days: number
   call_rate_pharmacy: number | null
 }
 
@@ -90,6 +92,7 @@ export function toCallRateRow(r: Record<string, unknown>): CallRateRow {
   out.field_days = n0(r.field_days)
   out.worked_ph = n0(r.worked_ph)
   out.missing_ph = n0(r.missing_ph)
+  out.missing_days = n0(r.missing_ph) / 2
   out.call_rate_pharmacy = numOrNull(r.call_rate_pharmacy)
   return out as unknown as CallRateRow
 }
@@ -133,6 +136,7 @@ export function totalCallRate(rows: CallRateRow[]): CallRateRow {
   t.field_days = rows.reduce((a, r) => a + r.field_days, 0)
   t.worked_ph = rows.reduce((a, r) => a + r.worked_ph, 0)
   t.missing_ph = rows.reduce((a, r) => a + r.missing_ph, 0)
+  t.missing_days = t.missing_ph / 2
   t.call_rate_pharmacy = ratio(t.visits_pharmacy, (t.worked_ph + t.missing_ph) / 2)
   return t
 }
@@ -211,10 +215,11 @@ export function callRateColumns(mode: ViewMode, showMissing: boolean): CallCol[]
   )
 }
 
-export interface PharmacyCol { id: 'field_days' | 'visits_pharmacy' | 'call_rate_pharmacy'; header: string; decimals: number }
+export interface PharmacyCol { id: 'field_days' | 'missing_days' | 'visits_pharmacy' | 'call_rate_pharmacy'; header: string; decimals: number }
 /** Pharmacy group: shown in All and Pharmacy views only. */
 export const PHARMACY_COLS: PharmacyCol[] = [
   { id: 'field_days', header: 'Field Days', decimals: 1 },
+  { id: 'missing_days', header: 'Missing Days', decimals: 1 },
   { id: 'visits_pharmacy', header: 'Pharmacy Visits', decimals: 0 },
   { id: 'call_rate_pharmacy', header: 'Pharmacy Call Rate', decimals: 2 },
 ]

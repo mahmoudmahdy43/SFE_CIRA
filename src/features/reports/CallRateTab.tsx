@@ -157,7 +157,7 @@ function buildCols(mode: ViewMode, showMissing: boolean, hidden: Set<string>, ta
       render: (r) => (c.group === 'call_rate' ? <RateCell r={r} shift={c.shift} targets={targets} /> : fmtCount(r[c.id] as number)),
     }))
   const pharmacy: ReportCol<CallRateRow>[] = showsPharmacy(mode) && !hidden.has('pharmacy')
-    ? PHARMACY_COLS.map((c) => ({
+    ? PHARMACY_COLS.filter((c) => c.id !== 'missing_days' || showMissing).map((c) => ({
         id: c.id,
         header: c.header,
         group: mode === 'both' ? 'Pharmacy' : undefined,
@@ -165,7 +165,7 @@ function buildCols(mode: ViewMode, showMissing: boolean, hidden: Set<string>, ta
         numeric: true,
         width: c.id === 'call_rate_pharmacy' ? 110 : undefined,
         value: (r) => r[c.id],
-        render: (r) => (c.id === 'field_days' ? fmtDays(r.field_days) : c.id === 'visits_pharmacy' ? fmtCount(r.visits_pharmacy) : fmtCallRate(r.call_rate_pharmacy)),
+        render: (r) => (c.id === 'field_days' ? fmtDays(r.field_days) : c.id === 'missing_days' ? fmtDays(r.missing_days) : c.id === 'visits_pharmacy' ? fmtCount(r.visits_pharmacy) : fmtCallRate(r.call_rate_pharmacy)),
       }))
     : []
   return [...stat, ...grouped, ...pharmacy]
