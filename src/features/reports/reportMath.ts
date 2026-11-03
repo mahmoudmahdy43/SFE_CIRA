@@ -47,6 +47,9 @@ export type CallRateRow = RepIdentity & { [K in `${CountGroup}_${Shift}`]: numbe
   /** Pharmacy is a separate group: never part of the AM / PM / Total columns above. */
   visits_pharmacy: number
   field_days: number
+  /** Pharmacy day slots: worked = a pharmacy visit that day, missing = none. */
+  worked_ph: number
+  missing_ph: number
   call_rate_pharmacy: number | null
 }
 
@@ -85,6 +88,8 @@ export function toCallRateRow(r: Record<string, unknown>): CallRateRow {
   for (const s of ['am', 'pm', 'total'] as const) out[`call_rate_${s}`] = numOrNull(r[`call_rate_${s}`])
   out.visits_pharmacy = n0(r.visits_pharmacy)
   out.field_days = n0(r.field_days)
+  out.worked_ph = n0(r.worked_ph)
+  out.missing_ph = n0(r.missing_ph)
   out.call_rate_pharmacy = numOrNull(r.call_rate_pharmacy)
   return out as unknown as CallRateRow
 }
@@ -126,6 +131,8 @@ export function totalCallRate(rows: CallRateRow[]): CallRateRow {
   t.call_rate_total = ratio(t.visits_total, t.field_total)
   t.visits_pharmacy = rows.reduce((a, r) => a + r.visits_pharmacy, 0)
   t.field_days = rows.reduce((a, r) => a + r.field_days, 0)
+  t.worked_ph = rows.reduce((a, r) => a + r.worked_ph, 0)
+  t.missing_ph = rows.reduce((a, r) => a + r.missing_ph, 0)
   t.call_rate_pharmacy = ratio(t.visits_pharmacy, t.field_days)
   return t
 }
@@ -264,8 +271,8 @@ const sumOrNull = (a: number | null, b: number | null): number | null => (a === 
 /**
  * The Call Rate Excel / CSV: one fixed set of columns (the screen keeps its own layout), following the selected shift.
  * Days = slots / 2 in All and Pharmacy views (a day has an AM and a PM slot), slots as they are in a single-shift view.
- * Field Days = days actually in the field; Missing Days = planned field days with no visit; Non Field = Missing + Activities + Office work;
- * Actual Working Days = Working − Vacations = Field + Non Field. Call Rate = Actual Visits / (Field + Missing days).
+ * Field Days = days actually in the field; Missing Days = planned field days with no visit; Non Field = Activities + Office work (Missing is separate);
+ * Actual Working Days = Working − Vacations = Field + Missing + Non Field. Pharmacy: Missing = day without any pharmacy visit. Call Rate = Actual Visits / (Field + Missing days).
  * Monthly Call Rate = Actual Visits / Monthly Visits Target, in %. Ratios of the Total row come from summed counts.
  */
 export function exportCallRate(
@@ -275,8 +282,10 @@ export function exportCallRate(
   const s: Shift = mode === 'am' ? 'am' : mode === 'pm' ? 'pm' : 'total'
   const one = (r: CallRateRow, isTotal: boolean): ExportRow => {
     const ex = extras?.get(r.rep_id) ?? null
-    const working = r[`working_${s}`], leave = r[`leave_${s}`], ow = r[`ow_${s}`], act = r[`activity_${s}`], missing = r[`missing_${s}`]
-    const fieldSlots = r[`field_${s}`]
+    const working = r[`working_${s}`], leave = r[`leave_${s}`], ow = r[`ow_${s}`], act = r[`activity_${s}`]
+    // Pharmacy: a day is Missing when the rep made no pharmacy visit; Field = days with a pharmacy visit.
+    const missing = mode === 'pharmacy' ? r.missing_ph : r[`missing_${s}`]
+    const fieldSlots = mode === 'pharmacy' ? r.worked_ph + r.missing_ph : r[`field_${s}`]
     const visits = mode === 'pharmacy' ? r.visits_pharmacy : r[`visits_${s}`]
     const direct = ex === null ? null : mode === 'am' ? ex.direct_am : mode === 'pm' ? ex.direct_pm : mode === 'pharmacy' ? ex.direct_pharmacy : ex.direct_am + ex.direct_pm
     const monthly = ex === null ? null : mode === 'am' ? ex.freq_am : mode === 'pm' ? ex.freq_pm : mode === 'pharmacy' ? ex.freq_pharmacy : ex.freq_am + ex.freq_pm
@@ -294,7 +303,7 @@ export function exportCallRate(
       'Office Work': ow / div,
       'Activities': act / div,
       'Field Days': fieldDays,
-      'Non Field Days': (missing + act + ow) / div,
+      'Non Field Days': (act + ow) / div,
       'Missing Days': missing / div,
       'Monthly Visits Target': monthly,
       'Actual Visits': visits,

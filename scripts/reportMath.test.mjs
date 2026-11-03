@@ -63,17 +63,18 @@ const full = (o) => call({
   working_am: 12, working_pm: 12, working_total: 24, leave_am: 2, leave_pm: 2, leave_total: 4, ow_am: 1, ow_pm: 1, ow_total: 2,
   activity_am: 1, activity_pm: 1, activity_total: 2, missing_am: 1, missing_pm: 1, missing_total: 2,
   field_am: 8, field_pm: 8, field_total: 16, visits_am: 40, visits_pm: 48, visits_total: 88, visits_pharmacy: 30, ...o })
+const round1 = (x) => Math.round(x * 100) / 100
 const extra = (o) => m.toRepExtra({ rep_id: 1, freq_am: 20, freq_pm: 100, freq_pharmacy: 60, direct_am: 5, direct_pm: 30, direct_pharmacy: 9, ...o })
 const tg = new Map([[1, { am: 5, pm: 8 }]])
-t('export: fixed columns in the requested order, Actual Working = Field + Non Field, All view', () => {
+t('export: fixed columns in the requested order, Actual Working = Field + Missing + Non Field (Non Field = OW + Activities), All view', () => {
   const r = full({ rep_id: 1 })
   const ex = m.exportCallRate([r], m.totalCallRate([r]), 'both', new Map([[1, extra({})]]), tg)
   assert.deepEqual(Object.keys(ex[0]), ['Direct Manager', 'BOX', 'Employee', 'Working Days', 'Actual Working Days', 'Daily Visits Target', 'Vacations', 'Office Work',
     'Activities', 'Field Days', 'Non Field Days', 'Missing Days', 'Monthly Visits Target', 'Actual Visits', 'Direct Visits', 'Monthly Call Rate', 'Call Rate'])
   const o = ex[0]
   assert.equal(o['Working Days'], 12); assert.equal(o['Actual Working Days'], 10); assert.equal(o['Vacations'], 2)
-  assert.equal(o['Field Days'], 7); assert.equal(o['Non Field Days'], 3); assert.equal(o['Missing Days'], 1)
-  assert.equal(o['Actual Working Days'], o['Field Days'] + o['Non Field Days'])
+  assert.equal(o['Field Days'], 7); assert.equal(o['Non Field Days'], 2); assert.equal(o['Missing Days'], 1)
+  assert.equal(o['Actual Working Days'], o['Field Days'] + o['Missing Days'] + o['Non Field Days'])
   assert.equal(o['Daily Visits Target'], 13); assert.equal(o['Monthly Visits Target'], 120)
   assert.equal(o['Actual Visits'], 88); assert.equal(o['Direct Visits'], 35)
   assert.equal(o['Call Rate'], 11); assert.equal(o['Monthly Call Rate'], 73.3)
@@ -82,11 +83,17 @@ t('export: fixed columns in the requested order, Actual Working = Field + Non Fi
 t('export: AM / PM views use that shift only, slots are days', () => {
   const r = full({ rep_id: 1 })
   const am = m.exportCallRate([r], m.totalCallRate([r]), 'am', new Map([[1, extra({})]]), tg)[0]
-  assert.equal(am['Working Days'], 12); assert.equal(am['Actual Working Days'], 10); assert.equal(am['Field Days'], 7); assert.equal(am['Non Field Days'], 3)
+  assert.equal(am['Working Days'], 12); assert.equal(am['Actual Working Days'], 10); assert.equal(am['Field Days'], 7); assert.equal(am['Non Field Days'], 2)
   assert.equal(am['Daily Visits Target'], 5); assert.equal(am['Monthly Visits Target'], 20); assert.equal(am['Actual Visits'], 40)
   assert.equal(am['Direct Visits'], 5); assert.equal(am['Call Rate'], 5); assert.equal(am['Monthly Call Rate'], 200)
   const pm = m.exportCallRate([r], m.totalCallRate([r]), 'pm', new Map([[1, extra({})]]), tg)[0]
   assert.equal(pm['Daily Visits Target'], 8); assert.equal(pm['Monthly Visits Target'], 100); assert.equal(pm['Actual Visits'], 48); assert.equal(pm['Direct Visits'], 30)
+})
+t('export: Pharmacy view - Missing = days without a pharmacy visit, Field = days with one, Call Rate = visits / (field + missing)', () => {
+  const r = full({ rep_id: 1, visits_pharmacy: 30, worked_ph: 14, missing_ph: 4 })
+  const ph = m.exportCallRate([r], m.totalCallRate([r]), 'pharmacy', new Map([[1, extra({})]]), tg)[0]
+  assert.equal(ph['Field Days'], 7); assert.equal(ph['Missing Days'], 2); assert.equal(ph['Actual Visits'], 30)
+  assert.equal(ph['Call Rate'], round1(30 / 9)); assert.equal(ph['Monthly Visits Target'], 60)
 })
 t('export: Total row sums counts, ratios from sums, no daily target; missing extras leave target / direct / monthly rate empty', () => {
   const a = full({ rep_id: 1 }), b = full({ rep_id: 2, rep_name: 'Rep 2', visits_am: 0, visits_pm: 12, visits_total: 12 })
@@ -106,10 +113,10 @@ t('pharmacy: totals divide sums, null rate stays null, pharmacy mode has no AM/P
   assert.equal(tot.visits_pharmacy, 15); assert.equal(tot.field_days, 4); assert.equal(tot.call_rate_pharmacy, 15 / 4)
   assert.equal(m.totalCallRate([b]).call_rate_pharmacy, null)
   assert.equal(m.callRateColumns('pharmacy', true).length, 0)
-  const f = full({ rep_id: 1, visits_pharmacy: 30 })
+  const f = full({ rep_id: 1, visits_pharmacy: 30, worked_ph: 14, missing_ph: 2 })
   const ph = m.exportCallRate([f], m.totalCallRate([f]), 'pharmacy', new Map([[1, extra({})]]), tg)[0]
   assert.equal(ph['Actual Visits'], 30); assert.equal(ph['Daily Visits Target'], null); assert.equal(ph['Monthly Visits Target'], 60)
-  assert.equal(ph['Direct Visits'], 9); assert.equal(ph['Call Rate'], 30 / 8); assert.equal(ph['Monthly Call Rate'], 50)
+  assert.equal(ph['Direct Visits'], 9); assert.equal(ph['Call Rate'], 3.75); assert.equal(ph['Monthly Call Rate'], 50)
 })
 const kr = (o) => k.toKpiRepRow({ month: '2026-09-01', rep_id: 1, line_id: 1, manager_id: 1, rep_name: 'R', rep_code: 'C', line: 'CIRA 1', manager: 'M1', ...o })
 t('KPI by rep: totals come from sums, exclusion changes them and clearing restores them exactly', () => {
