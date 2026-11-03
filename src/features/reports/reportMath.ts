@@ -133,7 +133,7 @@ export function totalCallRate(rows: CallRateRow[]): CallRateRow {
   t.field_days = rows.reduce((a, r) => a + r.field_days, 0)
   t.worked_ph = rows.reduce((a, r) => a + r.worked_ph, 0)
   t.missing_ph = rows.reduce((a, r) => a + r.missing_ph, 0)
-  t.call_rate_pharmacy = ratio(t.visits_pharmacy, t.field_days)
+  t.call_rate_pharmacy = ratio(t.visits_pharmacy, (t.worked_ph + t.missing_ph) / 2)
   return t
 }
 

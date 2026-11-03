@@ -161,7 +161,7 @@ function buildCols(mode: ViewMode, showMissing: boolean, hidden: Set<string>, ta
         id: c.id,
         header: c.header,
         group: mode === 'both' ? 'Pharmacy' : undefined,
-        tip: c.id === 'call_rate_pharmacy' ? 'Pharmacy call rate = pharmacy visits ÷ field days. Not part of Total Visits, Call Rate AM/PM, Ach CR or the KPI.' : undefined,
+        tip: c.id === 'call_rate_pharmacy' ? 'Pharmacy call rate = pharmacy visits ÷ (field days + missing days). Field day = a day with at least one pharmacy visit. Not part of Total Visits, Call Rate AM/PM, Ach CR or the KPI.' : undefined,
         numeric: true,
         width: c.id === 'call_rate_pharmacy' ? 110 : undefined,
         value: (r) => r[c.id],

@@ -134,8 +134,8 @@ select s.month, o.line_id, o.manager_id,
        round(coalesce(v.visits_pm, 0)::numeric / nullif(s.field_pm, 0), 2) as call_rate_pm,
        round((coalesce(v.visits_am, 0) + coalesce(v.visits_pm, 0))::numeric / nullif(s.field_am + s.field_pm, 0), 2) as call_rate_total,
        coalesce(v.visits_pharmacy, 0) as visits_pharmacy,
-       round((s.field_am + s.field_pm)::numeric / 2, 1) as field_days,
-       round(coalesce(v.visits_pharmacy, 0)::numeric / nullif((s.field_am + s.field_pm)::numeric / 2, 0), 2) as call_rate_pharmacy,
+       round(s.worked_ph::numeric / 2, 1) as field_days,   -- pharmacy Field Days = days with at least one pharmacy visit
+       round(coalesce(v.visits_pharmacy, 0)::numeric / nullif((s.worked_ph + s.missing_ph)::numeric / 2, 0), 2) as call_rate_pharmacy,   -- visits / (field + missing days)
        s.worked_ph, s.missing_ph
 from s
 join reps r on r.id = s.rep_id

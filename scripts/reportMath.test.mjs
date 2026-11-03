@@ -107,7 +107,7 @@ t('export: Total row sums counts, ratios from sums, no daily target; missing ext
   assert.equal(none['Call Rate'], 11)
 })
 t('pharmacy: totals divide sums, null rate stays null, pharmacy mode has no AM/PM columns', () => {
-  const a = call({ rep_id: 1, visits_pharmacy: 10, field_days: 4, call_rate_pharmacy: 2.5 })
+  const a = call({ rep_id: 1, visits_pharmacy: 10, field_days: 4, worked_ph: 8, missing_ph: 0, call_rate_pharmacy: 2.5 })
   const b = call({ rep_id: 2, visits_pharmacy: 5, field_days: 0, call_rate_pharmacy: null })
   const tot = m.totalCallRate([a, b])
   assert.equal(tot.visits_pharmacy, 15); assert.equal(tot.field_days, 4); assert.equal(tot.call_rate_pharmacy, 15 / 4)
