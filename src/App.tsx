@@ -27,7 +27,7 @@ import Profile from './pages/Profile'
 import DailyReporting from './pages/DailyReporting'
 import MonthlyPlan from './pages/MonthlyPlan'
 
-const BUILT = new Set(['/', '/settings', '/org', '/personnel', '/targets', '/calendar', '/uploads', '/data-quality', '/reports', '/list-strategy', '/360', '/daily-reporting', '/monthly-plan'])
+const BUILT = new Set(['/', '/settings', '/org', '/personnel', '/targets', '/calendar', '/uploads', '/data-quality', '/reports', '/list-strategy', '/360', '/daily-reporting', '/monthly-plan', '/list-cleaning'])
 
 const Design = lazy(() => import('./pages/Design'))
 
