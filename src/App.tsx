@@ -22,6 +22,7 @@ import Uploads from './pages/Uploads'
 import DataQuality from './pages/DataQuality'
 import Reports from './pages/Reports'
 import ListStrategy from './pages/ListStrategy'
+import ListCleaning from './pages/ListCleaning'
 import Profile from './pages/Profile'
 import DailyReporting from './pages/DailyReporting'
 import MonthlyPlan from './pages/MonthlyPlan'
@@ -130,6 +131,7 @@ export default function App() {
             <Route path="data-quality" element={<DataQuality />} />
             <Route path="reports" element={<Reports />} />
             <Route path="list-strategy" element={<ListStrategy />} />
+            <Route path="list-cleaning" element={<ListCleaning />} />
             <Route path="360" element={<Profile />} />
             <Route path="daily-reporting" element={<DailyReporting />} />
             <Route path="monthly-plan" element={<MonthlyPlan />} />

@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   PieChart,
   ScanSearch,
+  SearchCheck,
   Settings,
   ShieldCheck,
   Target,
@@ -42,6 +43,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/uploads', label: 'Uploads', description: 'Load Excel exports and review upload history.', icon: Upload },
       { to: '/data-quality', label: 'Data Quality', description: 'Unmatched visits, unmapped sales and missing days.', icon: ShieldCheck },
+      { to: '/list-cleaning', label: 'List Cleaning', description: 'Account and doctor names in the Target List that break the naming rules.', icon: SearchCheck },
     ],
   },
   {
